@@ -1,29 +1,33 @@
 /**
  * Timesheet for Jira Options & Weekly Worklog Controller
  *
- * Responsibilities:
- * - Tab navigation (Weekly Worklogs vs Connection Settings)
- * - Week navigation (previous, next, today/this week)
- * - Jira worklog data retrieval using standard Jira REST API via JiraClient
- * - Day aggregation in user local timezone and second-level precision duration calculations
- * - Weekday card selection and selected-day worklog panel
- * - Settings loading, validation, and persistence via the browser storage API
- * - Zero credential leakage in error handling and UI
+ * Page controller: owns DOM wiring and view state, and delegates to
+ * - settings persistence (src/settings/settingsStore.js),
+ * - Jira access (src/jira/createJiraClient.js) and week loading (src/worklog/),
+ * - presentation of the weekly view (src/ui/weekView.js),
+ * - browser platform services (src/compat/browser-api.js).
+ *
  * Compatible with Chrome (MV3) and Firefox (MV3, 116+).
  */
 
 import { JiraUrlValidator } from './src/validation/JiraUrlValidator.js';
-import { JiraCloudTokenProvider } from './src/auth/JiraCloudTokenProvider.js';
-import { JiraPatProvider } from './src/auth/JiraPatProvider.js';
-import { JiraClient } from './src/jira/JiraClient.js';
+import { EMAIL_REGEX } from './src/auth/JiraCloudTokenProvider.js';
+import { createJiraClient } from './src/jira/createJiraClient.js';
 import {
   getMondayOfWeek,
   getLocalDateKey,
-  getWeekDays,
+  getWeekRange,
   formatWeekRange,
-  aggregateWorklogsByWeek
+  buildEmptyWeek
 } from './src/worklog/worklogUtils.js';
-import { ext, isExtensionContext } from './src/compat/browser-api.js';
+import { loadWeek } from './src/worklog/weeklyWorklogService.js';
+import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
+import { createPlatform } from './src/compat/browser-api.js';
+import { escapeHtml } from './src/ui/html.js';
+import { renderWeek } from './src/ui/weekView.js';
+
+const platform = createPlatform();
+const settingsStore = createSettingsStore(platform.storage);
 
 // ============================================================================
 // DOM Element References
@@ -95,11 +99,11 @@ const themeToggleBtn = document.getElementById('themeToggleBtn');
 let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
 let currentAggregatedData = null;
-let savedSettings = null;
 let isBusyFetching = false;
 
-// Settings form tokens kept per deployment type, so a Cloud API token and a
-// Data Center PAT never overwrite each other when switching types.
+// Settings form values kept per Jira edition, so Cloud and Data Center / Server
+// instance URLs and tokens never overwrite each other when switching editions.
+const baseUrlsByType = { cloud: '', server: '' };
 const tokensByType = { cloud: '', server: '' };
 
 // Connection test bookkeeping. Bumping the id invalidates any in-flight test, so a
@@ -137,22 +141,6 @@ themeToggleBtn.addEventListener('click', () => {
 });
 
 initTheme();
-
-// ============================================================================
-// Security & Utilities
-// ============================================================================
-
-/**
- * Escapes HTML characters to prevent XSS when injecting strings into the DOM.
- * @param {string} str
- * @returns {string}
- */
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
 
 // ============================================================================
 // Tab Navigation
@@ -215,146 +203,24 @@ function updateSelectedDayMetric(targetDateKey) {
   selectedDayCount.textContent = `${day.worklogCount} worklog${day.worklogCount === 1 ? '' : 's'}`;
 }
 
-// Daily duration that fills a weekday card's indicator bar (visual only).
-const DAY_INDICATOR_FULL_SECONDS = 8 * 60 * 60;
-
-const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric'
-});
-
 /**
- * Builds the HTML for a single worklog entry in the selected-day panel.
- * @param {object} wl
- * @param {string} baseUrl
- * @returns {string}
- */
-function renderWorklogItem(wl, baseUrl) {
-  const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(wl.issueKey)}` : '#';
-
-  return `
-    <a href="${escapeHtml(issueUrl)}" target="_blank" rel="noopener noreferrer" class="issue-key-badge" title="Open ${escapeHtml(wl.issueKey)} in Jira">
-      ${escapeHtml(wl.issueKey || 'ISSUE')}
-    </a>
-    <div class="worklog-body">
-      <span class="issue-summary" title="${escapeHtml(wl.issueSummary)}">${escapeHtml(wl.issueSummary)}</span>
-      ${wl.comment ? `<div class="worklog-comment">${escapeHtml(wl.comment)}</div>` : ''}
-      <div class="worklog-meta-row">
-        <span class="worklog-time">
-          <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <polyline points="12 6 12 12 16 14"/>
-          </svg>
-          Started ${escapeHtml(wl.formattedStartTime)}
-        </span>
-        ${wl.author?.displayName ? `
-        <span class="worklog-author">
-          <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-          ${escapeHtml(wl.author.displayName)}
-        </span>` : ''}
-      </div>
-    </div>
-    <span class="worklog-duration-badge">${escapeHtml(wl.formattedDuration)}</span>
-  `;
-}
-
-/**
- * Renders the 7 weekday cards and the selected day's worklog panel.
- * Daily totals and weekly totals are never modified by changing the selection.
+ * Renders the weekday cards and selected-day panel for a week. Clicking a card
+ * selects that day and re-renders with the same data.
  *
  * @param {object} aggregatedData
  * @param {string} baseUrl
  */
 function renderDays(aggregatedData, baseUrl = '') {
-  daysContainer.innerHTML = '';
-
-  const weekDays = aggregatedData.weekDays || [];
-  const selectedDay = weekDays.find((d) => d.dateKey === selectedDateKey) || weekDays[0];
-  if (!selectedDay) return;
-
-  // 1. Weekday cards strip
-  const strip = document.createElement('div');
-  strip.className = 'week-strip';
-  strip.setAttribute('role', 'tablist');
-  strip.setAttribute('aria-label', 'Days of the week');
-
-  weekDays.forEach((day) => {
-    const isSelected = day === selectedDay;
-    const fillPercent = Math.min(100, (day.totalDurationSeconds / DAY_INDICATOR_FULL_SECONDS) * 100);
-
-    const dayCard = document.createElement('button');
-    dayCard.type = 'button';
-    dayCard.className = `day-card ${day.isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''} ${day.totalDurationSeconds > 0 ? 'has-time' : ''}`;
-    dayCard.dataset.dateKey = day.dateKey;
-    dayCard.setAttribute('role', 'tab');
-    dayCard.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-    dayCard.setAttribute('aria-controls', 'selectedDayPanel');
-    dayCard.title = `${day.dayName}, ${day.formattedDate}`;
-
-    dayCard.innerHTML = `
-      <span class="day-card-top">
-        <span class="day-name">${escapeHtml(day.shortDayName)}</span>
-        ${day.isToday ? '<span class="badge-today">Today</span>' : ''}
-      </span>
-      <span class="day-date">${escapeHtml(String(day.dayOfMonth))}</span>
-      <span class="day-duration">${escapeHtml(day.formattedTotal)}</span>
-      <span class="day-count">${day.worklogCount} ${day.worklogCount === 1 ? 'worklog' : 'worklogs'}</span>
-      <span class="day-indicator" aria-hidden="true"><span class="day-indicator-fill" style="width: ${fillPercent.toFixed(1)}%"></span></span>
-    `;
-
-    dayCard.addEventListener('click', () => {
-      selectedDateKey = day.dateKey;
-      updateSelectedDayMetric(day.dateKey);
+  renderWeek(daysContainer, aggregatedData, {
+    selectedDateKey,
+    baseUrl,
+    onSelectDay: (dateKey) => {
+      selectedDateKey = dateKey;
+      updateSelectedDayMetric(dateKey);
       renderDays(aggregatedData, baseUrl);
-      daysContainer.querySelector(`.day-card[data-date-key="${day.dateKey}"]`)?.focus();
-    });
-
-    strip.appendChild(dayCard);
+      daysContainer.querySelector(`.day-card[data-date-key="${dateKey}"]`)?.focus();
+    }
   });
-
-  daysContainer.appendChild(strip);
-
-  // 2. Selected-day worklogs panel
-  const panel = document.createElement('section');
-  panel.id = 'selectedDayPanel';
-  panel.className = 'day-panel';
-  panel.setAttribute('role', 'tabpanel');
-
-  const countLabel = `${selectedDay.worklogCount} ${selectedDay.worklogCount === 1 ? 'worklog' : 'worklogs'}`;
-  panel.innerHTML = `
-    <div class="day-panel-header">
-      <div>
-        <h3 class="day-panel-title">${escapeHtml(selectedDay.dayName)}, ${escapeHtml(LONG_DATE_FORMAT.format(selectedDay.date))}</h3>
-        <span class="day-panel-meta">${countLabel} &bull; ${escapeHtml(selectedDay.formattedTotal)} total</span>
-      </div>
-      <span class="day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}">${escapeHtml(selectedDay.formattedTotal)}</span>
-    </div>
-  `;
-
-  if (selectedDay.worklogs.length > 0) {
-    const listEl = document.createElement('div');
-    listEl.className = 'worklog-list';
-
-    selectedDay.worklogs.forEach((wl) => {
-      const itemEl = document.createElement('div');
-      itemEl.className = 'worklog-item';
-      itemEl.innerHTML = renderWorklogItem(wl, baseUrl);
-      listEl.appendChild(itemEl);
-    });
-
-    panel.appendChild(listEl);
-  } else {
-    const emptyPlaceholder = document.createElement('div');
-    emptyPlaceholder.className = 'empty-day-placeholder';
-    emptyPlaceholder.textContent = 'No worklogs logged for this day.';
-    panel.appendChild(emptyPlaceholder);
-  }
-
-  daysContainer.appendChild(panel);
 }
 
 /**
@@ -366,53 +232,26 @@ function renderDays(aggregatedData, baseUrl = '') {
 async function loadAndRenderWorklogs(options = {}) {
   if (isBusyFetching) return;
 
-  // 1. Calculate Sunday (end of week)
-  const monday = new Date(currentMonday);
-  monday.setHours(0, 0, 0, 0);
-
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
+  const { monday, sunday } = getWeekRange(currentMonday);
 
   // Update date range heading immediately
   weekDateRangeText.textContent = formatWeekRange(monday, sunday);
 
-  // 2. Load settings from storage
   let settings;
   try {
-    if (isExtensionContext() && ext.storage && ext.storage.local) {
-      settings = await ext.storage.local.get([
-        'jiraBaseUrl',
-        'deploymentType',
-        'email',
-        'token',
-        'lastTestResult'
-      ]);
-    } else {
-      settings = savedSettings || {};
-    }
+    settings = await settingsStore.load();
   } catch (err) {
     console.error('Storage access error:', err);
-    settings = {};
+    settings = normalizeSettings({});
   }
 
-  savedSettings = settings;
-
-  // Check if connection is configured
-  const isConfigured = Boolean(
-    settings.jiraBaseUrl &&
-    settings.token &&
-    (settings.deploymentType === 'server' || settings.email)
-  );
-
-  if (!isConfigured) {
+  if (!isConfigured(settings)) {
     unconfiguredAlert.classList.remove('hidden');
     worklogErrorAlert.classList.add('hidden');
     emptyWeekBanner.classList.add('hidden');
 
     // Render empty week with 0h 00m totals
-    const weekDays = getWeekDays(monday, new Date());
-    const emptyAggregated = aggregateWorklogsByWeek([], weekDays);
+    const emptyAggregated = buildEmptyWeek(monday);
     currentAggregatedData = emptyAggregated;
 
     weeklyTotalDuration.textContent = '0h 00m';
@@ -432,63 +271,41 @@ async function loadAndRenderWorklogs(options = {}) {
   // Hide unconfigured alert
   unconfiguredAlert.classList.add('hidden');
 
-  // Validate Base URL & Origin pattern
-  const urlCheck = JiraUrlValidator.validate(settings.jiraBaseUrl);
-  if (!urlCheck.isValid) {
-    showWorklogError('Invalid Jira Configuration', urlCheck.error || 'Invalid Base URL.');
+  const { client, error } = createJiraClient({
+    baseUrl: settings.jiraBaseUrl,
+    deploymentType: settings.deploymentType,
+    email: settings.email,
+    token: settings.token
+  });
+  if (!client) {
+    showWorklogError('Invalid Jira Configuration', error);
     return;
   }
 
   // Update instance card header immediately with domain
   try {
-    const parsed = new URL(urlCheck.sanitizedUrl);
-    userInstanceHost.textContent = parsed.host;
+    userInstanceHost.textContent = new URL(client.baseUrl).host;
   } catch {
-    userInstanceHost.textContent = urlCheck.sanitizedUrl;
+    userInstanceHost.textContent = client.baseUrl;
   }
 
   deploymentBadge.textContent = settings.deploymentType === 'cloud' ? 'Cloud' : 'Data Center';
   deploymentBadge.className = `stat-badge ${settings.deploymentType === 'cloud' ? 'badge-cloud' : 'badge-server'}`;
 
-  // 3. Request / Verify Host Permission
-  const hasPermission = await ensureHostPermission(urlCheck.originPattern);
-  if (!hasPermission) {
-    showWorklogError(
-      'Host Permission Required',
-      `Permission to reach "${urlCheck.originPattern}" was not granted. Please click "Grant Permission" or test connection in Settings.`
-    );
-    return;
-  }
-
-  // 4. Begin Fetch
   setWorklogBusy(true);
   worklogErrorAlert.classList.add('hidden');
   emptyWeekBanner.classList.add('hidden');
 
   try {
-    // Instantiate provider and client
-    let provider;
-    if (settings.deploymentType === 'cloud') {
-      provider = new JiraCloudTokenProvider(settings.email, settings.token);
-    } else {
-      provider = new JiraPatProvider(settings.token);
-    }
-
-    const client = new JiraClient(urlCheck.sanitizedUrl, provider);
-
-    // Fetch worklogs for target week
-    const result = await client.getWorklogsForDateRange(monday, sunday);
+    const aggregated = await loadWeek(client, { monday, sunday });
 
     // Populate user metadata from response
-    if (result.user) {
-      userName.textContent = result.user.displayName || 'Authenticated User';
-      const initial = (result.user.displayName || 'U').charAt(0).toUpperCase();
+    if (aggregated.user) {
+      userName.textContent = aggregated.user.displayName || 'Authenticated User';
+      const initial = (aggregated.user.displayName || 'U').charAt(0).toUpperCase();
       userAvatar.textContent = initial;
     }
 
-    // Aggregate into 7 days using user's local timezone
-    const weekDays = getWeekDays(monday, new Date());
-    const aggregated = aggregateWorklogsByWeek(result.worklogs, weekDays);
     currentAggregatedData = aggregated;
 
     // Update Totals
@@ -506,7 +323,7 @@ async function loadAndRenderWorklogs(options = {}) {
     }
 
     // Render weekday cards and selected-day panel
-    renderDays(aggregated, urlCheck.sanitizedUrl);
+    renderDays(aggregated, client.baseUrl);
   } catch (err) {
     console.error('Failed to load Jira worklogs:', err);
     showWorklogError('Error Fetching Worklogs', err.message || 'Unable to connect to Jira REST API.');
@@ -527,9 +344,7 @@ function showWorklogError(title, message) {
   emptyWeekBanner.classList.add('hidden');
 
   // Render empty 7 days so layout stays consistent
-  const monday = new Date(currentMonday);
-  const weekDays = getWeekDays(monday, new Date());
-  const emptyAggregated = aggregateWorklogsByWeek([], weekDays);
+  const emptyAggregated = buildEmptyWeek(currentMonday);
   currentAggregatedData = emptyAggregated;
   renderDays(emptyAggregated);
 }
@@ -587,6 +402,7 @@ function showFieldError(inputEl, errorEl, message) {
  */
 function setDeploymentType(type) {
   clearErrors();
+  jiraBaseUrlInput.placeholder = JiraUrlValidator.EXAMPLE_URLS[type];
   if (type === 'cloud') {
     radioCloud.checked = true;
     cloudEmailGroup.classList.remove('hidden');
@@ -605,15 +421,18 @@ function setDeploymentType(type) {
 }
 
 /**
- * Switches deployment type from the radio controls, swapping the token field
- * to the token remembered for the newly selected type.
+ * Switches deployment type from the radio controls, swapping the instance URL
+ * and token fields to the values remembered for the newly selected edition.
  * @param {'cloud' | 'server'} type
  */
 function switchDeploymentType(type) {
   const previousType = type === 'cloud' ? 'server' : 'cloud';
+  baseUrlsByType[previousType] = jiraBaseUrlInput.value.trim();
   tokensByType[previousType] = jiraTokenInput.value.trim();
   setDeploymentType(type);
+  jiraBaseUrlInput.value = baseUrlsByType[type];
   jiraTokenInput.value = tokensByType[type];
+  updateOpenInstanceBtn();
   invalidateConnectionStatus();
 }
 
@@ -659,8 +478,7 @@ function invalidateConnectionStatus() {
  *     baseUrl: string,
  *     deploymentType: 'cloud' | 'server',
  *     email: string,
- *     token: string,
- *     originPattern: string
+ *     token: string
  *   } | null
  * }}
  */
@@ -674,7 +492,7 @@ function validateForm() {
   const token = jiraTokenInput.value.trim();
 
   // 1. URL Validation
-  const urlCheck = JiraUrlValidator.validate(rawUrl);
+  const urlCheck = JiraUrlValidator.validate(rawUrl, { deploymentType });
   if (!urlCheck.isValid) {
     showFieldError(jiraBaseUrlInput, urlError, urlCheck.error || 'Invalid URL.');
     isValid = false;
@@ -685,7 +503,7 @@ function validateForm() {
     if (!email) {
       showFieldError(jiraEmailInput, emailError, 'Account email is required for Jira Cloud.');
       isValid = false;
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    } else if (!EMAIL_REGEX.test(email)) {
       showFieldError(jiraEmailInput, emailError, 'Please enter a valid email address.');
       isValid = false;
     }
@@ -710,24 +528,9 @@ function validateForm() {
       baseUrl: urlCheck.sanitizedUrl,
       deploymentType,
       email: deploymentType === 'cloud' ? email : '',
-      token,
-      originPattern: urlCheck.originPattern
+      token
     }
   };
-}
-
-/**
- * Requests Chrome runtime host permission for the target Jira origin if not already granted.
- * @param {string} originPattern
- * @returns {Promise<boolean>}
- */
-async function ensureHostPermission(_originPattern) {
-  // Host access is declared as a required host_permission (https://*/*) in the manifest.
-  // Required permissions are always granted and cannot be queried or requested via the
-  // optional-permissions API. We return true unconditionally; if fetch() is still blocked
-  // (e.g. the extension was not reloaded after the manifest change), the network layer
-  // will throw a TypeError that surfaces a clear error message to the user.
-  return true;
 }
 
 /**
@@ -829,31 +632,13 @@ async function onTestConnection() {
     return;
   }
 
-  const { baseUrl, deploymentType, email, token, originPattern } = formValidation.values;
   const testId = ++connectionTestId;
 
   renderStatus('loading');
   setBusy(true);
 
   try {
-    const permissionGranted = await ensureHostPermission(originPattern);
-    if (testId !== connectionTestId) return;
-    if (!permissionGranted) {
-      renderStatus('error', {
-        error: `Permission to connect to "${originPattern}" was not granted. Timesheet for Jira requires host permission to reach your Jira instance.`
-      });
-      setBusy(false);
-      return;
-    }
-
-    let provider;
-    if (deploymentType === 'cloud') {
-      provider = new JiraCloudTokenProvider(email, token);
-    } else {
-      provider = new JiraPatProvider(token);
-    }
-
-    const client = new JiraClient(baseUrl, provider);
+    const { client } = createJiraClient(formValidation.values);
     const result = await client.testConnection();
     // Settings changed while the test was running: the result no longer applies.
     if (testId !== connectionTestId) return;
@@ -862,16 +647,7 @@ async function onTestConnection() {
       hasUntestedChanges = false;
       renderStatus('success', result);
 
-      if (isExtensionContext() && ext.storage && ext.storage.local) {
-        ext.storage.local.set({
-          lastTestResult: {
-            success: true,
-            user: result.user,
-            serverInfo: result.serverInfo,
-            testedAt: result.testedAt
-          }
-        });
-      }
+      settingsStore.saveTestResult(result);
     } else {
       renderStatus('error', result);
     }
@@ -897,39 +673,21 @@ async function onSaveSettings(event) {
     return;
   }
 
-  const { baseUrl, deploymentType, email, token, originPattern } = formValidation.values;
+  const { baseUrl, deploymentType, email, token } = formValidation.values;
 
   jiraBaseUrlInput.value = baseUrl;
   setBusy(true);
 
   try {
-    const permissionGranted = await ensureHostPermission(originPattern);
-    if (!permissionGranted) {
-      renderStatus('error', {
-        error: `Host permission was denied for ${originPattern}. Settings were not saved because Timesheet for Jira cannot access this domain.`
-      });
-      setBusy(false);
-      return;
-    }
-
+    baseUrlsByType[deploymentType] = baseUrl;
     tokensByType[deploymentType] = token;
 
-    if (isExtensionContext() && ext.storage && ext.storage.local) {
-      await ext.storage.local.set({
-        jiraBaseUrl: baseUrl,
-        deploymentType,
-        email,
-        token,
-        cloudToken: tokensByType.cloud,
-        serverToken: tokensByType.server,
-        savedAt: new Date().toISOString()
-      });
+    await settingsStore.save({ deploymentType, email, baseUrlsByType, tokensByType });
 
-      // Don't show the previous "Connection Successful" on next load for settings
-      // that were changed and saved without being tested.
-      if (hasUntestedChanges) {
-        await ext.storage.local.remove('lastTestResult');
-      }
+    // Don't show the previous "Connection Successful" on next load for settings
+    // that were changed and saved without being tested.
+    if (hasUntestedChanges) {
+      await settingsStore.clearTestResult();
     }
 
     renderStatus('info', {
@@ -967,51 +725,24 @@ function setBusy(isBusy) {
  * Works with both chrome.storage.local (Chrome MV3) and browser.storage.local (Firefox MV3).
  */
 async function loadSavedSettings() {
-  if (!isExtensionContext() || !ext.storage || !ext.storage.local) {
-    loadAndRenderWorklogs({ initial: true });
-    return;
-  }
-
   try {
-    const data = await ext.storage.local.get([
-      'jiraBaseUrl',
-      'deploymentType',
-      'email',
-      'token',
-      'cloudToken',
-      'serverToken',
-      'lastTestResult'
-    ]);
+    const settings = await settingsStore.load();
 
-    // Settings saved before per-type tokens existed only have `token`,
-    // which belongs to the saved deployment type.
-    const savedType = data.deploymentType === 'server' ? 'server' : 'cloud';
-    tokensByType.cloud = data.cloudToken ?? (savedType === 'cloud' ? data.token || '' : '');
-    tokensByType.server = data.serverToken ?? (savedType === 'server' ? data.token || '' : '');
+    Object.assign(baseUrlsByType, settings.baseUrlsByType);
+    Object.assign(tokensByType, settings.tokensByType);
 
-    if (data.deploymentType) {
-      setDeploymentType(data.deploymentType);
-    } else {
-      setDeploymentType('cloud');
-    }
-
-    if (data.jiraBaseUrl) {
-      jiraBaseUrlInput.value = data.jiraBaseUrl;
-    }
+    setDeploymentType(settings.deploymentType);
+    jiraBaseUrlInput.value = baseUrlsByType[settings.deploymentType];
     updateOpenInstanceBtn();
+    jiraEmailInput.value = settings.email;
+    jiraTokenInput.value = tokensByType[settings.deploymentType];
 
-    if (data.email) {
-      jiraEmailInput.value = data.email;
-    }
-
-    jiraTokenInput.value = tokensByType[savedType];
-
-    if (data.lastTestResult && data.lastTestResult.success) {
-      renderStatus('success', data.lastTestResult);
+    if (settings.lastTestResult && settings.lastTestResult.success) {
+      renderStatus('success', settings.lastTestResult);
     }
 
     // If no settings exist yet, default to settings tab, otherwise show weekly view
-    const hasConfig = Boolean(data.jiraBaseUrl && data.token);
+    const hasConfig = Boolean(settings.jiraBaseUrl && settings.token);
     if (!hasConfig && window.location.hash !== '#weekly') {
       switchTab('settings');
     } else {
@@ -1075,7 +806,7 @@ toggleTokenBtn.addEventListener('click', () => {
 jiraBaseUrlInput.addEventListener('blur', () => {
   const val = jiraBaseUrlInput.value.trim();
   if (val) {
-    const check = JiraUrlValidator.validate(val);
+    const check = JiraUrlValidator.validate(val, { deploymentType: radioCloud.checked ? 'cloud' : 'server' });
     if (!check.isValid) {
       showFieldError(jiraBaseUrlInput, urlError, check.error || 'Invalid URL');
     } else {
@@ -1097,11 +828,7 @@ openInstanceBtn.addEventListener('click', () => {
   const url = getOpenableInstanceUrl();
   if (!url) return;
 
-  if (isExtensionContext() && ext.tabs && ext.tabs.create) {
-    ext.tabs.create({ url });
-  } else {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+  platform.openTab(url);
 });
 
 jiraEmailInput.addEventListener('input', () => {

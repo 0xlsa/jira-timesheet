@@ -98,5 +98,13 @@ describe('JiraUrlValidator', () => {
       false
     );
   });
-});
 
+  it('uses the example URL for the selected Jira edition in format errors', () => {
+    assert.match(JiraUrlValidator.validate('not a url').error, /your-domain\.atlassian\.net/);
+    assert.match(JiraUrlValidator.validate('not a url', { deploymentType: 'cloud' }).error, /your-domain\.atlassian\.net/);
+
+    const serverError = JiraUrlValidator.validate('not a url', { deploymentType: 'server' }).error;
+    assert.match(serverError, /jira\.your-company\.com/);
+    assert.doesNotMatch(serverError, /atlassian/);
+  });
+});

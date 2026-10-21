@@ -202,35 +202,6 @@
     <main id="settingsSection" class="settings-card hidden" role="tabpanel" aria-labelledby="tabSettings">
       <form id="settingsForm" novalidate>
 
-        <!-- Jira Instance URL -->
-        <div class="form-group">
-          <label for="jiraBaseUrl" class="form-label">
-            <svg class="form-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            Jira Instance URL <span class="required">*</span>
-          </label>
-          <div class="input-wrapper url-wrapper">
-            <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
-              autocomplete="url" spellcheck="false" required>
-            <button type="button" id="openInstanceBtn" class="btn-icon" title="Open Jira instance in new tab"
-              aria-label="Open Jira instance in new tab" disabled>
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            </button>
-          </div>
-          <div id="urlHint" class="field-hint">
-            Enter your Jira instance URL, including any context path.
-          </div>
-          <div id="urlError" class="field-error" role="alert"></div>
-        </div>
-
         <!-- Jira Edition Selector -->
         <fieldset class="form-group deployment-group">
           <legend class="form-label">Jira Edition</legend>
@@ -270,6 +241,35 @@
           </div>
         </fieldset>
 
+        <!-- Jira Instance URL -->
+        <div class="form-group">
+          <label for="jiraBaseUrl" class="form-label">
+            <svg class="form-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            Jira Instance URL <span class="required">*</span>
+          </label>
+          <div class="input-wrapper url-wrapper">
+            <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
+              autocomplete="url" spellcheck="false" required>
+            <button type="button" id="openInstanceBtn" class="btn-icon" title="Open Jira instance in new tab"
+              aria-label="Open Jira instance in new tab" disabled>
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            </button>
+          </div>
+          <div id="urlHint" class="field-hint">
+            Enter your Jira instance URL, including any context path.
+          </div>
+          <div id="urlError" class="field-error" role="alert"></div>
+        </div>
+
         <!-- Jira Cloud Account Email (Conditional) -->
         <div class="form-group" id="cloudEmailGroup">
           <label for="jiraEmail" class="form-label">
@@ -282,6 +282,7 @@
           <div class="field-hint">The primary email associated with your Atlassian Cloud account.</div>
           <div id="emailError" class="field-error" role="alert"></div>
         </div>
+
 
         <!-- API Token / PAT -->
         <div class="form-group">

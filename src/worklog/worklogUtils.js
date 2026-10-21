@@ -323,3 +323,33 @@ export function aggregateWorklogsByWeek(rawWorklogs = [], weekDays = []) {
     hasAnyWorklogs: totalWorklogsCount > 0
   };
 }
+
+/**
+ * Returns the Monday 00:00:00.000 to Sunday 23:59:59.999 local-time range of the
+ * week starting at `monday`. Uses calendar arithmetic, so weeks containing a
+ * daylight-saving change still end on Sunday.
+ *
+ * @param {Date | string | number} monday
+ * @returns {{ monday: Date, sunday: Date }}
+ */
+export function getWeekRange(monday) {
+  const start = new Date(monday);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+
+  return { monday: start, sunday: end };
+}
+
+/**
+ * Returns an aggregated week with no worklogs (all totals 0h 00m).
+ *
+ * @param {Date} monday
+ * @param {Date} [todayRef=new Date()]
+ * @returns {ReturnType<typeof aggregateWorklogsByWeek>}
+ */
+export function buildEmptyWeek(monday, todayRef = new Date()) {
+  return aggregateWorklogsByWeek([], getWeekDays(monday, todayRef));
+}

@@ -20,9 +20,19 @@ export class JiraUrlValidator {
   static ACCIDENTAL_SUFFIX_PATTERN = /\/(rest(\/api\/[0-9]+)?(\/myself)?|browse\/[A-Z0-9_-]+|jira\/software\/projects\/.*|secure\/.*)$/i;
 
   /**
+   * Example instance URLs per Jira edition, shown in the URL field and error messages.
+   */
+  static EXAMPLE_URLS = {
+    cloud: 'https://your-domain.atlassian.net',
+    server: 'https://jira.your-company.com'
+  };
+
+  /**
    * Validates and sanitizes a raw Jira Base URL.
    *
    * @param {string} rawUrl - The user-entered URL.
+   * @param {object} [options]
+   * @param {'cloud' | 'server'} [options.deploymentType='cloud'] - Edition used for the example URL in errors
    * @returns {{
    *   isValid: boolean,
    *   sanitizedUrl: string,
@@ -30,7 +40,7 @@ export class JiraUrlValidator {
    *   error: string | null
    * }}
    */
-  static validate(rawUrl) {
+  static validate(rawUrl, { deploymentType = 'cloud' } = {}) {
     if (!rawUrl || typeof rawUrl !== 'string' || !rawUrl.trim()) {
       return {
         isValid: false,
@@ -50,7 +60,7 @@ export class JiraUrlValidator {
         isValid: false,
         sanitizedUrl: '',
         originPattern: '',
-        error: 'Invalid URL format. Please enter a valid URL (e.g., https://your-domain.atlassian.net).'
+        error: `Invalid URL format. Please enter a valid URL (e.g., ${this.EXAMPLE_URLS[deploymentType] || this.EXAMPLE_URLS.cloud}).`
       };
     }
 

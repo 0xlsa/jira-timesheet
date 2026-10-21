@@ -1,5 +1,52 @@
 import { JiraUrlValidator } from '../validation/JiraUrlValidator.js';
 import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
+import { getLocalDateKey } from '../worklog/worklogUtils.js';
+
+/**
+ * Checks whether a worklog was logged by the given user. Compares the strongest
+ * identifier both sides have: accountId (Cloud), then username or user key
+ * (Data Center / Server), then display name, then email.
+ *
+ * @param {object} worklog
+ * @param {{ accountId?: string, name?: string, key?: string, displayName?: string, emailAddress?: string }} user
+ * @returns {boolean}
+ */
+export function isWorklogByUser(worklog, user) {
+  if (!worklog) return false;
+  if (!worklog.author) {
+    // If Jira omitted the author object, we trust the JQL search which filtered worklogAuthor = currentUser()
+    return true;
+  }
+
+  const author = worklog.author;
+
+  // Cloud: Match by accountId
+  if (user.accountId && author.accountId) {
+    return author.accountId === user.accountId;
+  }
+
+  // Server/DC: Match by username
+  if (user.name && author.name) {
+    return author.name.toLowerCase() === user.name.toLowerCase();
+  }
+
+  // Server/DC: Match by user key
+  if (user.key && author.key) {
+    return author.key === user.key;
+  }
+
+  // Display Name match fallback
+  if (user.displayName && author.displayName) {
+    return author.displayName.trim().toLowerCase() === user.displayName.trim().toLowerCase();
+  }
+
+  // Email match fallback
+  if (user.emailAddress && author.emailAddress) {
+    return author.emailAddress.trim().toLowerCase() === user.emailAddress.trim().toLowerCase();
+  }
+
+  return false;
+}
 
 /**
  * JiraClient
@@ -42,6 +89,52 @@ export class JiraClient {
 
   get deploymentType() {
     return this.#authProvider.getDeploymentType();
+  }
+
+  /**
+   * Returns the REST API path for a resource: v3 on Jira Cloud, v2 on Data Center / Server.
+   * @param {string} resource - e.g. `issue/ABC-1/worklog`
+   * @returns {string}
+   */
+  #apiPath(resource) {
+    return `/rest/api/${this.deploymentType === 'cloud' ? '3' : '2'}/${resource}`;
+  }
+
+  /**
+   * Requests a path and, if a v3 path returns 404, retries the same resource on v2.
+   *
+   * @param {string} path
+   * @param {object} [options]
+   * @param {boolean} [options.keepOriginalUnlessOk=false] - Only use the v2 response if it succeeds
+   * @returns {Promise<{ response: Response, path: string }>}
+   */
+  async #requestWithV2Fallback(path, { keepOriginalUnlessOk = false } = {}) {
+    const response = await this.#request(path);
+
+    if (response.status === 404 && path.startsWith('/rest/api/3/')) {
+      const fallbackPath = path.replace('/rest/api/3/', '/rest/api/2/');
+      const fallbackResponse = await this.#request(fallbackPath);
+      if (!keepOriginalUnlessOk || fallbackResponse.ok) {
+        return { response: fallbackResponse, path: fallbackPath };
+      }
+    }
+
+    return { response, path };
+  }
+
+  /**
+   * Maps a Jira `/myself` response to the user profile shape used by the app.
+   * @param {object} data
+   */
+  #toUser(data) {
+    return {
+      displayName: data.displayName || data.name || 'Jira User',
+      emailAddress: data.emailAddress || (this.deploymentType === 'cloud' && 'email' in this.#authProvider ? this.#authProvider.email : ''),
+      name: data.name || '',
+      accountId: data.accountId || '',
+      key: data.key || '',
+      active: data.active !== undefined ? data.active : true
+    };
   }
 
   /**
@@ -163,18 +256,11 @@ export class JiraClient {
     }
 
     try {
-      let endpoint = this.#authProvider.getIdentityEndpoint();
-      let response = await this.#request(endpoint);
-
-      // Cloud fallback: If /rest/api/3/myself returns 404, try /rest/api/2/myself
-      if (response.status === 404 && endpoint.includes('/rest/api/3/')) {
-        const fallbackEndpoint = '/rest/api/2/myself';
-        const fallbackResponse = await this.#request(fallbackEndpoint);
-        if (fallbackResponse.ok) {
-          response = fallbackResponse;
-          endpoint = fallbackEndpoint;
-        }
-      }
+      // Cloud fallback: if /rest/api/3/myself returns 404, use /rest/api/2/myself when it succeeds
+      const { response } = await this.#requestWithV2Fallback(
+        this.#authProvider.getIdentityEndpoint(),
+        { keepOriginalUnlessOk: true }
+      );
 
       // Check HTTP Status
       if (!response.ok) {
@@ -209,22 +295,16 @@ export class JiraClient {
       const result = {
         success: true,
         deploymentType: this.deploymentType,
-        user: {
-          displayName: data.displayName || data.name || 'Jira User',
-          emailAddress: data.emailAddress || (this.deploymentType === 'cloud' && 'email' in this.#authProvider ? this.#authProvider.email : ''),
-          name: data.name || '',
-          accountId: data.accountId || '',
-          active: data.active !== undefined ? data.active : true
-        },
+        user: this.#toUser(data),
         testedAt
       };
 
       this.#currentUser = result.user;
 
       // For Data Center / Server, attempt to fetch serverInfo for version details
-      if (this.deploymentType === 'server') {
+      if (typeof this.#authProvider.getServerInfoEndpoint === 'function') {
         try {
-          const serverInfoResponse = await this.#request('/rest/api/2/serverInfo');
+          const serverInfoResponse = await this.#request(this.#authProvider.getServerInfoEndpoint());
           if (serverInfoResponse.ok) {
             const serverInfoData = await serverInfoResponse.json();
             result.serverInfo = {
@@ -397,30 +477,14 @@ export class JiraClient {
       return this.#currentUser;
     }
 
-    let endpoint = this.#authProvider.getIdentityEndpoint();
-    let response = await this.#request(endpoint);
-
-    // Fallback to /rest/api/2/myself if v3 returns 404 on Cloud
-    if (response.status === 404 && endpoint.includes('/rest/api/3/')) {
-      endpoint = '/rest/api/2/myself';
-      response = await this.#request(endpoint);
-    }
+    const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
 
     if (!response.ok) {
       const err = await this.#handleHttpError(response, new Date().toISOString());
       throw new Error(err.error || 'Failed to retrieve authenticated Jira user profile.');
     }
 
-    const data = await this.#parseJson(response, endpoint);
-    this.#currentUser = {
-      displayName: data.displayName || data.name || 'Jira User',
-      emailAddress: data.emailAddress || (this.deploymentType === 'cloud' && 'email' in this.#authProvider ? this.#authProvider.email : ''),
-      name: data.name || '',
-      accountId: data.accountId || '',
-      key: data.key || '',
-      active: data.active !== undefined ? data.active : true
-    };
-
+    this.#currentUser = this.#toUser(await this.#parseJson(response, path));
     return this.#currentUser;
   }
 
@@ -473,16 +537,10 @@ export class JiraClient {
 
     const queryParams = params.toString();
 
-    let endpoint = isCloud
-      ? `/rest/api/3/search/jql?${queryParams}`
-      : `/rest/api/2/search?${queryParams}`;
-    let response = await this.#request(endpoint);
-
     // Cloud fallback: if /rest/api/3/search/jql returns 404, fallback to /rest/api/2/search/jql
-    if (response.status === 404 && isCloud) {
-      endpoint = `/rest/api/2/search/jql?${queryParams}`;
-      response = await this.#request(endpoint);
-    }
+    const { response, path: endpoint } = await this.#requestWithV2Fallback(
+      isCloud ? `/rest/api/3/search/jql?${queryParams}` : `/rest/api/2/search?${queryParams}`
+    );
 
     if (!response.ok) {
       const err = await this.#handleHttpError(response, new Date().toISOString());
@@ -517,16 +575,10 @@ export class JiraClient {
     const startAt = Math.max(0, Number(options.startAt) || 0);
     const maxResults = Math.min(100, Math.max(1, Number(options.maxResults) || 100));
 
-    const apiVersion = this.deploymentType === 'cloud' ? '3' : '2';
-    let endpoint = `/rest/api/${apiVersion}/issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`;
-
-    let response = await this.#request(endpoint);
-
     // Fallback from v3 to v2 if 404
-    if (response.status === 404 && endpoint.includes('/rest/api/3/')) {
-      endpoint = `/rest/api/2/issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`;
-      response = await this.#request(endpoint);
-    }
+    const { response, path: endpoint } = await this.#requestWithV2Fallback(
+      this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`)
+    );
 
     if (!response.ok) {
       const err = await this.#handleHttpError(response, new Date().toISOString());
@@ -563,47 +615,46 @@ export class JiraClient {
   }
 
   /**
-   * Checks whether a worklog was logged by the authenticated user.
+   * Runs a JQL search and collects every matching issue across all result pages.
+   * Jira Cloud pages with nextPageToken / isLast; Data Center / Server with startAt / total.
    *
-   * @param {object} worklog
-   * @param {object} currentUser
-   * @returns {boolean}
+   * @param {string} jql
+   * @param {string[]} fields
+   * @returns {Promise<Array<object>>}
    */
-  #isWorklogByCurrentUser(worklog, currentUser) {
-    if (!worklog) return false;
-    if (!worklog.author) {
-      // If Jira omitted the author object, we trust the JQL search which filtered worklogAuthor = currentUser()
-      return true;
-    }
+  async #searchAllIssues(jql, fields) {
+    const isCloud = this.deploymentType === 'cloud';
+    const issues = [];
+    let startAt = 0;
+    let nextPageToken;
+    const maxResults = 50;
+    let hasMore = false;
 
-    const author = worklog.author;
+    do {
+      const searchResult = await this.searchIssues(jql, {
+        startAt,
+        nextPageToken,
+        maxResults,
+        fields
+      });
 
-    // Cloud: Match by accountId
-    if (currentUser.accountId && author.accountId) {
-      return author.accountId === currentUser.accountId;
-    }
+      if (!searchResult || !Array.isArray(searchResult.issues) || searchResult.issues.length === 0) {
+        break;
+      }
 
-    // Server/DC: Match by username
-    if (currentUser.name && author.name) {
-      return author.name.toLowerCase() === currentUser.name.toLowerCase();
-    }
+      issues.push(...searchResult.issues);
 
-    // Server/DC: Match by user key
-    if (currentUser.key && author.key) {
-      return author.key === currentUser.key;
-    }
+      if (isCloud) {
+        const previousToken = nextPageToken;
+        nextPageToken = searchResult.nextPageToken;
+        hasMore = Boolean(nextPageToken) && searchResult.isLast !== true && nextPageToken !== previousToken;
+      } else {
+        startAt += searchResult.issues.length;
+        hasMore = startAt < (Number(searchResult.total) || 0);
+      }
+    } while (hasMore);
 
-    // Display Name match fallback
-    if (currentUser.displayName && author.displayName) {
-      return author.displayName.trim().toLowerCase() === currentUser.displayName.trim().toLowerCase();
-    }
-
-    // Email match fallback
-    if (currentUser.emailAddress && author.emailAddress) {
-      return author.emailAddress.trim().toLowerCase() === currentUser.emailAddress.trim().toLowerCase();
-    }
-
-    return false;
+    return issues;
   }
 
   /**
@@ -638,15 +689,8 @@ export class JiraClient {
     const currentUser = await this.getCurrentUser();
 
     // 2. Format local date keys (YYYY-MM-DD)
-    const toDateKey = (d) => {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    };
-
-    const startKey = toDateKey(start);
-    const endKey = toDateKey(end);
+    const startKey = getLocalDateKey(start);
+    const endKey = getLocalDateKey(end);
 
     // Add a 1-day buffer before and after the range in the JQL query.
     // This guarantees that any worklog near midnight in the user's local timezone
@@ -657,43 +701,13 @@ export class JiraClient {
     const bufferEnd = new Date(end);
     bufferEnd.setDate(bufferEnd.getDate() + 1);
 
-    const jqlStartDate = toDateKey(bufferStart);
-    const jqlEndDate = toDateKey(bufferEnd);
+    const jqlStartDate = getLocalDateKey(bufferStart);
+    const jqlEndDate = getLocalDateKey(bufferEnd);
 
     const jql = `worklogAuthor = currentUser() AND worklogDate >= "${jqlStartDate}" AND worklogDate <= "${jqlEndDate}" order by updated desc`;
 
     // 3. Paginate through all matching issues
-    // Jira Cloud pages with nextPageToken / isLast; Data Center / Server with startAt / total.
-    const isCloud = this.deploymentType === 'cloud';
-    const issues = [];
-    let startAt = 0;
-    let nextPageToken;
-    const maxResults = 50;
-    let hasMore = false;
-
-    do {
-      const searchResult = await this.searchIssues(jql, {
-        startAt,
-        nextPageToken,
-        maxResults,
-        fields: ['summary', 'worklog']
-      });
-
-      if (!searchResult || !Array.isArray(searchResult.issues) || searchResult.issues.length === 0) {
-        break;
-      }
-
-      issues.push(...searchResult.issues);
-
-      if (isCloud) {
-        const previousToken = nextPageToken;
-        nextPageToken = searchResult.nextPageToken;
-        hasMore = Boolean(nextPageToken) && searchResult.isLast !== true && nextPageToken !== previousToken;
-      } else {
-        startAt += searchResult.issues.length;
-        hasMore = startAt < (Number(searchResult.total) || 0);
-      }
-    } while (hasMore);
+    const issues = await this.#searchAllIssues(jql, ['summary', 'worklog']);
 
     // 4. Extract and filter worklogs
     const collectedWorklogs = [];
@@ -726,7 +740,7 @@ export class JiraClient {
         }
 
         // Verify author matches current user
-        if (!this.#isWorklogByCurrentUser(wl, currentUser)) {
+        if (!isWorklogByUser(wl, currentUser)) {
           continue;
         }
 
@@ -735,7 +749,7 @@ export class JiraClient {
         if (isNaN(wlStartDate.getTime())) continue;
 
         // Verify local date falls inside the requested week range
-        const localDateKey = toDateKey(wlStartDate);
+        const localDateKey = getLocalDateKey(wlStartDate);
         if (localDateKey >= startKey && localDateKey <= endKey) {
           if (wlId) {
             seenWorklogIds.add(wlId);

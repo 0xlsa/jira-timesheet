@@ -48,21 +48,28 @@ This release implements the core **Connection & Authentication Settings** module
 
 ## Architecture & Design Decisions
 
-The application follows a clean layered architecture with separation between the UI, API client, and authentication mechanisms:
+The application is layered: the entry points (`options.js`, `background.js`) compose small modules and pass dependencies in explicitly, so the business logic runs in Node tests without a browser.
 
 ```mermaid
 graph TD
-  UI[options.html / options.js] --> Validator[JiraUrlValidator]
-  UI --> Client[JiraClient]
-  UI --> Storage[(chrome.storage.local)]
-  UI --> Permissions[chrome.permissions API]
+  UI[options.html / options.js] --> WeekView[ui/weekView]
+  UI --> Store[settings/settingsStore]
+  UI --> Factory[jira/createJiraClient]
+  UI --> Service[worklog/weeklyWorklogService]
+  UI --> Platform[compat/browser-api: createPlatform]
+  Background[background.js Service Worker] --> Store
+  Background --> Factory
+  Background --> Service
 
-  Client --> ProviderBase[JiraAuthProvider]
-  ProviderBase --> CloudProvider[JiraCloudTokenProvider]
-  ProviderBase --> PatProvider[JiraPatProvider]
-
-  Client --> JiraAPI["Jira REST API (/myself, /serverInfo)"]
-  Background[background.js Service Worker] --> Client
+  Store --> Storage[(storage.local or in-memory)]
+  Platform --> Storage
+  Factory --> Validator[JiraUrlValidator]
+  Factory --> Client[JiraClient]
+  Factory --> CloudProvider[JiraCloudTokenProvider]
+  Factory --> PatProvider[JiraPatProvider]
+  Service --> Client
+  Service --> Utils[worklog/worklogUtils: pure date & aggregation]
+  Client --> JiraAPI["Jira REST API"]
 ```
 
 1. **Modular Auth Providers (`src/auth/`)**:
@@ -80,6 +87,18 @@ graph TD
    - Strict HTTPS enforcement.
    - Strips accidental endpoint suffixes if users paste full paths (e.g., `/rest/api/2/myself`).
    - Generates minimal origin match patterns for Chrome host permissions (e.g. `https://jira.example.com/*`).
+4. **Client Factory (`src/jira/createJiraClient.js`)**:
+   - The one place that validates the instance URL and maps the Jira edition to its auth provider.
+5. **Settings Store (`src/settings/settingsStore.js`)**:
+   - Owns the storage keys, the per-edition tokens (with fallback for settings saved before they existed), and the last connection test result.
+   - Takes the storage area as a parameter: `storage.local` in the extension, an in-memory area in tests.
+6. **Worklog Logic (`src/worklog/`)**:
+   - `worklogUtils.js`: pure functions for week ranges, local-timezone grouping, duration formatting, and aggregation.
+   - `weeklyWorklogService.js`: fetches one week through a client and aggregates it.
+7. **Platform Adapter (`src/compat/browser-api.js`)**:
+   - Chrome and Firefox share the WebExtensions API, so there is a single implementation. `createPlatform()` provides storage and tab opening, with an in-memory / `window.open` fallback when the page runs outside an extension.
+8. **Presentation (`src/ui/`)**:
+   - `weekView.js` renders the weekday cards and selected-day panel from explicit inputs; `options.js` keeps the view state and wiring.
 
 ---
 
@@ -97,12 +116,21 @@ timesheet-for-jira/
 │   │   ├── JiraAuthProvider.js         # Base auth provider interface
 │   │   ├── JiraCloudTokenProvider.js    # HTTP Basic (email + API token)
 │   │   └── JiraPatProvider.js          # Bearer (PAT)
+│   ├── compat/
+│   │   └── browser-api.js              # WebExtensions API access & platform adapter
 │   ├── jira/
-│   │   └── JiraClient.js               # Centralized Jira REST API client
+│   │   ├── JiraClient.js               # Centralized Jira REST API client
+│   │   └── createJiraClient.js         # Builds a client from connection settings
+│   ├── settings/
+│   │   └── settingsStore.js            # Settings & credential persistence
+│   ├── ui/
+│   │   ├── html.js                     # HTML escaping
+│   │   └── weekView.js                 # Weekday cards & selected-day panel
 │   ├── validation/
 │   │   └── JiraUrlValidator.js         # URL validation & origin matching
 │   └── worklog/
-│       └── worklogUtils.js             # Week calculations, timezone grouping & aggregation
+│       ├── worklogUtils.js             # Week calculations, timezone grouping & aggregation
+│       └── weeklyWorklogService.js     # Fetches and aggregates one week
 ├── icons/                         # Extension icons (16px, 32px, 48px, 128px)
 ├── tests/
 │   ├── JiraUrlValidator.test.js        # Unit tests for URL validation
@@ -111,6 +139,9 @@ timesheet-for-jira/
 │   ├── JiraClientWorklog.test.js       # Unit tests for worklog search & pagination
 │   ├── WorklogUtils.test.js            # Unit tests for week math & duration formatting
 │   ├── WeeklyWorklogIntegration.test.js# Integration & math invariant tests
+│   ├── WeeklyWorklogService.test.js    # Week range (incl. DST) & week loading
+│   ├── SettingsStore.test.js           # Settings normalization & persistence
+│   ├── CompositionAndPlatform.test.js  # Client factory, author matching & platform adapter
 │   └── BackgroundMessages.test.js      # End-to-end payload & messaging tests
 ├── package.json                   # Project metadata and test runner scripts
 └── README.md                      # Documentation
@@ -184,16 +215,16 @@ timesheet-for-jira/
 
 ### Configuring Jira Cloud
 1. Open the Timesheet for Jira settings page (`chrome://extensions/?options=...` or right-click extension icon > **Options**).
-2. Enter your **Jira Instance URL** (e.g., `https://your-workspace.atlassian.net`).
-3. Select **Jira Cloud** under Jira Edition.
+2. Select **Jira Cloud** under Jira Edition.
+3. Enter your **Jira Instance URL** (e.g., `https://your-workspace.atlassian.net`).
 4. Enter your **Atlassian Account Email** (e.g., `jane.doe@company.com`).
 5. Enter your **Atlassian API Token**.
 6. Click **Test Connection**. Chrome will prompt you to allow access to your Atlassian domain. Click **Allow**.
 7. Once verified, click **Save Settings**.
 
 ### Configuring Jira Data Center / Server
-1. Enter your **Jira Instance URL**. If hosted under a sub-path, include it (e.g., `https://jira.corp.internal/jira`).
-2. Select **Data Center / Server** under Jira Edition.
+1. Select **Data Center / Server** under Jira Edition.
+2. Enter your **Jira Instance URL**. If hosted under a sub-path, include it (e.g., `https://jira.corp.internal/jira`).
 3. Enter your **Personal Access Token (PAT)**.
 4. Click **Test Connection** and approve the host permission prompt.
 5. Once verified, click **Save Settings**.

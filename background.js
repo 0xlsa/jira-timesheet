@@ -4,16 +4,11 @@
  * Compatible with Chrome (MV3) and Firefox (MV3, 116+).
  */
 
-import { JiraUrlValidator } from './src/validation/JiraUrlValidator.js';
-import { JiraCloudTokenProvider } from './src/auth/JiraCloudTokenProvider.js';
-import { JiraPatProvider } from './src/auth/JiraPatProvider.js';
-import { JiraClient } from './src/jira/JiraClient.js';
-import {
-  getMondayOfWeek,
-  getWeekDays,
-  aggregateWorklogsByWeek
-} from './src/worklog/worklogUtils.js';
-import { ext, isExtensionContext } from './src/compat/browser-api.js';
+import { createJiraClient } from './src/jira/createJiraClient.js';
+import { getMondayOfWeek } from './src/worklog/worklogUtils.js';
+import { loadWeek } from './src/worklog/weeklyWorklogService.js';
+import { createSettingsStore } from './src/settings/settingsStore.js';
+import { ext, isExtensionContext, createPlatform } from './src/compat/browser-api.js';
 
 // Extension lifecycle and messaging listeners
 if (isExtensionContext()) {
@@ -62,8 +57,11 @@ if (isExtensionContext()) {
       }
 
       if (message.action === 'GET_SETTINGS') {
-        ext.storage.local.get(['jiraBaseUrl', 'deploymentType', 'email', 'token', 'lastTestResult'])
-          .then((data) => sendResponse({ success: true, settings: data }))
+        createSettingsStore(createPlatform().storage).load()
+          .then(({ jiraBaseUrl, deploymentType, email, token, lastTestResult }) => sendResponse({
+            success: true,
+            settings: { jiraBaseUrl, deploymentType, email, token, lastTestResult }
+          }))
           .catch(() => sendResponse({ success: false, settings: {} }));
         return true;
       }
@@ -106,33 +104,16 @@ async function handleTestConnection(payload) {
     };
   }
 
-  const { baseUrl, deploymentType, email, token } = payload;
-
-  const urlValidation = JiraUrlValidator.validate(baseUrl);
-  if (!urlValidation.isValid) {
+  const { client, error } = createJiraClient(payload);
+  if (!client) {
     return {
       success: false,
-      error: urlValidation.error || 'Invalid Base URL.',
+      error,
       errorType: 'CONFIG_ERROR',
       testedAt: new Date().toISOString()
     };
   }
 
-  let provider;
-  if (deploymentType === 'cloud') {
-    provider = new JiraCloudTokenProvider(email, token);
-  } else if (deploymentType === 'server') {
-    provider = new JiraPatProvider(token);
-  } else {
-    return {
-      success: false,
-      error: 'Invalid Jira edition selected. Choose Jira Cloud or Jira Data Center / Server.',
-      errorType: 'CONFIG_ERROR',
-      testedAt: new Date().toISOString()
-    };
-  }
-
-  const client = new JiraClient(urlValidation.sanitizedUrl, provider);
   return await client.testConnection();
 }
 
@@ -146,9 +127,10 @@ async function handleTestConnection(payload) {
  * @param {string} payload.token
  * @param {string | Date} [payload.startDate]
  * @param {string | Date} [payload.endDate]
+ * @param {object} [clientOptions] - Passed to JiraClient (e.g. fetchFn in tests)
  * @returns {Promise<object>}
  */
-export async function handleFetchWorklogs(payload, options = {}) {
+export async function handleFetchWorklogs(payload, clientOptions = {}) {
   if (!payload) {
     return {
       success: false,
@@ -156,41 +138,15 @@ export async function handleFetchWorklogs(payload, options = {}) {
     };
   }
 
-  const { baseUrl, deploymentType, email, token, startDate, endDate } = payload;
-
-  const urlValidation = JiraUrlValidator.validate(baseUrl);
-  if (!urlValidation.isValid) {
-    return {
-      success: false,
-      error: urlValidation.error || 'Invalid Base URL.'
-    };
+  const { client, error } = createJiraClient(payload, clientOptions);
+  if (!client) {
+    return { success: false, error };
   }
 
-  let provider;
-  if (deploymentType === 'cloud') {
-    provider = new JiraCloudTokenProvider(email, token);
-  } else if (deploymentType === 'server') {
-    provider = new JiraPatProvider(token);
-  } else {
-    return {
-      success: false,
-      error: 'Invalid Jira edition selected.'
-    };
-  }
+  const week = await loadWeek(client, {
+    monday: payload.startDate ? new Date(payload.startDate) : getMondayOfWeek(new Date()),
+    sunday: payload.endDate ? new Date(payload.endDate) : undefined
+  });
 
-  const client = new JiraClient(urlValidation.sanitizedUrl, provider, options);
-
-  const monday = startDate ? new Date(startDate) : getMondayOfWeek(new Date());
-  const sunday = endDate ? new Date(endDate) : new Date(monday.getTime() + 6 * 24 * 60 * 60 * 1000);
-
-  const result = await client.getWorklogsForDateRange(monday, sunday);
-  const weekDays = getWeekDays(monday, new Date());
-  const aggregated = aggregateWorklogsByWeek(result.worklogs, weekDays);
-
-  return {
-    success: true,
-    user: result.user,
-    ...aggregated
-  };
+  return { success: true, ...week };
 }
-
