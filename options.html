@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timesheet for Jira - Weekly Worklogs & Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <img src="icons/icon48.png" alt="Timesheet for Jira Logo" class="brand-logo">
+        <div class="brand-text">
+          <h1>Timesheet for Jira</h1>
+          <span class="brand-tagline">Your Jira worklogs, at a glance</span>
+        </div>
+      </div>
+      <!-- <div class="header-badge">Manifest V3</div> -->
+      <button type="button" id="themeToggleBtn" class="theme-toggle" title="Toggle light / dark mode"
+        aria-label="Toggle light/dark mode">
+        <!-- Sun icon (visible in light mode) -->
+        <svg class="theme-toggle__icon theme-toggle__icon--sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+        <span class="theme-toggle__knob" aria-hidden="true"></span>
+        <!-- Moon icon (visible in dark mode) -->
+        <svg class="theme-toggle__icon theme-toggle__icon--moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="app-nav" role="tablist" aria-label="Main Navigation">
+      <button type="button" class="nav-tab active" id="tabWeekly" role="tab" aria-selected="true"
+        aria-controls="weeklySection">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+        <span>Weekly Worklogs</span>
+      </button>
+      <button type="button" class="nav-tab" id="tabSettings" role="tab" aria-selected="false"
+        aria-controls="settingsSection">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+        <span>Connection Settings</span>
+      </button>
+    </nav>
+
+    <!-- SECTION 1: WEEKLY WORKLOG VIEW -->
+    <section id="weeklySection" class="view-section" role="tabpanel" aria-labelledby="tabWeekly">
+      <!-- Week Navigation Controls Bar -->
+      <div class="week-nav-bar">
+        <div class="week-nav-side">
+          <button type="button" id="thisWeekBtn" class="btn btn-secondary btn-today" title="Jump to Current Week">
+            This Week
+          </button>
+        </div>
+
+        <div class="week-range-nav">
+          <button type="button" id="prevWeekBtn" class="btn btn-secondary btn-nav" title="Previous Week"
+            aria-label="Previous week">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <h2 id="weekDateRangeText" class="week-date-range">Loading week...</h2>
+          <button type="button" id="nextWeekBtn" class="btn btn-secondary btn-nav" title="Next Week"
+            aria-label="Next week">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="week-nav-side week-actions">
+          <button type="button" id="refreshWorklogsBtn" class="btn btn-secondary btn-refresh" title="Refresh worklogs"
+            aria-label="Refresh worklogs">
+            <svg id="refreshIcon" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10" />
+              <polyline points="1 20 1 14 7 14" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            <span>Sync</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Weekly Summary Stat Cards -->
+      <div class="stats-grid">
+        <!-- Week Total Card -->
+        <div class="stat-card stat-card-primary">
+          <div class="stat-header">
+            <span class="stat-label">Total Time (Week)</span>
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          </div>
+          <div class="stat-value-group">
+            <div id="weeklyTotalDuration" class="stat-value">0h 00m</div>
+            <div id="weeklyTotalCount" class="stat-meta">0 worklogs</div>
+          </div>
+        </div>
+
+        <!-- Selected / Today Card -->
+        <div class="stat-card" id="selectedDayStatCard">
+          <div class="stat-header">
+            <span class="stat-label" id="selectedDayLabel">Today's Total</span>
+            <span id="selectedDayIndicator" class="stat-badge">Today</span>
+          </div>
+          <div class="stat-value-group">
+            <div id="selectedDayDuration" class="stat-value stat-value-highlight">0h 00m</div>
+            <div id="selectedDayCount" class="stat-meta">0 worklogs</div>
+          </div>
+        </div>
+
+        <!-- Connected Jira Instance Card -->
+        <div class="stat-card" id="userInstanceCard">
+          <div class="stat-header">
+            <span class="stat-label">Jira Account</span>
+            <span id="deploymentBadge" class="stat-badge badge-cloud">Cloud</span>
+          </div>
+          <div class="stat-user-info">
+            <div id="userAvatar" class="stat-avatar">?</div>
+            <div class="stat-user-meta">
+              <span id="userName" class="stat-user-name">Not connected</span>
+              <span id="userInstanceHost" class="stat-user-host">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Alert / Notice Containers -->
+      <div id="unconfiguredAlert" class="panel-alert alert-warning hidden">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <div class="alert-content">
+          <h4>Jira Connection Not Configured</h4>
+          <p>Please configure your Jira Base URL and authentication token in Settings to view and sync your worklogs.
+          </p>
+        </div>
+        <button type="button" id="goToSettingsBtn" class="btn btn-primary btn-sm">Open Settings</button>
+      </div>
+
+      <div id="worklogErrorAlert" class="panel-alert alert-danger hidden">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <div class="alert-content">
+          <h4 id="worklogErrorTitle">Error Fetching Worklogs</h4>
+          <p id="worklogErrorMessage">Failed to connect to Jira REST API.</p>
+        </div>
+        <button type="button" id="retryWorklogFetchBtn" class="btn btn-secondary btn-sm">Retry</button>
+      </div>
+
+      <div id="emptyWeekBanner" class="panel-alert alert-info hidden">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+        <div class="alert-content">
+          <h4>No Worklogs Found For This Week</h4>
+          <p>No worklog entries were recorded for this week. Use the previous and next week buttons to navigate to other weeks or
+            log time in Jira.</p>
+        </div>
+      </div>
+
+      <!-- Weekday Cards (Monday - Sunday) + Selected-Day Worklogs Panel -->
+      <div id="daysContainer" class="days-container">
+        <!-- Rendered dynamically by options.js -->
+      </div>
+    </section>
+
+    <!-- SECTION 2: SETTINGS VIEW (EXISTING FORM RETAINED) -->
+    <main id="settingsSection" class="settings-card hidden" role="tabpanel" aria-labelledby="tabSettings">
+      <form id="settingsForm" novalidate>
+        <!-- Deployment Type Selector -->
+        <fieldset class="form-group deployment-group">
+          <legend class="form-label">Deployment Type</legend>
+          <div class="segmented-control">
+            <label class="segment-option" id="labelCloud">
+              <input type="radio" name="deploymentType" id="typeCloud" value="cloud" checked>
+              <span class="segment-btn">
+                <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+                </svg>
+                <span class="segment-title">Jira Cloud</span>
+                <span class="segment-desc">atlassian.net (API Token)</span>
+              </span>
+            </label>
+
+            <label class="segment-option" id="labelServer">
+              <input type="radio" name="deploymentType" id="typeServer" value="server">
+              <span class="segment-btn">
+                <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                  <line x1="6" y1="6" x2="6.01" y2="6" />
+                  <line x1="6" y1="18" x2="6.01" y2="18" />
+                </svg>
+                <span class="segment-title">Data Center / Server</span>
+                <span class="segment-desc">Self-hosted (PAT 8.14+)</span>
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Jira Base URL -->
+        <div class="form-group">
+          <label for="jiraBaseUrl" class="form-label">
+            Jira Base URL <span class="required">*</span>
+          </label>
+          <div class="input-wrapper">
+            <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
+              autocomplete="url" spellcheck="false" required>
+          </div>
+          <div id="urlHint" class="field-hint">
+            Must use HTTPS. Context paths are preserved (e.g., <code>https://jira.example.com/jira</code>).
+          </div>
+          <div id="urlError" class="field-error" role="alert"></div>
+        </div>
+
+        <!-- Jira Cloud Account Email (Conditional) -->
+        <div class="form-group" id="cloudEmailGroup">
+          <label for="jiraEmail" class="form-label">
+            Atlassian Account Email <span class="required">*</span>
+          </label>
+          <div class="input-wrapper">
+            <input type="email" id="jiraEmail" name="jiraEmail" placeholder="name@example.com" autocomplete="email"
+              spellcheck="false">
+          </div>
+          <div class="field-hint">The primary email associated with your Atlassian Cloud account.</div>
+          <div id="emailError" class="field-error" role="alert"></div>
+        </div>
+
+        <!-- API Token / PAT -->
+        <div class="form-group">
+          <label for="jiraToken" class="form-label" id="tokenLabel">
+            Atlassian API Token <span class="required">*</span>
+          </label>
+          <div class="input-wrapper password-wrapper">
+            <input type="password" id="jiraToken" name="jiraToken" placeholder="Enter your API token" autocomplete="off"
+              spellcheck="false" required>
+            <button type="button" id="toggleTokenVisibility" class="btn-icon" title="Show or hide token"
+              aria-label="Toggle token visibility">
+              <svg id="eyeIcon" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              <svg id="eyeOffIcon" class="icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path
+                  d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
+              </svg>
+            </button>
+          </div>
+          <div id="tokenHelpText" class="field-hint">
+            <span id="cloudTokenHelp">
+              Create an API token at
+              <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank"
+                rel="noopener noreferrer">
+                Atlassian Account Settings &nearr;
+              </a>
+            </span>
+            <span id="serverTokenHelp" class="hidden">
+              Generate a Personal Access Token (PAT) from your Jira profile menu (requires Jira Data Center / Server
+              8.14+).
+            </span>
+          </div>
+          <div id="tokenError" class="field-error" role="alert"></div>
+        </div>
+
+        <!-- Security and Storage Notice -->
+        <div class="security-banner">
+          <svg class="security-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          <div class="security-content">
+            <strong>Security & Privacy:</strong>
+            </br>
+            Your Jira credentials are stored locally in your browser.
+            Requests go directly to your Jira instance over HTTPS.
+            We don't use external servers or log your credentials.
+          </div>
+        </div>
+
+        <!-- Status & Feedback Area -->
+        <div id="statusArea" class="status-container hidden" role="region" aria-live="polite"></div>
+
+        <!-- Actions -->
+        <div class="form-actions">
+          <button type="button" id="testConnectionBtn" class="btn btn-secondary">
+            <span class="btn-spinner hidden" id="testSpinner"></span>
+            <span class="btn-text">Test Connection</span>
+          </button>
+          <button type="submit" id="saveSettingsBtn" class="btn btn-primary">
+            <span class="btn-text">Save Settings</span>
+          </button>
+        </div>
+      </form>
+    </main>
+
+    <footer class="app-footer">
+      <span>Timesheet for Jira &bull; Weekly Worklogs & Time Logging</span>
+    </footer>
+  </div>
+
+  <script type="module" src="options.js"></script>
+</body>
+
+</html>
