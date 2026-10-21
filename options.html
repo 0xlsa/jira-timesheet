@@ -201,6 +201,27 @@
     <!-- SECTION 2: SETTINGS VIEW (EXISTING FORM RETAINED) -->
     <main id="settingsSection" class="settings-card hidden" role="tabpanel" aria-labelledby="tabSettings">
       <form id="settingsForm" novalidate>
+
+        <!-- Jira Instance URL -->
+        <div class="form-group">
+          <label for="jiraBaseUrl" class="form-label">
+            <svg class="form-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            Jira Instance URL <span class="required">*</span>
+          </label>
+          <div class="input-wrapper">
+            <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
+              autocomplete="url" spellcheck="false" required>
+          </div>
+          <div id="urlHint" class="field-hint">
+            Enter your Jira instance URL, including any context path.
+          </div>
+          <div id="urlError" class="field-error" role="alert"></div>
+        </div>
+
         <!-- Deployment Type Selector -->
         <fieldset class="form-group deployment-group">
           <legend class="form-label">Deployment Type</legend>
@@ -208,6 +229,10 @@
             <label class="segment-option" id="labelCloud">
               <input type="radio" name="deploymentType" id="typeCloud" value="cloud" checked>
               <span class="segment-btn">
+                <svg class="segment-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
                 <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
                 </svg>
@@ -219,6 +244,10 @@
             <label class="segment-option" id="labelServer">
               <input type="radio" name="deploymentType" id="typeServer" value="server">
               <span class="segment-btn">
+                <svg class="segment-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
                 <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
                   <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
@@ -231,21 +260,6 @@
             </label>
           </div>
         </fieldset>
-
-        <!-- Jira Base URL -->
-        <div class="form-group">
-          <label for="jiraBaseUrl" class="form-label">
-            Jira Base URL <span class="required">*</span>
-          </label>
-          <div class="input-wrapper">
-            <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
-              autocomplete="url" spellcheck="false" required>
-          </div>
-          <div id="urlHint" class="field-hint">
-            Must use HTTPS. Context paths are preserved (e.g., <code>https://jira.example.com/jira</code>).
-          </div>
-          <div id="urlError" class="field-error" role="alert"></div>
-        </div>
 
         <!-- Jira Cloud Account Email (Conditional) -->
         <div class="form-group" id="cloudEmailGroup">
@@ -284,15 +298,12 @@
           </div>
           <div id="tokenHelpText" class="field-hint">
             <span id="cloudTokenHelp">
-              Create an API token at
+              Create an API token in your
               <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank"
-                rel="noopener noreferrer">
-                Atlassian Account Settings &nearr;
-              </a>
+                rel="noopener noreferrer">Atlassian account security settings</a>.
             </span>
             <span id="serverTokenHelp" class="hidden">
-              Generate a Personal Access Token (PAT) from your Jira profile menu (requires Jira Data Center / Server
-              8.14+).
+              Generate a personal access token in your Jira profile settings.
             </span>
           </div>
           <div id="tokenError" class="field-error" role="alert"></div>

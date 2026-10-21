@@ -101,6 +101,12 @@ let isBusyFetching = false;
 // Data Center PAT never overwrite each other when switching types.
 const tokensByType = { cloud: '', server: '' };
 
+// Connection test bookkeeping. Bumping the id invalidates any in-flight test, so a
+// late result cannot mark changed settings as connected. `hasUntestedChanges`
+// records edits made since the last successful test.
+let connectionTestId = 0;
+let hasUntestedChanges = false;
+
 // ============================================================================
 // Theme Toggle
 // ============================================================================
@@ -607,6 +613,18 @@ function switchDeploymentType(type) {
   tokensByType[previousType] = jiraTokenInput.value.trim();
   setDeploymentType(type);
   jiraTokenInput.value = tokensByType[type];
+  invalidateConnectionStatus();
+}
+
+/**
+ * Discards the previous connection test result after a connection-relevant setting
+ * changes, returning the status area to its neutral (hidden) state.
+ */
+function invalidateConnectionStatus() {
+  connectionTestId++;
+  hasUntestedChanges = true;
+  statusArea.className = 'status-container hidden';
+  statusArea.innerHTML = '';
 }
 
 /**
@@ -788,12 +806,14 @@ async function onTestConnection() {
   }
 
   const { baseUrl, deploymentType, email, token, originPattern } = formValidation.values;
+  const testId = ++connectionTestId;
 
   renderStatus('loading');
   setBusy(true);
 
   try {
     const permissionGranted = await ensureHostPermission(originPattern);
+    if (testId !== connectionTestId) return;
     if (!permissionGranted) {
       renderStatus('error', {
         error: `Permission to connect to "${originPattern}" was not granted. Timesheet for Jira requires host permission to reach your Jira instance.`
@@ -811,8 +831,11 @@ async function onTestConnection() {
 
     const client = new JiraClient(baseUrl, provider);
     const result = await client.testConnection();
+    // Settings changed while the test was running: the result no longer applies.
+    if (testId !== connectionTestId) return;
 
     if (result.success) {
+      hasUntestedChanges = false;
       renderStatus('success', result);
 
       if (isExtensionContext() && ext.storage && ext.storage.local) {
@@ -829,6 +852,7 @@ async function onTestConnection() {
       renderStatus('error', result);
     }
   } catch (err) {
+    if (testId !== connectionTestId) return;
     renderStatus('error', {
       error: `Unexpected error: ${err.message || 'Unknown failure'}`
     });
@@ -876,6 +900,12 @@ async function onSaveSettings(event) {
         serverToken: tokensByType.server,
         savedAt: new Date().toISOString()
       });
+
+      // Don't show the previous "Connection Successful" on next load for settings
+      // that were changed and saved without being tested.
+      if (hasUntestedChanges) {
+        await ext.storage.local.remove('lastTestResult');
+      }
     }
 
     renderStatus('info', {
@@ -1034,16 +1064,19 @@ jiraBaseUrlInput.addEventListener('blur', () => {
 jiraBaseUrlInput.addEventListener('input', () => {
   jiraBaseUrlInput.classList.remove('is-invalid');
   urlError.classList.remove('visible');
+  invalidateConnectionStatus();
 });
 
 jiraEmailInput.addEventListener('input', () => {
   jiraEmailInput.classList.remove('is-invalid');
   emailError.classList.remove('visible');
+  invalidateConnectionStatus();
 });
 
 jiraTokenInput.addEventListener('input', () => {
   jiraTokenInput.classList.remove('is-invalid');
   tokenError.classList.remove('visible');
+  invalidateConnectionStatus();
 });
 
 testConnectionBtn.addEventListener('click', onTestConnection);

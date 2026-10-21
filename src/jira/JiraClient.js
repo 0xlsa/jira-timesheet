@@ -427,43 +427,60 @@ export class JiraClient {
   /**
    * Executes a JQL search query against the Jira REST API.
    *
+   * Jira Cloud uses `/rest/api/3/search/jql`, which pages with `nextPageToken`
+   * (the old `/rest/api/3/search` returns 410 Gone; see Atlassian CHANGE-2046).
+   * Jira Data Center / Server uses `/rest/api/2/search`, which pages with `startAt`.
+   *
    * @param {string} jql - JQL query string
    * @param {object} [options]
-   * @param {number} [options.startAt=0]
+   * @param {number} [options.startAt=0] - Data Center / Server pagination offset
+   * @param {string} [options.nextPageToken] - Jira Cloud pagination token
    * @param {number} [options.maxResults=50]
    * @param {string[]} [options.fields=['summary', 'worklog']]
    * @returns {Promise<{
-   *   startAt: number,
-   *   maxResults: number,
-   *   total: number,
-   *   issues: Array<object>
+   *   issues: Array<object>,
+   *   startAt?: number,
+   *   maxResults?: number,
+   *   total?: number,
+   *   nextPageToken?: string,
+   *   isLast?: boolean
    * }>}
    */
   async searchIssues(jql, options = {}) {
+    const isCloud = this.deploymentType === 'cloud';
     const startAt = Math.max(0, Number(options.startAt) || 0);
     const maxResults = Math.min(100, Math.max(1, Number(options.maxResults) || 50));
     const fields = Array.isArray(options.fields) && options.fields.length > 0
       ? options.fields
       : ['summary', 'worklog'];
 
-    const apiVersion = this.deploymentType === 'cloud' ? '3' : '2';
-
     // Use GET rather than POST: Firefox attaches an `Origin: moz-extension://...` header
     // to extension POST requests, which Jira's XSRF protection (or a fronting proxy)
     // rejects with 403/400. GET requests are sent without it in both browsers.
-    const queryParams = new URLSearchParams({
+    const params = new URLSearchParams({
       jql,
-      startAt: String(startAt),
       maxResults: String(maxResults),
       fields: fields.join(',')
-    }).toString();
+    });
 
-    let endpoint = `/rest/api/${apiVersion}/search?${queryParams}`;
+    if (isCloud) {
+      if (options.nextPageToken) {
+        params.set('nextPageToken', options.nextPageToken);
+      }
+    } else {
+      params.set('startAt', String(startAt));
+    }
+
+    const queryParams = params.toString();
+
+    let endpoint = isCloud
+      ? `/rest/api/3/search/jql?${queryParams}`
+      : `/rest/api/2/search?${queryParams}`;
     let response = await this.#request(endpoint);
 
-    // Cloud fallback: if /rest/api/3/search returns 404, fallback to /rest/api/2/search
-    if (response.status === 404 && endpoint.includes('/rest/api/3/')) {
-      endpoint = `/rest/api/2/search?${queryParams}`;
+    // Cloud fallback: if /rest/api/3/search/jql returns 404, fallback to /rest/api/2/search/jql
+    if (response.status === 404 && isCloud) {
+      endpoint = `/rest/api/2/search/jql?${queryParams}`;
       response = await this.#request(endpoint);
     }
 
@@ -593,7 +610,8 @@ export class JiraClient {
    * Retrieves Jira worklogs for the authenticated user across a date range.
    *
    * Guarantees:
-   * - Uses supported Jira REST API endpoints (`/search` and `/issue/{key}/worklog`).
+   * - Uses supported Jira REST API endpoints (`/search/jql` on Cloud, `/search` on Data Center / Server,
+   *   and `/issue/{key}/worklog`).
    * - Automatically resolves and caches current user identity.
    * - Handles pagination for large result sets.
    * - Avoids truncation on issues with >20 worklogs by fetching full issue worklogs.
@@ -645,14 +663,18 @@ export class JiraClient {
     const jql = `worklogAuthor = currentUser() AND worklogDate >= "${jqlStartDate}" AND worklogDate <= "${jqlEndDate}" order by updated desc`;
 
     // 3. Paginate through all matching issues
+    // Jira Cloud pages with nextPageToken / isLast; Data Center / Server with startAt / total.
+    const isCloud = this.deploymentType === 'cloud';
     const issues = [];
     let startAt = 0;
+    let nextPageToken;
     const maxResults = 50;
-    let total = 0;
+    let hasMore = false;
 
     do {
       const searchResult = await this.searchIssues(jql, {
         startAt,
+        nextPageToken,
         maxResults,
         fields: ['summary', 'worklog']
       });
@@ -662,9 +684,16 @@ export class JiraClient {
       }
 
       issues.push(...searchResult.issues);
-      startAt += searchResult.issues.length;
-      total = Number(searchResult.total) || 0;
-    } while (startAt < total);
+
+      if (isCloud) {
+        const previousToken = nextPageToken;
+        nextPageToken = searchResult.nextPageToken;
+        hasMore = Boolean(nextPageToken) && searchResult.isLast !== true && nextPageToken !== previousToken;
+      } else {
+        startAt += searchResult.issues.length;
+        hasMore = startAt < (Number(searchResult.total) || 0);
+      }
+    } while (hasMore);
 
     // 4. Extract and filter worklogs
     const collectedWorklogs = [];

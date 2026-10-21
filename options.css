@@ -901,6 +901,14 @@ body {
   margin-bottom: 6px;
 }
 
+.form-label-icon {
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+  vertical-align: -2px;
+  color: var(--text-subtle);
+}
+
 .required {
   color: var(--danger);
 }
@@ -933,6 +941,27 @@ body {
   background: var(--bg-card-highlight);
   cursor: pointer;
   transition: all var(--transition);
+  position: relative;
+}
+
+.segment-check {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 16px;
+  height: 16px;
+  padding: 3px;
+  border-radius: 50%;
+  background-color: var(--primary);
+  color: #ffffff;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--transition), transform var(--transition);
+}
+
+.segment-option input[type="radio"]:checked + .segment-btn .segment-check {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .segment-btn:hover {
