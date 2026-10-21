@@ -184,16 +184,16 @@ timesheet-for-jira/
 
 ### Configuring Jira Cloud
 1. Open the Timesheet for Jira settings page (`chrome://extensions/?options=...` or right-click extension icon > **Options**).
-2. Select **Jira Cloud** under Deployment Type.
-3. Enter your **Jira Base URL** (e.g., `https://your-workspace.atlassian.net`).
+2. Enter your **Jira Instance URL** (e.g., `https://your-workspace.atlassian.net`).
+3. Select **Jira Cloud** under Jira Edition.
 4. Enter your **Atlassian Account Email** (e.g., `jane.doe@company.com`).
 5. Enter your **Atlassian API Token**.
 6. Click **Test Connection**. Chrome will prompt you to allow access to your Atlassian domain. Click **Allow**.
 7. Once verified, click **Save Settings**.
 
 ### Configuring Jira Data Center / Server
-1. Select **Data Center / Server** under Deployment Type.
-2. Enter your **Jira Base URL**. If hosted under a sub-path, include it (e.g., `https://jira.corp.internal/jira`).
+1. Enter your **Jira Instance URL**. If hosted under a sub-path, include it (e.g., `https://jira.corp.internal/jira`).
+2. Select **Data Center / Server** under Jira Edition.
 3. Enter your **Personal Access Token (PAT)**.
 4. Click **Test Connection** and approve the host permission prompt.
 5. Once verified, click **Save Settings**.

@@ -76,6 +76,7 @@ const tokenLabel = document.getElementById('tokenLabel');
 const cloudTokenHelp = document.getElementById('cloudTokenHelp');
 const serverTokenHelp = document.getElementById('serverTokenHelp');
 const toggleTokenBtn = document.getElementById('toggleTokenVisibility');
+const openInstanceBtn = document.getElementById('openInstanceBtn');
 const eyeIcon = document.getElementById('eyeIcon');
 const eyeOffIcon = document.getElementById('eyeOffIcon');
 const urlError = document.getElementById('urlError');
@@ -617,6 +618,29 @@ function switchDeploymentType(type) {
 }
 
 /**
+ * Returns the entered Jira instance URL if it is valid and uses HTTPS, otherwise null.
+ * @returns {string | null}
+ */
+function getOpenableInstanceUrl() {
+  const check = JiraUrlValidator.validate(jiraBaseUrlInput.value);
+  if (!check.isValid) return null;
+
+  try {
+    const parsed = new URL(check.sanitizedUrl);
+    return parsed.protocol === 'https:' ? parsed.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Enables the "open instance" action only while the URL field holds a valid HTTPS URL.
+ */
+function updateOpenInstanceBtn() {
+  openInstanceBtn.disabled = getOpenableInstanceUrl() === null;
+}
+
+/**
  * Discards the previous connection test result after a connection-relevant setting
  * changes, returning the status area to its neutral (hidden) state.
  */
@@ -974,6 +998,7 @@ async function loadSavedSettings() {
     if (data.jiraBaseUrl) {
       jiraBaseUrlInput.value = data.jiraBaseUrl;
     }
+    updateOpenInstanceBtn();
 
     if (data.email) {
       jiraEmailInput.value = data.email;
@@ -1065,6 +1090,18 @@ jiraBaseUrlInput.addEventListener('input', () => {
   jiraBaseUrlInput.classList.remove('is-invalid');
   urlError.classList.remove('visible');
   invalidateConnectionStatus();
+  updateOpenInstanceBtn();
+});
+
+openInstanceBtn.addEventListener('click', () => {
+  const url = getOpenableInstanceUrl();
+  if (!url) return;
+
+  if (isExtensionContext() && ext.tabs && ext.tabs.create) {
+    ext.tabs.create({ url });
+  } else {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
 });
 
 jiraEmailInput.addEventListener('input', () => {

@@ -314,7 +314,7 @@ export class JiraClient {
       return {
         success: false,
         statusCode: 404,
-        error: 'Endpoint not found (404 Not Found). Verify your Jira Base URL (including any context path such as /jira) and deployment type.',
+        error: 'Endpoint not found (404 Not Found). Verify your Jira Base URL (including any context path such as /jira) and Jira edition.',
         errorType: 'NOT_FOUND',
         serverMessage,
         testedAt

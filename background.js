@@ -126,7 +126,7 @@ async function handleTestConnection(payload) {
   } else {
     return {
       success: false,
-      error: 'Invalid deployment type selected. Choose Jira Cloud or Jira Data Center / Server.',
+      error: 'Invalid Jira edition selected. Choose Jira Cloud or Jira Data Center / Server.',
       errorType: 'CONFIG_ERROR',
       testedAt: new Date().toISOString()
     };
@@ -174,7 +174,7 @@ export async function handleFetchWorklogs(payload, options = {}) {
   } else {
     return {
       success: false,
-      error: 'Invalid deployment type selected.'
+      error: 'Invalid Jira edition selected.'
     };
   }
 

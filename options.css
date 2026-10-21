@@ -1031,7 +1031,8 @@ input.is-invalid:focus {
   box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.2);
 }
 
-.password-wrapper input {
+.password-wrapper input,
+.url-wrapper input {
   padding-right: 36px;
 }
 
@@ -1049,8 +1050,13 @@ input.is-invalid:focus {
   border-radius: var(--radius-xs);
 }
 
-.btn-icon:hover {
+.btn-icon:hover:not(:disabled) {
   color: var(--text-main);
+}
+
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .btn-icon .icon {
