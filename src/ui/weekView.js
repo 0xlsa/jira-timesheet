@@ -82,7 +82,8 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
     const dayCard = document.createElement('button');
     dayCard.type = 'button';
-    dayCard.className = `day-card ${day.isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''} ${day.totalDurationSeconds > 0 ? 'has-time' : ''}`;
+    const isWeekend = day.date.getDay() === 0 || day.date.getDay() === 6;
+    dayCard.className = `day-card ${day.isToday ? 'is-today' : ''} ${isSelected ? 'is-selected' : ''} ${day.totalDurationSeconds > 0 ? 'has-time' : ''} ${isWeekend ? 'is-weekend' : ''}`;
     dayCard.dataset.dateKey = day.dateKey;
     dayCard.setAttribute('role', 'tab');
     dayCard.setAttribute('aria-selected', isSelected ? 'true' : 'false');

@@ -591,6 +591,16 @@ body {
   transition: border-color var(--transition), box-shadow var(--transition), background-color var(--transition);
 }
 
+/* Weekend (Sat/Sun): a subtly different surface. Declared before the hover, today
+   and selected rules so those states still take precedence. */
+.day-card.is-weekend {
+  background-color: var(--bg-card-highlight);
+}
+
+.day-card.is-weekend .day-indicator {
+  background-color: var(--bg-hover);
+}
+
 .day-card:hover {
   border-color: #484f58;
   box-shadow: var(--shadow-md);
