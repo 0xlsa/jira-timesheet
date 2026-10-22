@@ -6,7 +6,8 @@
  * module has no browser dependencies.
  *
  * Stored keys:
- * - deploymentType ('cloud' | 'server'), email
+ * - deploymentType ('cloud' | 'server')
+ * - email: the Atlassian account email for Jira Cloud, kept when saving either edition
  * - jiraBaseUrl, token: the active edition's instance URL and token (read by the
  *   worklog view and background)
  * - cloudBaseUrl, serverBaseUrl, cloudToken, serverToken: per-edition values kept

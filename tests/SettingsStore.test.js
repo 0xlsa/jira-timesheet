@@ -70,6 +70,21 @@ describe('settingsStore', () => {
     assert.deepEqual(loaded.tokensByType, { cloud: 'api', server: 'pat' });
   });
 
+  it('keeps the Cloud account email when Data Center / Server is saved', async () => {
+    const store = createSettingsStore(createMemoryStorageArea());
+
+    await store.save({
+      deploymentType: 'server',
+      email: 'dev@example.com',
+      baseUrlsByType: { cloud: 'https://acme.atlassian.net', server: 'https://jira.example.com' },
+      tokensByType: { cloud: 'api', server: 'pat' }
+    });
+
+    const loaded = await store.load();
+    assert.equal(loaded.deploymentType, 'server');
+    assert.equal(loaded.email, 'dev@example.com');
+  });
+
   it('stores and clears the last successful test result', async () => {
     const store = createSettingsStore(createMemoryStorageArea());
 

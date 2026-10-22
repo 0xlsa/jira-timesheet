@@ -527,7 +527,8 @@ function validateForm() {
     values: {
       baseUrl: urlCheck.sanitizedUrl,
       deploymentType,
-      email: deploymentType === 'cloud' ? email : '',
+      // Kept for both editions so saving Data Center / Server doesn't erase the Cloud email.
+      email,
       token
     }
   };
