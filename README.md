@@ -2,7 +2,7 @@
 
 **Timesheet for Jira** is a Manifest V3 browser extension that shows your Jira worklogs in an interactive weekly timesheet. Creating and editing worklogs from the weekly view is planned for the next phase.
 
-This release implements the core **Connection & Authentication Settings** module, supporting connection verification against Atlassian Jira Cloud, Jira Data Center, and compatible Jira Server instances.
+It runs in Chrome (Manifest V3) and Firefox (116+) and connects to Atlassian Jira Cloud, Jira Data Center, and compatible Jira Server instances (8.14+).
 
 ---
 
@@ -16,8 +16,8 @@ This release implements the core **Connection & Authentication Settings** module
   - [Jira Data Center](#jira-data-center)
   - [Legacy Jira Server & Version Compatibility](#legacy-jira-server--version-compatibility)
 - [Security Architecture](#security-architecture)
-  - [Permission Scoping & Host Permissions](#permission-scoping--host-permissions)
-  - [Storage Security (chrome.storage.local)](#storage-security-chromestoragelocal)
+  - [Host Permissions](#host-permissions)
+  - [Storage Security (storage.local)](#storage-security-storagelocal)
   - [Credential Redaction & Origin Isolation](#credential-redaction--origin-isolation)
 - [Installation Guide (Load Unpacked)](#installation-guide-load-unpacked)
 - [Configuration Instructions](#configuration-instructions)
@@ -34,15 +34,17 @@ This release implements the core **Connection & Authentication Settings** module
 - **Week Navigation**: Effortlessly navigate between previous, next, and current weeks with dynamic date range display and quick actions.
 - **Accurate Duration Aggregation**: Aggregates logged time strictly in seconds before formatting to hours and minutes, ensuring weekly totals strictly equal the sum of daily totals and daily totals equal the sum of their displayed worklogs.
 - **Consistent Local Timezone Grouping**: Uses the user's browser local timezone to group worklog timestamps, ensuring midnight boundaries are faithfully represented.
-- **Interactive Day Accordions**: Expand and collapse individual days or all days simultaneously without altering totals.
+- **Weekday Cards & Day Panel**: Seven cards (Monday through Sunday) show each day's total, worklog count, and a duration bar; selecting a card lists that day's worklogs in a detail panel below, without altering totals.
 - **Comprehensive Worklog Details**: Displays Jira issue key (with direct clickable link), issue summary, formatted duration, start time, author, and formatted comments (supporting both string and Atlassian Document Format).
-- **Multi-Deployment Support**: Connects to Jira Cloud (`*.atlassian.net`) as well as on-premise Jira Data Center and Server.
+- **Jira Cloud and Data Center / Server**: Connects to Jira Cloud (`*.atlassian.net`) as well as self-hosted Jira Data Center and Server.
+- **Per-Edition Settings**: The Jira Instance URL and token are saved separately for each Jira edition, so switching between Cloud and Data Center / Server never overwrites the other.
+- **Connection Status**: Test Connection shows the connected account (and Jira version on Data Center / Server); the result is cleared as soon as a connection setting changes.
+- **Open Jira Instance**: A button in the URL field opens the entered instance in a new tab (valid HTTPS URLs only).
 - **Context Path Preservation**: Correctly handles and preserves reverse-proxy context paths such as `https://jira.company.com/jira`.
 - **Strict URL Validation**: Rejects insecure HTTP, embedded credentials (`https://user:pass@...`), query parameters, and fragments.
-- **Dynamic Host Permission Scoping**: Requests browser host permissions on-demand for only the configured Jira instance via the Chrome Permissions API.
-- **Zero-Dependency Runtime**: Built purely on modern Web Standards and Chrome Extension Manifest V3 APIs (ES Modules, standard Fetch API, Chrome Storage API).
-- **Secure Token Protection**: Redacts credentials in error messages, string serialization, and logs.
-- **Dark Theme Visual Reference**: Compact typography, subtle separators, rounded containers, and prominent duration totals.
+- **Zero-Dependency Runtime**: Built on web standards and the WebExtensions API shared by Chrome and Firefox (ES modules, Fetch, `storage.local`, `tabs`).
+- **Secure Token Protection**: Keeps credentials out of URLs, error messages, serialization, and logs.
+- **Light and Dark Themes**: Compact typography, subtle borders, rounded cards, and prominent duration totals, with a theme toggle.
 
 ---
 
@@ -80,17 +82,19 @@ graph TD
 2. **Centralized API Client (`src/jira/JiraClient.js`)**:
    - Encapsulates all Jira REST interactions.
    - Handles identity verification (`/rest/api/3/myself` with fallback to `/rest/api/2/myself`).
+   - Searches issues with `/rest/api/3/search/jql` (token pagination) on Jira Cloud and `/rest/api/2/search` (`startAt` pagination) on Data Center / Server.
    - Fetches version metadata (`/rest/api/2/serverInfo`) for Data Center instances.
    - Translates HTTP status codes (401, 403, 404, 500) into actionable error explanations.
    - Enforces origin verification before dispatching credentials.
 3. **URL Validation & Sanitization (`src/validation/JiraUrlValidator.js`)**:
    - Strict HTTPS enforcement.
    - Strips accidental endpoint suffixes if users paste full paths (e.g., `/rest/api/2/myself`).
-   - Generates minimal origin match patterns for Chrome host permissions (e.g. `https://jira.example.com/*`).
+   - Generates origin match patterns (e.g. `https://jira.example.com/*`) and checks same-origin requests.
+   - Uses an edition-specific example URL in error messages.
 4. **Client Factory (`src/jira/createJiraClient.js`)**:
    - The one place that validates the instance URL and maps the Jira edition to its auth provider.
 5. **Settings Store (`src/settings/settingsStore.js`)**:
-   - Owns the storage keys, the per-edition tokens (with fallback for settings saved before they existed), and the last connection test result.
+   - Owns the storage keys, the per-edition instance URLs and tokens (with fallback for settings saved before they existed), and the last connection test result.
    - Takes the storage area as a parameter: `storage.local` in the extension, an in-memory area in tests.
 6. **Worklog Logic (`src/worklog/`)**:
    - `worklogUtils.js`: pure functions for week ranges, local-timezone grouping, duration formatting, and aggregation.
@@ -108,7 +112,7 @@ graph TD
 timesheet-for-jira/
 ├── manifest.json                  # Extension Manifest V3 configuration
 ├── options.html                   # Weekly worklog & settings layout
-├── options.css                    # Dark theme, compact typography & rounded containers
+├── options.css                    # Light & dark themes, compact typography & rounded cards
 ├── options.js                     # Weekly calendar & settings controller
 ├── background.js                  # Service worker for lifecycle & runtime messaging
 ├── src/
@@ -179,26 +183,26 @@ timesheet-for-jira/
 
 ## Security Architecture
 
-### Permission Scoping & Host Permissions
-- Timesheet for Jira declares **zero static host permissions** in `manifest.json`.
-- Only minimal required permissions (`storage`) are requested by default.
-- Dynamic host permissions (`optional_host_permissions: ["https://*/*"]`) are requested **strictly on-demand** when the user clicks **Test Connection** or **Save Settings**.
-- Permission is scoped specifically to the user's Jira origin pattern (e.g., `https://jira.company.com/*`). If denied, credentials are never dispatched.
+### Host Permissions
+- `manifest.json` requests the `storage` permission and the host permission `https://*/*`. A broad HTTPS pattern is needed because the Jira instance URL is entered by the user (Cloud sites and self-hosted domains vary); it is granted at install time, so there is no runtime permission prompt.
+- Plain HTTP origins are never allowed.
+- Requests are only sent to the configured Jira instance: `JiraClient` checks that every outgoing request has the same origin as the validated instance URL before attaching credentials.
 
-### Storage Security (`chrome.storage.local`)
-- Settings and credentials are saved locally in the browser via `chrome.storage.local`.
-- **Important Security Notice**: `chrome.storage.local` provides local browser profile storage; it is **not an encrypted hardware vault** (such as TPM or OS keychain). While extensions cannot read storage from other extensions, users on shared operating system profiles should use dedicated browser profiles or disk-level encryption.
+### Storage Security (`storage.local`)
+- Settings and credentials are saved locally in the browser via the WebExtensions `storage.local` area (`chrome.storage.local` / `browser.storage.local`).
+- **Important Security Notice**: `storage.local` provides local browser profile storage; it is **not an encrypted hardware vault** (such as TPM or OS keychain). While extensions cannot read storage from other extensions, users on shared operating system profiles should use dedicated browser profiles or disk-level encryption.
 
 ### Credential Redaction & Origin Isolation
 - **No Credentials in URLs**: Tokens are strictly passed in HTTP headers, never as URL query parameters.
 - **Origin Verification**: `JiraClient` verifies that any outgoing API request matches the exact origin of the validated base URL.
-- **Zero Credential Logging**: `JiraCloudTokenProvider` and `JiraPatProvider` override `toJSON()` and `toString()` to redact secrets (`[REDACTED]`), preventing accidental leakage into `console.log`, exception handlers, or telemetry.
+- **Zero Credential Logging**: `JiraCloudTokenProvider` and `JiraPatProvider` keep tokens in private fields and override `toJSON()` and `toString()` to omit them (the Cloud email is masked), preventing accidental leakage into `console.log`, exception handlers, or telemetry.
 - **Content Security Policy (CSP)**: Enforces `script-src 'self'; object-src 'self';` with no `eval()` or remote executable scripts.
 
 ---
 
 ## Installation Guide (Load Unpacked)
 
+### Chrome and Chromium-based browsers
 1. Open Google Chrome (or any Chromium-based browser such as Brave, Edge, or Vivaldi).
 2. Navigate to `chrome://extensions/`.
 3. Enable **Developer mode** using the toggle switch in the top-right corner.
@@ -209,31 +213,38 @@ timesheet-for-jira/
    ```
 6. The **Timesheet for Jira** card will appear in your extension list. Click the extension icon in your toolbar or open the extension options to configure your connection.
 
+### Firefox (116+)
+1. Navigate to `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…** and select `manifest.json` in this directory.
+3. Click the extension icon in the toolbar to open the timesheet. Temporary add-ons are removed when Firefox restarts.
+
 ---
 
 ## Configuration Instructions
 
 ### Configuring Jira Cloud
-1. Open the Timesheet for Jira settings page (`chrome://extensions/?options=...` or right-click extension icon > **Options**).
+1. Click the Timesheet for Jira toolbar icon and open the **Connection Settings** tab.
 2. Select **Jira Cloud** under Jira Edition.
 3. Enter your **Jira Instance URL** (e.g., `https://your-workspace.atlassian.net`).
 4. Enter your **Atlassian Account Email** (e.g., `jane.doe@company.com`).
 5. Enter your **Atlassian API Token**.
-6. Click **Test Connection**. Chrome will prompt you to allow access to your Atlassian domain. Click **Allow**.
+6. Click **Test Connection** and check that your account is shown.
 7. Once verified, click **Save Settings**.
 
 ### Configuring Jira Data Center / Server
-1. Select **Data Center / Server** under Jira Edition.
+1. In **Connection Settings**, select **Data Center / Server** under Jira Edition.
 2. Enter your **Jira Instance URL**. If hosted under a sub-path, include it (e.g., `https://jira.corp.internal/jira`).
 3. Enter your **Personal Access Token (PAT)**.
-4. Click **Test Connection** and approve the host permission prompt.
+4. Click **Test Connection** and check that your account and Jira version are shown.
 5. Once verified, click **Save Settings**.
+
+Each edition keeps its own instance URL and token, so you can configure both and switch between them; the selected edition is used when you save.
 
 ---
 
 ## Automated Testing
 
-The project includes an automated test suite verifying URL sanitization, credential headers, error responses, and origin integrity without connecting to any real Jira server.
+The project includes an automated test suite covering URL sanitization, credential headers, error responses, origin integrity, worklog search and pagination, date and duration logic, and settings persistence, without connecting to any real Jira server or browser.
 
 ### Running Tests
 
@@ -272,7 +283,7 @@ node --test tests/*.test.js
   - Tests network errors, timeout handling (`AbortSignal`), and invalid non-JSON payloads.
   - Asserts that credentials are never exposed in return values or error details.
 - **`tests/JiraClientWorklog.test.js`**:
-  - Tests JQL search execution with pagination parameters (`startAt`, `maxResults`).
+  - Tests JQL search on Jira Cloud (`/rest/api/3/search/jql` with `nextPageToken`) and Data Center / Server (`/rest/api/2/search` with `startAt`).
   - Tests worklog retrieval across multiple issues and date filtering.
   - Tests automated secondary pagination for issues with >20 worklogs (`/issue/{key}/worklog`).
   - Tests user identity matching (`accountId` on Cloud, `name`/`key` on Data Center).
@@ -291,6 +302,12 @@ node --test tests/*.test.js
   - Asserts that expanding and collapsing days does not alter totals.
 - **`tests/BackgroundMessages.test.js`**:
   - Verifies service worker messaging and end-to-end handler pipelines (`TEST_CONNECTION`, `FETCH_WORKLOGS`).
+- **`tests/WeeklyWorklogService.test.js`**:
+  - Tests the Monday-to-Sunday week range, including a week with a midnight daylight-saving change, and loading and aggregating a week through a client.
+- **`tests/SettingsStore.test.js`**:
+  - Tests per-edition instance URLs and tokens, fallback for older saved settings, the "configured" rule, and storing and clearing the connection test result.
+- **`tests/CompositionAndPlatform.test.js`**:
+  - Tests the Jira client factory, worklog author matching, and the platform adapter (extension APIs and the non-extension fallback).
 
 ---
 
@@ -298,13 +315,14 @@ node --test tests/*.test.js
 
 ### Architectural Decisions
 - **Native ES Modules**: Plain ES modules (`type: "module"`) are used without bundling or transpilation tools (e.g. Webpack/Vite). This minimizes build complexity, keeps code 1:1 readable in developer tools, and facilitates quick debugging.
-- **Zero Third-Party Runtime Dependencies**: All runtime functionality relies directly on the Chrome WebExtensions API and modern DOM/Fetch specifications.
-- **Strict Host Permission Prompting**: Rather than requesting wide permissions (`<all_urls>`), host permissions are explicitly requested on user action per origin, maximizing user trust and security auditability.
+- **Zero Third-Party Runtime Dependencies**: All runtime functionality relies directly on the WebExtensions API (shared by Chrome and Firefox) and modern DOM/Fetch specifications.
+- **One Codebase for Chrome and Firefox**: A single `manifest.json` declares both `background.service_worker` (Chrome) and `background.scripts` (Firefox); no browser-specific builds are needed.
+- **HTTPS-Only Host Access**: Host access is limited to `https://*/*` rather than `<all_urls>`, and credentials are only sent to the configured instance's origin.
 - **Atlassian Token Compatibility**: All REST calls supply `X-Atlassian-Token: no-check` to bypass XSRF defenses on Data Center REST endpoints.
 
 ### Jira API Access to Worklogs — Limitations & Mitigation
 1. **Search API 20-Item Worklog Limit**:
-   - *Limitation*: Jira's search endpoint (`/rest/api/3/search` or `/rest/api/2/search`) returns at most 20 worklogs inside `issue.fields.worklog`, even when `total` is higher.
+   - *Limitation*: Jira's search endpoint (`/rest/api/3/search/jql` on Cloud, `/rest/api/2/search` on Data Center / Server) returns at most 20 worklogs inside `issue.fields.worklog`, even when `total` is higher.
    - *Mitigation*: Timesheet for Jira detects when `issue.fields.worklog.total > worklog.length` and automatically queries `/rest/api/{2|3}/issue/{issueKey}/worklog` with full pagination to retrieve all worklogs for that issue.
 2. **JQL `worklogDate` Server Timezone Offsets**:
    - *Limitation*: Jira evaluates `worklogDate >= ... AND worklogDate <= ...` using the Jira server's configured timezone or Jira user profile timezone, which can differ from the browser's local timezone (potentially missing worklogs logged near midnight).
@@ -319,5 +337,5 @@ node --test tests/*.test.js
 6. **SSO / SAML Redirects**:
    - Instances requiring an interactive browser SAML/Okta redirection prior to REST API access must ensure API tokens or PATs bypass web SSO filtering for `/rest/api/*`.
 7. **Scope Limitation**:
-   - This release implements the weekly worklog view with daily and weekly totals, week navigation, and expand/collapse controls. Interactive drag-and-drop calendar time blocks and bidirectional worklog creation/editing are reserved for the next phase.
+   - This release implements the weekly worklog view with daily and weekly totals, week navigation, and weekday card selection. Interactive drag-and-drop calendar time blocks and bidirectional worklog creation/editing are reserved for the next phase.
 
