@@ -22,6 +22,7 @@ import {
 } from './src/worklog/worklogUtils.js';
 import {
   loadWeek,
+  logWork,
   saveWorklogChanges,
   deleteWorklog,
   replaceWorklogInWeek,
@@ -32,6 +33,7 @@ import { createPlatform } from './src/compat/browser-api.js';
 import { escapeHtml } from './src/ui/html.js';
 import { renderWeek } from './src/ui/weekView.js';
 import { openWorklogEditor } from './src/ui/worklogEditor.js';
+import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -278,16 +280,54 @@ function showToast(message) {
 }
 
 /**
- * Entry point for logging more work on a worklog's issue (the card's + button). The issue
- * comes from the week already loaded, so this makes no Jira requests.
- * The Log Work flow isn't built yet; until it is, this tells the user so.
+ * Opens the Log work panel for the issue of a worklog in the displayed week (the card's
+ * + button). The issue comes from the week already loaded, so opening makes no Jira requests.
+ * The date defaults to the selected day and the start time to now.
  * @param {string} worklogId - A worklog on the issue to log work against
  */
 function startLogWork(worklogId) {
-  const worklog = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
-  if (!worklog) return;
+  if (worklogEditor && !worklogEditor.requestClose()) return;
 
-  showToast(`Logging new work on ${worklog.issueKey} isn't available yet.`);
+  const source = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
+  const client = currentClient;
+  if (!source || !client) return;
+
+  const issue = {
+    issueId: source.issueId,
+    issueKey: source.issueKey,
+    issueSummary: source.issueSummary,
+    issueStatus: source.issueStatus
+  };
+
+  worklogEditor = openWorklogEditor(worklogEditorRoot, {
+    mode: 'create',
+    worklog: issue,
+    baseUrl: client.baseUrl,
+    initialForm: toNewWorklogForm({ dateKey: selectedDateKey }),
+    onSave: async (newWorklog) => {
+      const created = await logWork(client, issue, newWorklog, currentAggregatedData?.user);
+      const startedOn = new Date(created.started);
+      const dateKey = getLocalDateKey(startedOn);
+
+      // Add it to the displayed week (no reload) and show its day; another week loads it from Jira.
+      if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === dateKey)) {
+        selectedDateKey = dateKey;
+        showWeek(replaceWorklogInWeek(currentAggregatedData, created), currentBaseUrl);
+        showToast(`Work logged on ${issue.issueKey}.`);
+      } else {
+        showToast(`Work logged on ${issue.issueKey} for ${startedOn.toLocaleDateString()}.`);
+      }
+    },
+    onClose: () => {
+      worklogEditor = null;
+      if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+      // Return focus to the + button it was opened from, or the selected day.
+      (daysContainer.querySelector(`.worklog-log-btn[data-worklog-id="${CSS.escape(worklogId)}"]`) ||
+        daysContainer.querySelector('.day-card.is-selected'))?.focus();
+    }
+  });
+
+  renderDays(currentAggregatedData, currentBaseUrl);
 }
 
 /**

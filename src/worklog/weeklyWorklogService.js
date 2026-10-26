@@ -82,6 +82,33 @@ export async function saveWorklogChanges(client, worklog, changes) {
 }
 
 /**
+ * Logs new work on an issue and returns it as a source worklog, ready to add to the week
+ * with replaceWorklogInWeek().
+ *
+ * @param {{ createWorklog: Function }} client
+ * @param {{ issueId?: string, issueKey: string, issueSummary?: string, issueStatus?: object }} issue
+ * @param {{ started: Date, timeSpentSeconds: number, comment?: string }} worklog
+ * @param {object} [author] - Shown when Jira's response has no author (the current user)
+ * @returns {Promise<object>}
+ */
+export async function logWork(client, issue, worklog, author) {
+  const saved = await client.createWorklog(issue.issueId || issue.issueKey, worklog) || {};
+
+  return {
+    id: String(saved.id),
+    issueId: issue.issueId,
+    issueKey: issue.issueKey,
+    issueSummary: issue.issueSummary,
+    issueStatus: issue.issueStatus,
+    started: saved.started ?? worklog.started.toISOString(),
+    timeSpentSeconds: Number(saved.timeSpentSeconds ?? worklog.timeSpentSeconds) || 0,
+    timeSpent: saved.timeSpent ?? '',
+    comment: saved.comment !== undefined ? saved.comment : worklog.comment,
+    author: saved.author ?? author
+  };
+}
+
+/**
  * Deletes a worklog in Jira.
  *
  * @param {{ deleteWorklog: Function }} client

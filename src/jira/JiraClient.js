@@ -622,20 +622,7 @@ export class JiraClient {
       throw new Error('An issue and a worklog ID are required.');
     }
 
-    const body = {};
-    if (changes.started !== undefined) {
-      body.started = formatJiraDateTime(changes.started);
-    }
-    if (changes.timeSpentSeconds !== undefined) {
-      const seconds = changes.timeSpentSeconds;
-      if (!Number.isInteger(seconds) || seconds < 60) {
-        throw new Error('Duration must be a whole number of seconds and at least 1 minute.');
-      }
-      body.timeSpentSeconds = seconds;
-    }
-    if (changes.comment !== undefined) {
-      body.comment = this.deploymentType === 'cloud' ? plainTextToAdf(changes.comment) : String(changes.comment);
-    }
+    const body = this.#worklogBody(changes);
     if (Object.keys(body).length === 0) {
       throw new Error('No worklog changes to save.');
     }
@@ -652,6 +639,62 @@ export class JiraClient {
     }
 
     return await this.#parseJson(response, path);
+  }
+
+  /**
+   * Logs new work on an issue (`POST /issue/{issue}/worklog`). The issue itself is not
+   * changed apart from the time Jira records against it.
+   *
+   * @param {string} issueIdOrKey
+   * @param {object} worklog
+   * @param {Date} worklog.started - Start, sent with the local UTC offset
+   * @param {number} worklog.timeSpentSeconds - Duration; whole minutes, at least 60
+   * @param {string} [worklog.comment] - Work description; sent as ADF on Jira Cloud
+   * @returns {Promise<object>} The created worklog returned by Jira
+   */
+  async createWorklog(issueIdOrKey, worklog = {}) {
+    if (!issueIdOrKey) {
+      throw new Error('An issue is required.');
+    }
+    if (worklog.started === undefined || worklog.timeSpentSeconds === undefined) {
+      throw new Error('A start time and a duration are required.');
+    }
+
+    const path = this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog`);
+    const response = await this.#writeRequest(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.#worklogBody(worklog))
+    });
+
+    if (!response.ok) {
+      throw await this.#worklogWriteError(response, 'create');
+    }
+
+    return await this.#parseJson(response, path);
+  }
+
+  /**
+   * Builds a worklog request body from the fields given; fields left undefined are omitted.
+   *
+   * @param {{ started?: Date, timeSpentSeconds?: number, comment?: string }} fields
+   * @returns {object}
+   */
+  #worklogBody({ started, timeSpentSeconds, comment }) {
+    const body = {};
+    if (started !== undefined) {
+      body.started = formatJiraDateTime(started);
+    }
+    if (timeSpentSeconds !== undefined) {
+      if (!Number.isInteger(timeSpentSeconds) || timeSpentSeconds < 60) {
+        throw new Error('Duration must be a whole number of seconds and at least 1 minute.');
+      }
+      body.timeSpentSeconds = timeSpentSeconds;
+    }
+    if (comment !== undefined) {
+      body.comment = this.deploymentType === 'cloud' ? plainTextToAdf(comment) : String(comment);
+    }
+    return body;
   }
 
   /**
@@ -702,11 +745,11 @@ export class JiraClient {
   }
 
   /**
-   * Builds the error for a failed worklog edit or delete. Messages name the cause
-   * (expired token, missing permission, worklog gone) and include Jira's own reason.
+   * Builds the error for a failed worklog create, edit, or delete. Messages name the cause
+   * (expired token, missing permission, worklog or issue gone) and include Jira's own reason.
    *
    * @param {Response} response
-   * @param {'edit' | 'delete'} action
+   * @param {'create' | 'edit' | 'delete'} action
    * @returns {Promise<Error>}
    */
   async #worklogWriteError(response, action) {
@@ -734,13 +777,17 @@ export class JiraClient {
       message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Connection Settings.';
     } else if (status === 403) {
       errorType = 'FORBIDDEN';
-      message = withDetail(`You don't have permission to ${action} this worklog in Jira.`);
+      message = withDetail(action === 'create'
+        ? "You don't have permission to log work on this issue in Jira."
+        : `You don't have permission to ${action} this worklog in Jira.`);
     } else if (status === 404) {
       errorType = 'NOT_FOUND';
-      message = 'This worklog no longer exists in Jira, or you can no longer see its issue. Sync to refresh the week.';
+      message = action === 'create'
+        ? 'This issue no longer exists in Jira, or you can no longer see it. Sync to refresh the week.'
+        : 'This worklog no longer exists in Jira, or you can no longer see its issue. Sync to refresh the week.';
     } else if (status === 400) {
       errorType = 'INVALID';
-      message = withDetail(`Jira didn't accept the ${action === 'edit' ? 'changes' : 'deletion'}.`);
+      message = withDetail(`Jira didn't accept the ${{ create: 'worklog', edit: 'changes', delete: 'deletion' }[action]}.`);
     } else if (status >= 500) {
       errorType = 'SERVER_ERROR';
       message = `Jira returned a server error (${status}). Try again in a moment.`;

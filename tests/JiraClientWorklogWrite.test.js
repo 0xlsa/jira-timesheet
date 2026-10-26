@@ -136,3 +136,61 @@ describe('JiraClient - deleteWorklog', () => {
     });
   });
 });
+
+describe('JiraClient - createWorklog', () => {
+  it('creates a Jira Cloud worklog on the issue with an ADF comment', async () => {
+    const { client, requests } = setup('cloud', () => json(201, { id: '10099', timeSpentSeconds: 1800 }));
+
+    const created = await client.createWorklog('100', {
+      started: new Date(2026, 9, 22, 9, 39),
+      timeSpentSeconds: 1800,
+      comment: 'Pairing'
+    });
+
+    assert.equal(created.id, '10099');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'POST');
+    assert.equal(requests[0].url.pathname, '/rest/api/3/issue/100/worklog');
+    assert.equal(requests[0].headers['Content-Type'], 'application/json');
+    assert.deepEqual(requests[0].body, {
+      started: '2026-10-22T09:39:00.000+0100',
+      timeSpentSeconds: 1800,
+      comment: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Pairing' }] }] }
+    });
+  });
+
+  it('creates a Data Center / Server worklog on API v2, without a comment when none is given', async () => {
+    const { client, requests } = setup('server', () => json(201, { id: '8' }));
+    await client.createWorklog('PROJ-1', { started: new Date(2026, 11, 1, 9, 0), timeSpentSeconds: 900 });
+    assert.equal(requests[0].url.pathname, '/jira/rest/api/2/issue/PROJ-1/worklog');
+    assert.deepEqual(requests[0].body, { started: '2026-12-01T09:00:00.000+0000', timeSpentSeconds: 900 });
+  });
+
+  it('refuses incomplete or invalid worklogs without calling Jira', async () => {
+    const { client, requests } = setup('cloud', () => json(201, {}));
+    await assert.rejects(client.createWorklog('', { started: new Date(), timeSpentSeconds: 60 }), /issue is required/);
+    await assert.rejects(client.createWorklog('100', { timeSpentSeconds: 60 }), /start time and a duration/);
+    await assert.rejects(client.createWorklog('100', { started: new Date(), timeSpentSeconds: 30 }), /at least 1 minute/);
+    assert.equal(requests.length, 0);
+  });
+
+  it('explains permission, missing-issue, validation, and network errors', async () => {
+    const cases = [
+      [403, {}, 'FORBIDDEN', /don't have permission to log work on this issue/],
+      [404, {}, 'NOT_FOUND', /issue no longer exists/],
+      [400, { errorMessages: ['Time Tracking is not enabled.'] }, 'INVALID', /didn't accept the worklog.*Time Tracking is not enabled/],
+      [401, {}, 'AUTH_INVALID', /token may have expired/]
+    ];
+    for (const [status, body, errorType, message] of cases) {
+      const { client } = setup('server', () => json(status, body));
+      await assert.rejects(client.createWorklog('PROJ-1', { started: new Date(), timeSpentSeconds: 60 }), (err) => {
+        assert.equal(err.errorType, errorType);
+        assert.match(err.message, message);
+        return true;
+      });
+    }
+
+    const offline = setup('cloud', () => { throw new TypeError('Failed to fetch'); });
+    await assert.rejects(offline.client.createWorklog('100', { started: new Date(), timeSpentSeconds: 60 }), (err) => err.errorType === 'NETWORK_ERROR');
+  });
+});

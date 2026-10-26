@@ -13,7 +13,9 @@ import {
   toEditForm,
   validateEditForm,
   isEditFormDirty,
-  buildWorklogChanges
+  buildWorklogChanges,
+  toNewWorklogForm,
+  buildNewWorklog
 } from '../src/worklog/worklogEdit.js';
 
 const adf = (...paragraphs) => ({
@@ -121,7 +123,9 @@ describe('worklogEdit - validation', () => {
     assert.match(durationError('0', '0'), /at least 1 minute/);
     assert.ok(durationError('-1', '0'));
     assert.ok(durationError('1.5', '0'));
-    assert.ok(durationError('', '30'));
+    assert.match(durationError('', ''), /Enter a duration/);
+    assert.equal(durationError('', '30'), undefined, 'a blank part counts as 0');
+    assert.equal(durationError('2', ''), undefined);
     assert.match(durationError('1', '60'), /0 and 59/);
     assert.ok(durationError('1000', '0'));
     assert.equal(durationError('0', '1'), undefined);
@@ -162,5 +166,29 @@ describe('worklogEdit - editable worklogs', () => {
     assert.equal(isEditableWorklog({ id: 'wl-0.123', issueId: '1' }), false);
     assert.equal(isEditableWorklog({ id: '10042' }), false);
     assert.equal(isEditableWorklog(null), false);
+  });
+});
+
+describe('worklogEdit - logging new work', () => {
+  it('defaults to the given day, the current local time, and an empty duration and comment', () => {
+    assert.deepEqual(toNewWorklogForm({ dateKey: '2026-10-21', now: new Date(2026, 9, 26, 8, 5, 42) }), {
+      date: '2026-10-21',
+      time: '08:05',
+      hours: '',
+      minutes: '',
+      comment: ''
+    });
+  });
+
+  it('builds the worklog from local date, time, and whole-minute duration', () => {
+    const worklog = buildNewWorklog({ date: '2026-10-21', time: '13:05', hours: '1', minutes: '15', comment: 'Pairing\nReview' });
+    assert.equal(worklog.started.getTime(), new Date(2026, 9, 21, 13, 5).getTime());
+    assert.equal(worklog.timeSpentSeconds, 4500);
+    assert.equal(worklog.comment, 'Pairing\nReview');
+  });
+
+  it('leaves out a blank comment and treats a blank hours field as 0', () => {
+    assert.deepEqual(Object.keys(buildNewWorklog({ date: '2026-10-21', time: '09:00', hours: '', minutes: '30', comment: '  ' })), ['started', 'timeSpentSeconds']);
+    assert.equal(buildNewWorklog({ date: '2026-10-21', time: '09:00', hours: '', minutes: '30', comment: '' }).timeSpentSeconds, 1800);
   });
 });

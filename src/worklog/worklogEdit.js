@@ -139,13 +139,43 @@ export function toEditForm(worklog) {
 }
 
 /**
- * Parses a whole number from a form field, or returns null when it isn't one.
+ * Parses an hours or minutes field: a whole number, with a blank field counting as 0.
+ * Returns null when the value isn't a whole number.
  * @param {string} value
  * @returns {number | null}
  */
-function parseWholeNumber(value) {
+function parseDurationPart(value) {
   const trimmed = String(value ?? '').trim();
+  if (trimmed === '') return 0;
   return /^\d+$/.test(trimmed) ? Number(trimmed) : null;
+}
+
+/**
+ * Total minutes in the form's duration fields (assumes valid values).
+ * @param {{ hours: string, minutes: string }} form
+ * @returns {number}
+ */
+function formMinutes(form) {
+  return parseDurationPart(form.hours) * 60 + parseDurationPart(form.minutes);
+}
+
+/**
+ * Builds the form values for logging new work.
+ *
+ * @param {object} options
+ * @param {string} options.dateKey - Day to log on (YYYY-MM-DD), e.g. the selected day
+ * @param {Date} [options.now=new Date()] - Start time default (current local time)
+ * @returns {{ date: string, time: string, hours: string, minutes: string, comment: string }}
+ */
+export function toNewWorklogForm({ dateKey, now = new Date() }) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return {
+    date: dateKey,
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
+    hours: '',
+    minutes: '',
+    comment: ''
+  };
 }
 
 /**
@@ -192,9 +222,11 @@ export function validateEditForm(form) {
     errors.time = "This time doesn't exist on that date because of a daylight-saving change.";
   }
 
-  const hours = parseWholeNumber(form.hours);
-  const minutes = parseWholeNumber(form.minutes);
-  if (hours === null || minutes === null) {
+  const hours = parseDurationPart(form.hours);
+  const minutes = parseDurationPart(form.minutes);
+  if (!String(form.hours ?? '').trim() && !String(form.minutes ?? '').trim()) {
+    errors.duration = 'Enter a duration.';
+  } else if (hours === null || minutes === null) {
     errors.duration = 'Enter whole numbers for hours and minutes.';
   } else if (minutes > 59) {
     errors.duration = 'Minutes must be between 0 and 59.';
@@ -236,9 +268,8 @@ export function buildWorklogChanges(initialForm, form) {
     changes.started = toLocalDateTime(form.date, form.time);
   }
 
-  const initialMinutes = parseWholeNumber(initialForm.hours) * 60 + parseWholeNumber(initialForm.minutes);
-  const minutes = parseWholeNumber(form.hours) * 60 + parseWholeNumber(form.minutes);
-  if (minutes !== initialMinutes) {
+  const minutes = formMinutes(form);
+  if (minutes !== formMinutes(initialForm)) {
     // Integer arithmetic only: whole minutes to whole seconds.
     changes.timeSpentSeconds = minutes * 60;
   }
@@ -248,4 +279,23 @@ export function buildWorklogChanges(initialForm, form) {
   }
 
   return changes;
+}
+
+/**
+ * Builds a new worklog from the Log work form. The comment is left out when blank.
+ * Call validateEditForm() first; this assumes valid values.
+ *
+ * @param {object} form
+ * @returns {{ started: Date, timeSpentSeconds: number, comment?: string }}
+ */
+export function buildNewWorklog(form) {
+  const worklog = {
+    started: toLocalDateTime(form.date, form.time),
+    // Integer arithmetic only: whole minutes to whole seconds.
+    timeSpentSeconds: formMinutes(form) * 60
+  };
+
+  const comment = String(form.comment ?? '');
+  if (comment.trim()) worklog.comment = comment;
+  return worklog;
 }

@@ -1216,6 +1216,51 @@ body {
   padding: 0;
 }
 
+/* Quick durations when logging new work */
+.editor-duration-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.duration-preset {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.duration-preset:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+.duration-preset:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.duration-preset[aria-pressed="true"] {
+  color: #58a6ff;
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+[data-theme="light"] .duration-preset[aria-pressed="true"] {
+  color: var(--primary);
+}
+
+.duration-preset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .editor-duration-inputs {
   display: flex;
   gap: 12px;

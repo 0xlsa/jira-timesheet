@@ -4,6 +4,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorklogEditorSession, renderWorklogEditor } from '../src/ui/worklogEditor.js';
 import { renderWorklogItem } from '../src/ui/weekView.js';
+import { toNewWorklogForm } from '../src/worklog/worklogEdit.js';
 
 // escapeHtml() relies on a DOM element's textContent -> innerHTML round trip; emulate it.
 function installDocumentStub() {
@@ -295,5 +296,129 @@ describe('WorklogEditor markup', () => {
     assert.match(side, /class="worklog-log-btn" data-worklog-id="10042" aria-label="Log work on EKB-30804" title="Log work"/);
     assert.match(side, /class="worklog-edit-btn"[^>]*title="Edit worklog"/);
     assert.doesNotMatch(renderWorklogItem(item, '', { editable: true }), /worklog-log-btn/);
+  });
+});
+
+const issue = {
+  issueId: '100',
+  issueKey: 'EKB-30835',
+  issueSummary: 'Performance regression investigation',
+  issueStatus: { name: 'Selected for Development', categoryKey: 'new' }
+};
+
+function setupCreate({ saveError } = {}) {
+  const calls = [];
+  const session = createWorklogEditorSession(issue, {
+    mode: 'create',
+    initialForm: toNewWorklogForm({ dateKey: '2026-10-21', now: new Date(2026, 9, 26, 14, 7) }),
+    async onSave(values) {
+      calls.push(values);
+      if (saveError) throw saveError;
+    }
+  });
+  return { session, calls };
+}
+
+describe('WorklogEditor session - logging new work', () => {
+  it('starts on the selected day at the current time with no duration', () => {
+    const { session } = setupCreate();
+    assert.equal(session.mode, 'create');
+    assert.deepEqual(session.state.form, { date: '2026-10-21', time: '14:07', hours: '', minutes: '', comment: '' });
+    assert.equal(session.isDirty, false);
+  });
+
+  it('requires a duration before logging', async () => {
+    const { session, calls } = setupCreate();
+    assert.deepEqual(await session.save(), { status: 'invalid' });
+    assert.match(session.state.errors.duration, /Enter a duration/);
+    assert.equal(calls.length, 0);
+  });
+
+  it('logs the new worklog with the entered values', async () => {
+    const { session, calls } = setupCreate();
+    session.setField('minutes', '30');
+    session.setField('comment', 'Profiling');
+
+    assert.deepEqual(await session.save(), { status: 'saved' });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].started.getTime(), new Date(2026, 9, 21, 14, 7).getTime());
+    assert.equal(calls[0].timeSpentSeconds, 1800);
+    assert.equal(calls[0].comment, 'Profiling');
+  });
+
+  it('keeps the input and shows the error when Jira rejects it', async () => {
+    const { session } = setupCreate({ saveError: new Error("You don't have permission to log work on this issue in Jira.") });
+    session.setField('hours', '1');
+    session.setField('comment', 'Keep me');
+
+    assert.deepEqual(await session.save(), { status: 'error' });
+    assert.match(session.state.submitError, /permission to log work/);
+    assert.equal(session.state.form.hours, '1');
+    assert.equal(session.state.form.comment, 'Keep me');
+    assert.equal(session.state.busy, null);
+  });
+
+  it('ignores a second submit while logging is in progress', async () => {
+    let release;
+    const calls = [];
+    const session = createWorklogEditorSession(issue, {
+      mode: 'create',
+      initialForm: toNewWorklogForm({ dateKey: '2026-10-21', now: new Date(2026, 9, 26, 9, 0) }),
+      onSave: (values) => { calls.push(values); return new Promise((resolve) => { release = resolve; }); }
+    });
+    session.setField('hours', '1');
+
+    const first = session.save();
+    assert.deepEqual(await session.save(), { status: 'busy' });
+    release();
+    assert.deepEqual(await first, { status: 'saved' });
+    assert.equal(calls.length, 1);
+  });
+
+  it('asks before discarding entered work and has no delete', () => {
+    const { session } = setupCreate();
+    session.setField('minutes', '15');
+    assert.equal(session.requestClose(), false);
+    assert.equal(session.state.confirm, 'discard');
+    session.keepEditing();
+    session.requestDelete();
+    assert.equal(session.state.confirm, null);
+  });
+});
+
+describe('WorklogEditor markup - logging new work', () => {
+  let previousDocument;
+  before(() => {
+    previousDocument = globalThis.document;
+    installDocumentStub();
+  });
+  after(() => {
+    globalThis.document = previousDocument;
+  });
+
+  it('shows the issue read-only, quick durations, and no delete action', () => {
+    const { session } = setupCreate();
+    const html = renderWorklogEditor(issue, session.initialForm, 'https://acme.atlassian.net', { mode: 'create' });
+
+    assert.match(html, /id="worklogEditorTitle">Log work</);
+    assert.match(html, /class="issue-key-badge"[^>]*>EKB-30835</);
+    assert.match(html, /class="editor-issue-summary">Performance regression investigation</);
+    assert.match(html, /issue-status status-category-new/);
+    assert.match(html, /name="date" value="2026-10-21"/);
+    assert.match(html, /name="time" value="14:07"/);
+    assert.match(html, /data-save-label>Log work</);
+    assert.doesNotMatch(html, /data-action="delete"|data-confirm="delete"/);
+
+    const presets = [...html.matchAll(/<button type="button" class="duration-preset"([^>]*)>([^<]+)</g)];
+    assert.deepEqual(presets.map((m) => m[2]), ['15m', '30m', '1h', 'Custom']);
+    assert.match(presets[0][1], /data-preset-hours="0" data-preset-minutes="15"/);
+    assert.match(presets[2][1], /data-preset-hours="1" data-preset-minutes="0"/);
+
+    const fieldNames = [...html.matchAll(/<(?:input|textarea|select)[^>]*name="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(fieldNames, ['date', 'time', 'hours', 'minutes', 'comment']);
+  });
+
+  it('keeps quick durations out of the edit panel', () => {
+    assert.doesNotMatch(renderWorklogEditor(worklog, setup().session.initialForm, ''), /duration-preset/);
   });
 });

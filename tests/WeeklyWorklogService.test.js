@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { getWeekRange, buildEmptyWeek } from '../src/worklog/worklogUtils.js';
 import {
   loadWeek,
+  logWork,
   saveWorklogChanges,
   deleteWorklog,
   replaceWorklogInWeek,
@@ -142,6 +143,50 @@ describe('weekly worklog service - editing', () => {
     assert.equal(updated.formattedWeekTotal, '1h 30m');
     assert.equal(updated.totalWorklogsCount, 2);
     assert.equal(updated.sourceWorklogs.length, 2);
+  });
+
+  it('logs work on the issue and adds it to its day, recalculating totals and counts', async () => {
+    const calls = [];
+    const client = {
+      async createWorklog(issue, worklog) {
+        calls.push({ issue, worklog });
+        return { id: 10099, started: '2026-10-21T08:00:00.000-0300', timeSpentSeconds: 2700, comment: 'Pairing', author: { displayName: 'Dev' } };
+      }
+    };
+    const issue = { issueId: '300', issueKey: 'A-3', issueSummary: 'Three', issueStatus: { name: 'To Do', categoryKey: 'new' } };
+    const values = { started: new Date(2026, 9, 21, 8, 0), timeSpentSeconds: 2700, comment: 'Pairing' };
+
+    const created = await logWork(client, issue, values, { displayName: 'Fallback' });
+
+    assert.deepEqual(calls, [{ issue: '300', worklog: values }]);
+    assert.equal(created.id, '10099');
+    assert.equal(created.issueKey, 'A-3');
+    assert.deepEqual(created.issueStatus, { name: 'To Do', categoryKey: 'new' });
+    assert.equal(created.author.displayName, 'Dev');
+
+    const week = await load();
+    const updated = replaceWorklogInWeek(week, created, now);
+    assert.equal(updated.weekDays[2].worklogCount, 1);
+    assert.equal(updated.weekDays[2].formattedTotal, '0h 45m');
+    assert.equal(updated.weekDays[2].worklogs[0].issueKey, 'A-3');
+    assert.equal(updated.formattedWeekTotal, '3h 45m');
+    assert.equal(updated.totalWorklogsCount, 4);
+    // Other days are unchanged.
+    assert.equal(updated.weekDays[1].formattedTotal, '1h 30m');
+  });
+
+  it('falls back to the given author and the sent values when Jira omits them', async () => {
+    const client = { async createWorklog() { return { id: '5' }; } };
+    const started = new Date(2026, 9, 21, 8, 0);
+    const created = await logWork(client, { issueKey: 'A-1' }, { started, timeSpentSeconds: 900 }, { displayName: 'Me' });
+    assert.equal(created.author.displayName, 'Me');
+    assert.equal(created.timeSpentSeconds, 900);
+    assert.equal(new Date(created.started).getTime(), started.getTime());
+  });
+
+  it('passes creation errors through unchanged', async () => {
+    const client = { async createWorklog() { throw new Error("You don't have permission to log work on this issue in Jira."); } };
+    await assert.rejects(logWork(client, { issueKey: 'A-1' }, { started: new Date(), timeSpentSeconds: 60 }), /permission to log work/);
   });
 
   it('deletes through the client by issue and worklog ID', async () => {

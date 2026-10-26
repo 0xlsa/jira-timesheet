@@ -1,5 +1,6 @@
 /**
- * Edit Worklog panel.
+ * Worklog panel, used to edit an existing worklog ('edit' mode) or log new work on an
+ * issue ('create' mode).
  *
  * - createWorklogEditorSession(): editing state (form values, validation, unsaved-changes and
  *   delete confirmations, busy state). No DOM; saving and deleting are injected callbacks.
@@ -15,19 +16,32 @@ import {
   validateEditForm,
   isEditFormDirty,
   buildWorklogChanges,
+  buildNewWorklog,
   isRichComment
 } from '../worklog/worklogEdit.js';
 
+// Quick durations offered when logging new work.
+const DURATION_PRESETS = [
+  { label: '15m', hours: '0', minutes: '15' },
+  { label: '30m', hours: '0', minutes: '30' },
+  { label: '1h', hours: '1', minutes: '0' }
+];
+
 /**
- * Creates the editing state for one worklog.
+ * Creates the editing state for one worklog, or for new work on an issue.
  *
- * @param {object} worklog - Source worklog (raw `started` and `comment` as Jira returned them)
- * @param {object} callbacks
- * @param {(changes: object) => Promise<void>} callbacks.onSave - Saves changed fields; rejects with a user-facing Error
- * @param {() => Promise<void>} callbacks.onDelete - Deletes the worklog; rejects with a user-facing Error
+ * @param {object} worklog - Edit: source worklog (raw `started` and `comment` as Jira returned them).
+ *   Create: the issue (`issueId`, `issueKey`, `issueSummary`, `issueStatus`).
+ * @param {object} options
+ * @param {(values: object) => Promise<void>} options.onSave - Edit: saves changed fields. Create: logs
+ *   the new worklog from buildNewWorklog(). Rejects with a user-facing Error.
+ * @param {() => Promise<void>} [options.onDelete] - Deletes the worklog (edit only); rejects with a user-facing Error
+ * @param {'edit' | 'create'} [options.mode='edit']
+ * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  */
-export function createWorklogEditorSession(worklog, { onSave, onDelete }) {
-  const initialForm = toEditForm(worklog);
+export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = 'edit', initialForm: newForm }) {
+  const isCreate = mode === 'create';
+  const initialForm = isCreate ? { ...newForm } : toEditForm(worklog);
   const state = {
     form: { ...initialForm },
     errors: {},
@@ -40,6 +54,7 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete }) {
 
   return {
     worklog,
+    mode,
     initialForm,
     state,
 
@@ -84,7 +99,7 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete }) {
     },
 
     /**
-     * Validates and saves the changed fields.
+     * Validates, then saves the changed fields (edit) or logs the new worklog (create).
      * @returns {Promise<{ status: 'saved' | 'unchanged' | 'invalid' | 'error' | 'busy' }>}
      */
     async save() {
@@ -95,25 +110,25 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete }) {
       state.errors = errors;
       if (!isValid) return { status: 'invalid' };
 
-      const changes = buildWorklogChanges(initialForm, state.form);
-      if (Object.keys(changes).length === 0) return { status: 'unchanged' };
+      const values = isCreate ? buildNewWorklog(state.form) : buildWorklogChanges(initialForm, state.form);
+      if (!isCreate && Object.keys(values).length === 0) return { status: 'unchanged' };
 
       state.busy = 'saving';
       state.submitError = '';
       try {
-        await onSave(changes);
+        await onSave(values);
         return { status: 'saved' };
       } catch (err) {
-        state.submitError = err?.message || 'The worklog could not be saved.';
+        state.submitError = err?.message || (isCreate ? 'The work could not be logged.' : 'The worklog could not be saved.');
         return { status: 'error' };
       } finally {
         state.busy = null;
       }
     },
 
-    /** Asks for confirmation before deleting. */
+    /** Asks for confirmation before deleting (edit only). */
     requestDelete() {
-      if (!state.busy) state.confirm = 'delete';
+      if (!isCreate && !state.busy) state.confirm = 'delete';
     },
 
     /**
@@ -140,14 +155,17 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete }) {
 }
 
 /**
- * Builds the panel markup for a worklog.
+ * Builds the panel markup for a worklog, or for logging new work on an issue.
  *
- * @param {object} worklog - Source worklog
- * @param {object} form - Initial form values from toEditForm()
+ * @param {object} worklog - Source worklog (edit) or the issue (create)
+ * @param {object} form - Initial form values
  * @param {string} baseUrl - Jira instance URL for the issue link
+ * @param {object} [options]
+ * @param {'edit' | 'create'} [options.mode='edit']
  * @returns {string}
  */
-export function renderWorklogEditor(worklog, form, baseUrl) {
+export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = {}) {
+  const isCreate = mode === 'create';
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(worklog.issueKey)}` : '#';
   const richCommentNote = isRichComment(worklog.comment)
     ? '<div class="field-hint editor-rich-note">This comment has formatting from Jira. If you edit it here, it\'s saved as plain text.</div>'
@@ -156,7 +174,7 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
   return `
     <form class="editor-form" novalidate>
       <div class="editor-header">
-        <h2 class="editor-title" id="worklogEditorTitle">Edit worklog</h2>
+        <h2 class="editor-title" id="worklogEditorTitle">${isCreate ? 'Log work' : 'Edit worklog'}</h2>
         <button type="button" class="editor-icon-btn" data-action="close" aria-label="Close editor" title="Close">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <line x1="18" y1="6" x2="6" y2="18"/>
@@ -180,7 +198,7 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
             <line x1="12" y1="16" x2="12" y2="12"/>
             <line x1="12" y1="8" x2="12.01" y2="8"/>
           </svg>
-          <span>Edit the date, time, duration, and work description.</span>
+          <span>${isCreate ? 'Enter the date, start time, duration, and work description.' : 'Edit the date, time, duration, and work description.'}</span>
         </div>
 
         <fieldset class="editor-fields">
@@ -198,6 +216,11 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
 
           <fieldset class="form-group editor-duration">
             <legend class="form-label">Duration</legend>
+            ${isCreate ? `
+            <div class="editor-duration-presets" role="group" aria-label="Quick durations">
+              ${DURATION_PRESETS.map((p) => `<button type="button" class="duration-preset" data-preset-hours="${p.hours}" data-preset-minutes="${p.minutes}" aria-pressed="false">${p.label}</button>`).join('')}
+              <button type="button" class="duration-preset" data-action="custom-duration" aria-pressed="false">Custom</button>
+            </div>` : ''}
             <div class="editor-duration-inputs">
               <span class="editor-duration-field">
                 <label for="worklogEditHours" class="sr-only">Hours</label>
@@ -216,7 +239,7 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
           <div class="form-group">
             <label for="worklogEditComment" class="form-label">Work description (comment)</label>
             <textarea id="worklogEditComment" name="comment" rows="5" aria-describedby="worklogEditCommentHint">${escapeHtml(form.comment)}</textarea>
-            <div id="worklogEditCommentHint" class="field-hint">Describe the work you did. This is saved on the worklog only; the issue title doesn't change.</div>
+            <div id="worklogEditCommentHint" class="field-hint">${isCreate ? 'Optional. ' : ''}Describe the work you did. This is saved on the worklog only; the issue title doesn't change.</div>
             ${richCommentNote}
           </div>
         </fieldset>
@@ -228,12 +251,12 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
         </div>
 
         <div class="editor-actions" data-actions="main">
-          <button type="button" class="btn btn-danger-outline btn-sm" data-action="delete">Delete worklog</button>
+          ${isCreate ? '' : '<button type="button" class="btn btn-danger-outline btn-sm" data-action="delete">Delete worklog</button>'}
           <span class="editor-actions-spacer"></span>
           <button type="button" class="btn btn-secondary btn-sm" data-action="cancel">Cancel</button>
           <button type="submit" class="btn btn-primary btn-sm" data-action="save">
             <span class="btn-spinner hidden" data-spinner="saving"></span>
-            <span data-save-label>Save changes</span>
+            <span data-save-label>${isCreate ? 'Log work' : 'Save changes'}</span>
           </button>
         </div>
 
@@ -246,7 +269,7 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
           </div>
         </div>
 
-        <div class="editor-confirm hidden" data-confirm="delete" role="alertdialog" aria-labelledby="worklogEditorDeleteText">
+        ${isCreate ? '' : `<div class="editor-confirm hidden" data-confirm="delete" role="alertdialog" aria-labelledby="worklogEditorDeleteText">
           <p id="worklogEditorDeleteText">Delete this worklog from Jira? This can't be undone.</p>
           <div class="editor-actions">
             <span class="editor-actions-spacer"></span>
@@ -256,28 +279,35 @@ export function renderWorklogEditor(worklog, form, baseUrl) {
               <span>Delete worklog</span>
             </button>
           </div>
-        </div>
+        </div>`}
       </div>
     </form>
   `;
 }
 
 /**
- * Opens the editor for a worklog inside `root` (an initially hidden panel element).
+ * Opens the panel inside `root` (an initially hidden panel element), to edit a worklog
+ * or to log new work on an issue.
  *
  * @param {HTMLElement} root
  * @param {object} options
- * @param {object} options.worklog - Source worklog
+ * @param {object} options.worklog - Source worklog (edit) or the issue (create)
  * @param {string} options.baseUrl
- * @param {(changes: object) => Promise<void>} options.onSave
- * @param {() => Promise<void>} options.onDelete
+ * @param {(values: object) => Promise<void>} options.onSave
+ * @param {() => Promise<void>} [options.onDelete] - Edit only
  * @param {(reason: 'saved' | 'deleted' | 'closed') => void} options.onClose - Called once the panel has closed
- * @returns {{ worklogId: string, readonly isDirty: boolean, requestClose: () => boolean, focus: () => void }}
+ * @param {'edit' | 'create'} [options.mode='edit']
+ * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
+ * @returns {{ worklogId: string | null, readonly isDirty: boolean, requestClose: () => boolean, focus: () => void }}
+ *   `worklogId` is null when logging new work.
  */
-export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose }) {
-  const session = createWorklogEditorSession(worklog, { onSave, onDelete });
+export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm }) {
+  const session = createWorklogEditorSession(worklog, { onSave, onDelete, mode, initialForm });
+  const isCreate = mode === 'create';
+  const saveLabel = isCreate ? 'Log work' : 'Save changes';
+  const firstField = isCreate ? '#worklogEditHours' : '#worklogEditDate';
 
-  root.innerHTML = renderWorklogEditor(worklog, session.initialForm, baseUrl);
+  root.innerHTML = renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode });
   root.classList.remove('hidden');
   root.setAttribute('aria-labelledby', 'worklogEditorTitle');
   document.documentElement.classList.add('has-worklog-editor');
@@ -311,13 +341,28 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     fields.disabled = Boolean(state.busy);
     button('close').disabled = Boolean(state.busy);
     button('cancel').disabled = Boolean(state.busy);
-    button('delete').disabled = Boolean(state.busy);
-    button('save').disabled = Boolean(state.busy) || !session.isDirty;
-    button('keep-worklog').disabled = Boolean(state.busy);
-    button('confirm-delete').disabled = Boolean(state.busy);
+    // New work can always be submitted (validation explains what's missing); edits need a change.
+    button('save').disabled = Boolean(state.busy) || (!isCreate && !session.isDirty);
+    for (const action of ['delete', 'keep-worklog', 'confirm-delete']) {
+      if (button(action)) button(action).disabled = Boolean(state.busy);
+    }
     root.querySelector('[data-spinner="saving"]').classList.toggle('hidden', state.busy !== 'saving');
-    root.querySelector('[data-spinner="deleting"]').classList.toggle('hidden', state.busy !== 'deleting');
-    root.querySelector('[data-save-label]').textContent = state.busy === 'saving' ? 'Saving…' : 'Save changes';
+    root.querySelector('[data-spinner="deleting"]')?.classList.toggle('hidden', state.busy !== 'deleting');
+    root.querySelector('[data-save-label]').textContent = state.busy === 'saving' ? 'Saving…' : saveLabel;
+
+    // Quick durations show as pressed when the duration matches; Custom for any other duration.
+    const presets = [...root.querySelectorAll('[data-preset-hours]')];
+    const matching = presets.find((el) => Number(el.dataset.presetHours) === Number(state.form.hours || 0) &&
+      Number(el.dataset.presetMinutes) === Number(state.form.minutes || 0));
+    for (const el of presets) {
+      el.setAttribute('aria-pressed', el === matching ? 'true' : 'false');
+      el.disabled = Boolean(state.busy);
+    }
+    const custom = button('custom-duration');
+    if (custom) {
+      custom.setAttribute('aria-pressed', !matching && Boolean(state.form.hours || state.form.minutes) ? 'true' : 'false');
+      custom.disabled = Boolean(state.busy);
+    }
     root.setAttribute('aria-busy', state.busy ? 'true' : 'false');
 
     root.querySelector('[data-actions="main"]').classList.toggle('hidden', Boolean(state.confirm));
@@ -374,8 +419,25 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   });
 
   form.addEventListener('click', async (event) => {
+    const preset = event.target.closest('[data-preset-hours]');
+    if (isOpen && preset) {
+      // Fills the duration only; never submits.
+      for (const [field, value] of [['hours', preset.dataset.presetHours], ['minutes', preset.dataset.presetMinutes]]) {
+        session.setField(field, value);
+        form.querySelector(`[name="${field}"]`).value = value;
+      }
+      sync();
+      return;
+    }
+
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (!isOpen || !action || action === 'save') return;
+
+    if (action === 'custom-duration') {
+      root.querySelector('#worklogEditHours').focus();
+      root.querySelector('#worklogEditHours').select();
+      return;
+    }
 
     if (action === 'close' || action === 'cancel') {
       attemptClose();
@@ -415,14 +477,14 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   });
 
   sync();
-  root.querySelector('#worklogEditDate').focus();
+  root.querySelector(firstField).focus();
 
   return {
-    worklogId: String(worklog.id),
+    worklogId: isCreate ? null : String(worklog.id),
     get isDirty() {
       return isOpen && session.isDirty;
     },
     requestClose: () => !isOpen || attemptClose(),
-    focus: () => root.querySelector('#worklogEditDate')?.focus()
+    focus: () => root.querySelector(firstField)?.focus()
   };
 }
