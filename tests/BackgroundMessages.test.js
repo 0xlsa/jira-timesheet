@@ -167,4 +167,3 @@ describe('Background and End-to-End Handlers', () => {
     assert.equal(wednesday.worklogs[0].issueKey, 'SYNC-100');
   });
 });
-

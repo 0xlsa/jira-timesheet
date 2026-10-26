@@ -118,4 +118,3 @@ export class JiraCloudTokenProvider extends JiraAuthProvider {
     };
   }
 }
-

@@ -241,4 +241,3 @@ describe('JiraClient - Jira XSRF check on write requests', () => {
     });
   });
 });
-

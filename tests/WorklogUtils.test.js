@@ -284,4 +284,3 @@ describe('WorklogUtils - Worklog duration badge', () => {
     );
   });
 });
-

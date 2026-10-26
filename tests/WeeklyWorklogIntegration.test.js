@@ -145,4 +145,3 @@ describe('Weekly Worklog View - Complete Integration & Math Verifications', () =
     assert.equal(aggregated.weekDays[0].totalDurationSeconds, initialDayTotal);
   });
 });
-

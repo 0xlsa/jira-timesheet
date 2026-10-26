@@ -1022,4 +1022,3 @@ export class JiraClient {
     };
   }
 }
-

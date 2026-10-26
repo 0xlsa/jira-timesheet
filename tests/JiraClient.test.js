@@ -260,4 +260,3 @@ describe('JiraClient', () => {
     assert.equal(resultString.includes(secret), false);
   });
 });
-
