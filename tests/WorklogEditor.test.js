@@ -149,6 +149,12 @@ describe('WorklogEditor session - editing and saving', () => {
 });
 
 describe('WorklogEditor session - unsaved changes', () => {
+  it('ignores calendar day changes when editing an existing worklog', () => {
+    const { session } = setup();
+    session.setDefaultDate('2026-10-25');
+    assert.equal(session.state.form.date, '2026-10-22');
+    assert.equal(session.isDirty, false);
+  });
 
   it('closes immediately when there are no changes', () => {
     const { session } = setup();
@@ -376,6 +382,36 @@ describe('WorklogEditor session - logging new work', () => {
     release();
     assert.deepEqual(await first, { status: 'saved' });
     assert.equal(calls.length, 1);
+  });
+
+  it('moves to the day selected in the calendar without counting it as a change', () => {
+    const { session } = setupCreate();
+    session.setDefaultDate('2026-10-25');
+    assert.equal(session.state.form.date, '2026-10-25');
+    assert.equal(session.isDirty, false);
+    assert.equal(session.requestClose(), true);
+
+    // A typed duration is still an unsaved change after the date moves.
+    session.setField('minutes', '15');
+    session.setDefaultDate('2026-10-23');
+    assert.equal(session.state.form.date, '2026-10-23');
+    assert.equal(session.state.form.minutes, '15');
+    assert.equal(session.isDirty, true);
+  });
+
+  it('keeps the date while logging is in progress', async () => {
+    let release;
+    const session = createWorklogEditorSession(issue, {
+      mode: 'create',
+      initialForm: toNewWorklogForm({ dateKey: '2026-10-21', now: new Date(2026, 9, 26, 9, 0) }),
+      onSave: () => new Promise((resolve) => { release = resolve; })
+    });
+    session.setField('hours', '1');
+    const pending = session.save();
+    session.setDefaultDate('2026-10-25');
+    assert.equal(session.state.form.date, '2026-10-21');
+    release();
+    await pending;
   });
 
   it('asks before discarding entered work and has no delete', () => {

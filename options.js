@@ -245,6 +245,8 @@ function renderDays(aggregatedData, baseUrl = '') {
       updateSelectedDayMetric(dateKey);
       renderDays(aggregatedData, baseUrl);
       daysContainer.querySelector(`.day-card[data-date-key="${dateKey}"]`)?.focus();
+      // While logging new work, the selected day is the day being logged.
+      if (worklogEditor?.mode === 'create') worklogEditor.setDefaultDate(dateKey);
     },
     onEditWorklog: aggregatedData.sourceWorklogs ? openEditor : undefined,
     onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
@@ -309,6 +311,13 @@ function startLogWork(worklogId) {
     worklog: issue,
     baseUrl: client.baseUrl,
     initialForm: toNewWorklogForm({ dateKey: selectedDateKey }),
+    onDateChange: (dateKey) => {
+      // Select the entered day in the calendar when it's in the displayed week.
+      if (dateKey === selectedDateKey || !currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
+      selectedDateKey = dateKey;
+      updateSelectedDayMetric(dateKey);
+      renderDays(currentAggregatedData, currentBaseUrl);
+    },
     onSave: async (newWorklog) => {
       const created = await logWork(client, issue, newWorklog, currentAggregatedData?.user);
       const startedOn = new Date(created.started);

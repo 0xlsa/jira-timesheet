@@ -85,6 +85,18 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
       return false;
     },
 
+    /**
+     * Log work only: moves the default date to `dateKey` (the day selected in the calendar).
+     * It's a new default, not an edit, so it doesn't count as an unsaved change.
+     * @param {string} dateKey - YYYY-MM-DD
+     */
+    setDefaultDate(dateKey) {
+      if (!isCreate || state.busy) return;
+      initialForm.date = dateKey;
+      state.form.date = dateKey;
+      delete state.errors.date;
+    },
+
     /** Dismisses the discard or delete confirmation. */
     keepEditing() {
       if (!state.busy) state.confirm = null;
@@ -298,10 +310,12 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
  * @param {(reason: 'saved' | 'deleted' | 'closed') => void} options.onClose - Called once the panel has closed
  * @param {'edit' | 'create'} [options.mode='edit']
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
- * @returns {{ worklogId: string | null, readonly isDirty: boolean, requestClose: () => boolean, focus: () => void }}
- *   `worklogId` is null when logging new work.
+ * @param {(dateKey: string) => void} [options.onDateChange] - Create: called when the user enters a complete date
+ * @returns {{ worklogId: string | null, mode: 'edit' | 'create', readonly isDirty: boolean, requestClose: () => boolean,
+ *   focus: () => void, setDefaultDate: (dateKey: string) => void }}
+ *   `worklogId` is null when logging new work. `setDefaultDate` only applies when logging new work.
  */
-export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm }) {
+export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm, onDateChange }) {
   const session = createWorklogEditorSession(worklog, { onSave, onDelete, mode, initialForm });
   const isCreate = mode === 'create';
   const saveLabel = isCreate ? 'Log work' : 'Save changes';
@@ -397,6 +411,10 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     input.addEventListener('input', () => {
       session.setField(input.name, input.value);
       sync();
+      // Log work: keep the calendar on the day being logged.
+      if (isCreate && input.name === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(input.value)) {
+        onDateChange?.(input.value);
+      }
     });
   }
 
@@ -481,10 +499,17 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
 
   return {
     worklogId: isCreate ? null : String(worklog.id),
+    mode,
     get isDirty() {
       return isOpen && session.isDirty;
     },
     requestClose: () => !isOpen || attemptClose(),
-    focus: () => root.querySelector(firstField)?.focus()
+    focus: () => root.querySelector(firstField)?.focus(),
+    setDefaultDate(dateKey) {
+      if (!isOpen || !isCreate || session.state.busy) return;
+      session.setDefaultDate(dateKey);
+      root.querySelector('#worklogEditDate').value = dateKey;
+      sync();
+    }
   };
 }
