@@ -34,6 +34,7 @@ import { escapeHtml } from './src/ui/html.js';
 import { renderWeek } from './src/ui/weekView.js';
 import { openWorklogEditor } from './src/ui/worklogEditor.js';
 import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
+import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 
 const platform = createPlatform();
@@ -124,6 +125,14 @@ let worklogEditor = null;
 let isDeleteDialogOpen = false;
 let toastTimer = null;
 
+// Show / hide for the API token field; starts masked and is never persisted.
+const tokenVisibility = createTokenVisibilityToggle({
+  input: jiraTokenInput,
+  button: toggleTokenBtn,
+  showIcon: eyeIcon,
+  hideIcon: eyeOffIcon
+});
+
 // Settings form values kept per Jira edition, so Cloud and Data Center / Server
 // instance URLs and tokens never overwrite each other when switching editions.
 const baseUrlsByType = { cloud: '', server: '' };
@@ -176,6 +185,9 @@ initTheme();
 function switchTab(tabId) {
   // The editor belongs to the weekly view; leaving it asks about unsaved changes first.
   if (tabId !== 'weekly' && worklogEditor && !worklogEditor.requestClose()) return;
+
+  // A revealed token never outlives a visit to Settings.
+  tokenVisibility.mask();
 
   if (tabId === 'weekly') {
     tabWeekly.classList.add('active');
@@ -988,13 +1000,13 @@ retryWorklogFetchBtn.addEventListener('click', () => {
 radioCloud.addEventListener('change', () => switchDeploymentType('cloud'));
 radioServer.addEventListener('change', () => switchDeploymentType('server'));
 
-toggleTokenBtn.addEventListener('click', () => {
-  const isPassword = jiraTokenInput.type === 'password';
-  jiraTokenInput.type = isPassword ? 'text' : 'password';
-  eyeIcon.classList.toggle('hidden', isPassword);
-  eyeOffIcon.classList.toggle('hidden', !isPassword);
-  toggleTokenBtn.setAttribute('aria-label', isPassword ? 'Hide token' : 'Show token');
+// Mask the token when the browser tab is hidden or the page is left (including bfcache).
+// Window blur is not used: it also fires for devtools and browser menus, so it would hide
+// the token while the user is still working with it.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') tokenVisibility.mask();
 });
+window.addEventListener('pagehide', () => tokenVisibility.mask());
 
 jiraBaseUrlInput.addEventListener('blur', () => {
   const val = jiraBaseUrlInput.value.trim();
