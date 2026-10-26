@@ -23,7 +23,8 @@ The extension uses the browser's extension storage (`storage.local`) to keep:
 | The selected Jira edition | To use the right authentication method |
 | Atlassian account email (Jira Cloud) | Part of Jira Cloud authentication |
 | API token (Jira Cloud) or personal access token (Data Center / Server) | To authenticate your requests to Jira |
-| The result of your last successful **Test Connection**: your Jira display name, username or account ID, email address as Jira reports it, and, on Data Center / Server, the Jira version | To show which account is connected |
+| The result of your last successful **Test Connection**: your Jira display name, username, account ID or user key, email address as Jira reports it, and, on Data Center / Server, the Jira version, deployment type, and server title | To show which account is connected |
+| When you last saved your settings | Kept with the settings |
 
 It also stores your light or dark theme choice in the page's local storage.
 
@@ -42,6 +43,8 @@ Jira data received this way is used only to display your timesheet and is kept i
 Your Jira site processes these requests under the terms of whoever runs it: Atlassian for Jira Cloud, or your organization for Data Center / Server. This policy doesn't cover how that Jira site handles your data.
 
 The extension only sends requests to the configured site's own address (same origin), only over HTTPS, and only when you use it.
+
+In Firefox, this is declared as data the extension transmits: authentication information (your token, and on Jira Cloud your account email as the username), personally identifying information (your Jira Cloud account email), and website content (the worklogs you log or edit). Firefox 140 and later shows these categories when you install the extension. They describe what's sent to your own Jira site; none of it goes to the developer.
 
 ## Data the extension doesn't handle
 

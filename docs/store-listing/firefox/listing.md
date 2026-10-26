@@ -101,17 +101,25 @@ All 10 Firefox screenshots exist (5 screens × dark and light), 1280×800 PNG. T
 
 ## Data collection declaration (required)
 
-Since 3 November 2025, new extensions must declare `browser_specific_settings.gecko.data_collection_permissions` in `manifest.json`. The current manifest doesn't (`web-ext lint` reports it as a notice), so **a manifest change is needed before submission** `[TO BE DECIDED]`.
+Since 3 November 2025, new extensions must declare `browser_specific_settings.gecko.data_collection_permissions` in `manifest.json`. The manifest declares:
 
-Mozilla's policy defines data transmission as "any data that is collected, used, transferred, shared, or handled outside of the add-on or the local browser", and doesn't make an exception for a service the user configures. The extension sends credentials and worklog data to the user's Jira instance. Options:
+```json
+"data_collection_permissions": {
+  "required": ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent"]
+}
+```
 
-- **Conservative (recommended):** declare what's sent to Jira as required data:
-  ```json
-  "data_collection_permissions": {
-    "required": ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent"]
-  }
-  ```
-  Required data is shown to users at install time, and installing accepts it. Firefox's built-in consent applies to Firefox 140 and later; for earlier versions the add-on would need its own consent screen, so Mozilla recommends raising `strict_min_version` from `128.0` (the minimum for `optional_host_permissions`) to `140.0`.
-- **Minimal:** `"required": ["none"]`, arguing the data only goes to the user's own Jira site and never to the developer. This depends on the reviewer agreeing.
+Mozilla's policy defines data transmission as "any data that is collected, used, transferred, shared, or handled outside of the add-on", and makes no exception for a service the user configures. So the declaration covers what the extension sends to the user's Jira site, even though nothing is sent to the developer or any other service:
 
-Which categories to declare, and whether to raise the minimum Firefox version, are decisions to make before the submission build.
+| Category | What the extension sends to Jira |
+| --- | --- |
+| `authenticationInfo` | The API token (Jira Cloud) or personal access token (Data Center / Server), and on Jira Cloud the account email as the username, in the `Authorization` header of every request |
+| `personallyIdentifyingInfo` | The Atlassian account email (Jira Cloud only), which Mozilla lists as an example of personal data |
+| `websiteContent` | The worklogs the user logs or edits: date, start time, duration, and work description, which become content on the Jira site |
+
+Not declared, because the extension doesn't do it: reading browsing history, tabs, or page content (`browsingActivity`, `websiteActivity`), and analytics or telemetry (`technicalAndInteraction`). Data kept only in the browser (settings and the theme) isn't transmission. All three categories are required, because the extension can't work without them. None is eligible for Mozilla's implicit consent, so Firefox shows them at install, and installing accepts them.
+
+Open points `[TO BE DECIDED]`:
+
+- **Interpretation.** Whether data sent to a server the user chooses counts as collection isn't spelled out by Mozilla, and listed add-ons differ: some self-hosted tools declare `"none"`, others declare what they send to the user's server. The declaration above is the conservative reading. `"required": ["none"]` would avoid the install notice, but it depends on the reviewer agreeing.
+- **Firefox 128 to 139.** Firefox's built-in consent exists from Firefox 140 (142 on Android). `strict_min_version` is `128.0`, the minimum for `optional_host_permissions`, so on Firefox 128 to 139 there's no built-in consent screen. How those versions treat the key hasn't been tested (Firefox usually only warns about manifest keys it doesn't know); `web-ext lint` reports no problem with it. For those versions Mozilla's options are: raise `strict_min_version` to `140.0`; turn off data transmission when `permissions.getAll()` has no `data_collection` key; or show a custom consent screen. The extension does none of these yet. Raising the minimum to 140 is the simplest fix.
