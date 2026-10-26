@@ -14,7 +14,7 @@ Comes from `name` in `manifest.json` (unchanged).
 
 The store shows the manifest's `description` field, plain text, at most 132 characters.
 
-- Current `manifest.json` value (44 characters): `Weekly timesheet view of your Jira worklogs.`
+- Current `manifest.json` value (54 characters): `Your Jira worklogs as a weekly timesheet, at a glance.`
 - **Proposed** (127 characters; using it requires changing `manifest.json`):
   `See your Jira worklogs as a weekly timesheet, and log, edit, or delete work right from it. For Jira Cloud and Jira Data Center.`
 

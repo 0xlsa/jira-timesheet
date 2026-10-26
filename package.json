@@ -1,7 +1,7 @@
 {
   "name": "timesheet-for-jira",
   "version": "1.0.0",
-  "description": "Chrome Extension for Jira weekly calendar and synchronization",
+  "description": "Your Jira worklogs as a weekly timesheet, at a glance.",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js"

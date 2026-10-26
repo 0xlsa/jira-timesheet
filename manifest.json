@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Timesheet for Jira",
   "version": "1.0.0",
-  "description": "Weekly timesheet view of your Jira worklogs.",
+  "description": "Your Weekly Timesheet, at a Glance.",
   "browser_specific_settings": {
     "gecko": {
       "id": "timesheet-for-jira@0xlsa",
