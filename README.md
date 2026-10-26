@@ -1,6 +1,6 @@
 # Timesheet for Jira
 
-**Timesheet for Jira** is a browser extension that shows your Jira worklogs as a weekly timesheet and lets you log new work and edit or delete existing worklogs from that view. It works with Jira Cloud and with Jira Data Center / Server 8.14 or later, and runs in Chrome and Firefox from a single Manifest V3 codebase.
+**Timesheet for Jira** is a browser extension that shows your Jira worklogs as a weekly timesheet and lets you log new work and edit or delete existing worklogs from that view. It works with Jira Cloud and with Jira Data Center / Server 8.14 or later, and runs in Google Chrome (and other Chromium-based browsers) and Mozilla Firefox 116 or later from a single Manifest V3 codebase.
 
 ## Table of contents
 
@@ -18,7 +18,25 @@
 
 ## Screenshots
 
-_Screenshots are not included yet._
+### Weekly timesheet
+
+See your Jira worklogs for the week, with each day's total and the week's total.
+
+![Timesheet for Jira: weekly overview](docs/screenshots/chrome/weekly-overview-light.png)
+
+### Worklog details
+
+Review each worklog for the selected day: the issue and its status, your work description, the start time, and the duration.
+
+![Timesheet for Jira: worklog details for a day](docs/screenshots/chrome/worklog-details-light.png)
+
+### Editing a worklog
+
+Change an existing worklog's date, start time, duration, or work description without leaving the timesheet.
+
+![Timesheet for Jira: editing a worklog](docs/screenshots/chrome/worklog-edit-light.png)
+
+These screenshots were taken in Chrome; the extension looks and works the same in Firefox. It has light and dark themes. Dark-theme screenshots, Firefox screenshots, and the Log work and delete screens are in [`docs/screenshots/`](docs/screenshots/).
 
 ## Features
 
