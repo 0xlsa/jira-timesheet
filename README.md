@@ -90,7 +90,7 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 | Chrome and Chromium-based browsers | Manifest V3. The manifest doesn't declare a minimum Chrome version. |
 | Firefox | 128 or later (`browser_specific_settings.gecko.strict_min_version` in `manifest.json`), the first version that supports `optional_host_permissions`. |
 
-Both browsers use the same `manifest.json`. It declares `background.service_worker` (used by Chrome) and `background.scripts` (used by Firefox), so there are no browser-specific manifests or builds. See [Known limitations](#known-limitations) for what hasn't been verified in Firefox.
+Both browsers use the same `manifest.json`. It declares `background.service_worker` (used by Chrome) and `background.scripts` (used by Firefox), so the repository folder loads unpacked in either browser. The store packages each get a copy without the other browser's keys (see [Packaging for the browser stores](#packaging-for-the-browser-stores)). See [Known limitations](#known-limitations) for what hasn't been verified in Firefox.
 
 ### Jira editions and authentication
 
@@ -218,20 +218,37 @@ npm test
 
 This runs `node --test tests/*.test.js`, as defined in `package.json`.
 
-### Packaging for the Chrome Web Store
+### Packaging for the browser stores
 
 Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, and `unzip`. From the repository root:
 
 ```bash
-task package:chrome
+task package:chrome    # release/timesheet-for-jira-chrome.zip, for the Chrome Web Store
+task package:firefox   # release/timesheet-for-jira-firefox.zip, for Firefox Add-ons
 ```
 
-This copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/`. The manifest copy leaves out the Firefox-only keys (`browser_specific_settings` and `background.scripts`). The task then checks the build:
+Each task deletes the browser's previous zip, then copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/` or `dist/firefox/`. The zip contains only these files, not the repository: no tests, docs, store listings, `package.json`, or hidden files. The manifest copy differs per browser:
 
-- the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, a service worker, and a version that matches `package.json`;
-- every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build.
+- **Chrome** leaves out the Firefox-only keys (`browser_specific_settings` and `background.scripts`).
+- **Firefox** leaves out `background.service_worker`. Firefox doesn't run extension service workers, so it runs `background.js` from `background.scripts` instead.
 
-Finally, it writes `release/timesheet-for-jira-chrome.zip` with `manifest.json` at its root. File order, timestamps, and permissions are fixed, so the same sources always produce the same zip. `task --list` shows the separate `build:chrome`, `verify:chrome`, and `clean` tasks. The package doesn't run the tests, so run `npm test` before a release.
+The task then checks the build and stops with an error, without writing a zip, if any check fails:
+
+- **Both:** the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, and a version that matches `package.json`. It has no `host_permissions`, and `optional_host_permissions` includes `https://*/*`. Every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build.
+- **Chrome:** the description is at most 132 characters, and there's a background service worker.
+- **Firefox:** `browser_specific_settings.gecko.id` is set and is an email-like ID or a GUID in braces. The task prints it, because it's the ID the add-on is published under (currently `timesheet-for-jira@0xlsa`); changing it in `manifest.json` publishes a different add-on. `strict_min_version` is set (the task prints it) and is 128 or later while the manifest uses `optional_host_permissions`, which Firefox 128 added. `background.scripts` is set and `background.service_worker` isn't, and no script calls `chrome.*` directly outside `src/compat/browser-api.js`. A missing `browser_specific_settings.gecko.data_collection_permissions` is reported as a warning, not an error; the declaration and its reasoning are in `docs/store-listing/firefox/listing.md`.
+
+Finally, it writes the zip with `manifest.json` at its root, tests the archive, and checks that it holds exactly the files of the build. File order, timestamps, and permissions are fixed, so the same sources always produce the same zip. `task --list` shows the separate `build:*`, `verify:*`, and `clean` tasks. Packaging doesn't run the tests, so run `npm test` before a release.
+
+To check a package yourself:
+
+```bash
+unzip -l release/timesheet-for-jira-firefox.zip                 # manifest.json is listed without a folder
+unzip -p release/timesheet-for-jira-firefox.zip manifest.json | jq .
+npx web-ext lint --source-dir dist/firefox                      # Mozilla's linter (optional)
+```
+
+Upload `release/timesheet-for-jira-chrome.zip` as a new item or a new version in the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole). Upload `release/timesheet-for-jira-firefox.zip` in the [Firefox Add-on Developer Hub](https://addons.mozilla.org/developers/addon/submit/distribution). Firefox doesn't need a source code upload, because the package holds the original, unminified source. Building a package doesn't make it ready to publish: the store listings in `docs/store-listing/` list the decisions and assets still needed before submission.
 
 The tests run without a browser or a Jira server: Jira responses come from a fake `fetch`, and the few UI tests that build HTML use a minimal `document` stub. There are no browser-level (end-to-end) tests in the repository.
 
@@ -338,7 +355,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 ├── icons/                        # Extension icons (16, 32, 48, and 128 px)
 ├── tests/                        # Node test suite (see above)
 ├── package.json                  # Metadata and the test script
-├── Taskfile.yml                  # Chrome Web Store packaging (task package:chrome)
+├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License
 └── README.md
 ```

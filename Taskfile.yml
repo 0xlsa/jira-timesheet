@@ -4,6 +4,9 @@
 # "Building" copies the runtime files into dist/<browser>/ and writes that browser's
 # manifest; packaging validates the build and zips it into release/.
 #
+# Chrome and Firefox share the build, the common checks, and the zip step (the internal
+# *:browser tasks); only the manifest rewrite and the store-specific checks differ.
+#
 # Requires Task 3, jq, zip, and unzip.
 
 version: '3'
@@ -11,9 +14,8 @@ version: '3'
 set: [errexit, nounset, pipefail]
 
 vars:
-  CHROME_DIR: dist/chrome
+  DIST_DIR: dist
   RELEASE_DIR: release
-  CHROME_ZIP: '{{.RELEASE_DIR}}/timesheet-for-jira-chrome.zip'
   # Files and folders the extension loads at runtime. Everything else (tests, docs,
   # store listings, package.json) stays out of the package.
   RUNTIME_FILES: manifest.json background.js options.html options.css options.js
@@ -34,55 +36,186 @@ tasks:
           command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
         done
 
+  # ---------------------------------------------------------------------------
+  # Chrome
+  # ---------------------------------------------------------------------------
+
   build:chrome:
     desc: Build the Chrome extension into dist/chrome/
-    deps: [check:tools]
     silent: true
     cmds:
-      - rm -rf '{{.CHROME_DIR}}'
-      - mkdir -p '{{.CHROME_DIR}}'
+      # The manifest is shared with Firefox. Chrome ignores the Firefox-only keys but lists
+      # them as warnings on chrome://extensions, so the Chrome build leaves them out.
+      - task: build:browser
+        vars:
+          BROWSER: chrome
+          LABEL: Chrome
+          MANIFEST_FILTER: del(.browser_specific_settings) | del(.background.scripts)
+
+  verify:chrome:
+    desc: Check the Chrome build in dist/chrome/ before packaging
+    silent: true
+    vars:
+      DIR: '{{.DIST_DIR}}/chrome'
+    cmds:
+      - task: verify:browser
+        vars: { BROWSER: chrome }
+      - |
+        manifest='{{.DIR}}/manifest.json'
+        fail() { echo "manifest.json: $1" >&2; exit 1; }
+        [ "$(jq -r '.description | length' "$manifest")" -le 132 ] || fail "description is longer than 132 characters"
+        [ -n "$(jq -r '.background.service_worker // empty' "$manifest")" ] || fail "missing background.service_worker"
+      - echo "Chrome build in {{.DIR}}/ passed all checks"
+
+  package:chrome:
+    desc: Build, verify, and zip the Chrome extension for the Chrome Web Store
+    silent: true
+    cmds:
+      # Removed first, so a failed build never leaves an older package behind.
+      - rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-chrome.zip'
+      - task: build:chrome
+      - task: verify:chrome
+      - task: zip:browser
+        vars:
+          BROWSER: chrome
+          STORE: Chrome Web Store
+          UPLOAD_URL: https://chrome.google.com/webstore/devconsole
+
+  # ---------------------------------------------------------------------------
+  # Firefox
+  # ---------------------------------------------------------------------------
+
+  build:firefox:
+    desc: Build the Firefox extension into dist/firefox/
+    silent: true
+    cmds:
+      # Firefox runs the background script as an event page (background.scripts); it doesn't
+      # support extension service workers, so the Firefox build leaves out the Chrome-only key.
+      - task: build:browser
+        vars:
+          BROWSER: firefox
+          LABEL: Firefox
+          MANIFEST_FILTER: del(.background.service_worker)
+
+  verify:firefox:
+    desc: Check the Firefox build in dist/firefox/ before packaging
+    silent: true
+    vars:
+      DIR: '{{.DIST_DIR}}/firefox'
+    cmds:
+      - task: verify:browser
+        vars: { BROWSER: firefox }
+      - |
+        manifest='{{.DIR}}/manifest.json'
+        fail() { echo "manifest.json: $1" >&2; exit 1; }
+        # The add-on ID identifies the add-on on addons.mozilla.org; manifest.json is its only
+        # source. Mozilla accepts an email-like ID (name@domain) or a GUID in braces.
+        id="$(jq -r '.browser_specific_settings.gecko.id // empty' "$manifest")"
+        [ -n "$id" ] || fail "missing browser_specific_settings.gecko.id"
+        echo "$id" | grep -Eiq '^([a-z0-9._-]*@[a-z0-9._-]+|\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\})$' \
+          || fail "gecko.id \"$id\" is neither an email-like ID (name@domain) nor a GUID in braces"
+        echo "Add-on ID: $id"
+        min="$(jq -r '.browser_specific_settings.gecko.strict_min_version // empty' "$manifest")"
+        [ -n "$min" ] || fail "missing browser_specific_settings.gecko.strict_min_version"
+        echo "$min" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "strict_min_version \"$min\" is not a version number"
+        echo "Minimum Firefox version: $min"
+        # The supported versions come from manifest.json. This only catches a minimum that is too
+        # old for a key the manifest uses: Firefox 128 added optional_host_permissions.
+        if [ "$(jq 'has("optional_host_permissions")' "$manifest")" = true ] && [ "${min%%.*}" -lt 128 ]; then
+          fail "strict_min_version $min is below 128, the first Firefox with optional_host_permissions"
+        fi
+        [ "$(jq -r '.background.scripts | type' "$manifest")" = array ] && [ "$(jq '.background.scripts | length' "$manifest")" -gt 0 ] \
+          || fail "background.scripts must list the background script; Firefox doesn't run background.service_worker"
+        [ -z "$(jq -r '.background.service_worker // empty' "$manifest")" ] \
+          || fail "background.service_worker is Chrome-only and must not be in the Firefox build"
+      - |
+        # Extension APIs go through src/compat/browser-api.js, which prefers Firefox's
+        # promise-based `browser`. A direct `chrome.*` call elsewhere would bypass it.
+        dir='{{.DIR}}'
+        found="$(cd "$dir" && grep -rnE '\bchrome\.[a-zA-Z]+' --include='*.js' . \
+          | grep -v '^\./src/compat/browser-api\.js:' \
+          | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(\*|//|/\*)' || true)"
+        [ -z "$found" ] || { echo "Direct chrome.* API use outside src/compat/browser-api.js:" >&2; echo "$found" >&2; exit 1; }
+      - |
+        # Not a build error, but addons.mozilla.org expects it for new add-ons; see
+        # docs/store-listing/firefox/listing.md.
+        if [ "$(jq -r '.browser_specific_settings.gecko.data_collection_permissions // empty' '{{.DIR}}/manifest.json')" = '' ]; then
+          echo "WARNING: manifest.json has no browser_specific_settings.gecko.data_collection_permissions." >&2
+          echo "         Mozilla requires it for new add-ons on addons.mozilla.org (see docs/store-listing/firefox/listing.md)." >&2
+        fi
+      - echo "Firefox build in {{.DIR}}/ passed all checks"
+
+  package:firefox:
+    desc: Build, verify, and zip the Firefox extension for addons.mozilla.org
+    silent: true
+    cmds:
+      # Removed first, so a failed build never leaves an older package behind.
+      - rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-firefox.zip'
+      - task: build:firefox
+      - task: verify:firefox
+      - task: zip:browser
+        vars:
+          BROWSER: firefox
+          STORE: Firefox Add-ons
+          UPLOAD_URL: https://addons.mozilla.org/developers/addon/submit/distribution
+
+  # ---------------------------------------------------------------------------
+  # Shared steps (called with BROWSER set)
+  # ---------------------------------------------------------------------------
+
+  build:browser:
+    internal: true
+    deps: [check:tools]
+    silent: true
+    requires:
+      vars: [BROWSER, LABEL, MANIFEST_FILTER]
+    vars:
+      DIR: '{{.DIST_DIR}}/{{.BROWSER}}'
+    cmds:
+      - rm -rf '{{.DIR}}'
+      - mkdir -p '{{.DIR}}'
       - |
         for file in {{.RUNTIME_FILES}}; do
           [ -f "$file" ] || { echo "Missing runtime file: $file" >&2; exit 1; }
         done
-        # Copy runtime files except the manifest, which gets a Chrome-specific copy below.
+        # Copy runtime files except the manifest, which gets a browser-specific copy below.
         for file in {{.RUNTIME_FILES}}; do
-          [ "$file" = manifest.json ] || cp "$file" '{{.CHROME_DIR}}/'
+          [ "$file" = manifest.json ] || cp "$file" '{{.DIR}}/'
         done
-        cp -R {{.RUNTIME_DIRS}} '{{.CHROME_DIR}}/'
+        cp -R {{.RUNTIME_DIRS}} '{{.DIR}}/'
         # Drop editor and OS clutter that may sit next to source files.
-        find '{{.CHROME_DIR}}' \( -name '.*' -o -name '*~' -o -name '*.swp' -o -name 'Thumbs.db' \) -exec rm -rf {} +
-      # The manifest is shared with Firefox. Chrome ignores the Firefox-only keys but lists
-      # them as warnings on chrome://extensions, so the Chrome build leaves them out.
-      - jq 'del(.browser_specific_settings) | del(.background.scripts)' manifest.json > '{{.CHROME_DIR}}/manifest.json'
-      - echo "Built Chrome extension in {{.CHROME_DIR}}/"
+        find '{{.DIR}}' \( -name '.*' -o -name '*~' -o -name '*.swp' -o -name 'Thumbs.db' \) -exec rm -rf {} +
+      - jq '{{.MANIFEST_FILTER}}' manifest.json > '{{.DIR}}/manifest.json'
+      - echo "Built {{.LABEL}} extension in {{.DIR}}/"
 
-  verify:chrome:
-    desc: Check the Chrome build in dist/chrome/ before packaging
+  verify:browser:
+    internal: true
     deps: [check:tools]
     silent: true
+    requires:
+      vars: [BROWSER]
+    vars:
+      DIR: '{{.DIST_DIR}}/{{.BROWSER}}'
     cmds:
       - |
-        dir='{{.CHROME_DIR}}'
-        [ -d "$dir" ] || { echo "Build output $dir/ does not exist. Run: task build:chrome" >&2; exit 1; }
+        dir='{{.DIR}}'
+        [ -d "$dir" ] || { echo "Build output $dir/ does not exist. Run: task build:{{.BROWSER}}" >&2; exit 1; }
         [ -n "$(find "$dir" -type f | head -n 1)" ] || { echo "Build output $dir/ is empty" >&2; exit 1; }
         [ -f "$dir/manifest.json" ] || { echo "Missing $dir/manifest.json" >&2; exit 1; }
         jq empty "$dir/manifest.json" 2>/dev/null || { echo "$dir/manifest.json is not valid JSON" >&2; exit 1; }
       - |
-        manifest='{{.CHROME_DIR}}/manifest.json'
+        manifest='{{.DIR}}/manifest.json'
         fail() { echo "manifest.json: $1" >&2; exit 1; }
         [ "$(jq -r '.manifest_version' "$manifest")" = 3 ] || fail "manifest_version must be 3"
         for key in name version description; do
           [ -n "$(jq -r --arg k "$key" '.[$k] // empty' "$manifest")" ] || fail "missing \"$key\""
         done
-        [ "$(jq -r '.description | length' "$manifest")" -le 132 ] || fail "description is longer than 132 characters"
         version="$(jq -r '.version' "$manifest")"
         echo "$version" | grep -Eq '^(0|[1-9][0-9]{0,4})(\.(0|[1-9][0-9]{0,4})){0,3}$' \
           || fail "version \"$version\" is not 1 to 4 dot-separated integers"
         package_version="$(jq -r '.version' package.json)"
         [ "$version" = "$package_version" ] || fail "version $version does not match package.json ($package_version)"
-        [ -n "$(jq -r '.icons["128"] // empty' "$manifest")" ] || fail "missing the 128 px icon the Chrome Web Store requires"
-        [ -n "$(jq -r '.background.service_worker // empty' "$manifest")" ] || fail "missing background.service_worker"
+        [ -n "$(jq -r '.icons["128"] // empty' "$manifest")" ] || fail "missing the 128 px icon the stores require"
         # Jira sites are requested one at a time at run time (optional_host_permissions), so
         # installing the extension must not grant access to any site.
         [ "$(jq '.host_permissions // [] | length' "$manifest")" = 0 ] \
@@ -91,14 +224,14 @@ tasks:
           || fail "optional_host_permissions must include https://*/* so any Jira site can be requested"
       - |
         # Every file the manifest names must be in the build.
-        dir='{{.CHROME_DIR}}'
-        jq -r '[.icons[]?, .action.default_icon[]?, .background.service_worker?, .options_ui.page?] | map(select(. != null)) | .[]' \
+        dir='{{.DIR}}'
+        jq -r '[.icons[]?, .action.default_icon[]?, .background.service_worker?, .background.scripts[]?, .options_ui.page?] | map(select(. != null)) | .[]' \
           "$dir/manifest.json" | while read -r path; do
           [ -f "$dir/$path" ] || { echo "manifest.json names $path, which is not in the build" >&2; exit 1; }
         done
       - |
         # Local scripts, styles, and images in HTML pages must be in the build.
-        dir='{{.CHROME_DIR}}'
+        dir='{{.DIR}}'
         find "$dir" -name '*.html' | while read -r page; do
           { grep -oE '(src|href)="[^"]+"' "$page" || true; } | sed -E 's/^(src|href)="([^"#?]*).*$/\2/' | while read -r ref; do
             case "$ref" in ''|http:*|https:*|mailto:*|data:*) continue ;; esac
@@ -108,52 +241,55 @@ tasks:
       - |
         # Relative ES module imports must resolve inside the build (comment lines are skipped).
         # grep finds nothing in files without imports, which is fine, hence the `|| true`.
-        dir='{{.CHROME_DIR}}'
+        dir='{{.DIR}}'
         find "$dir" -name '*.js' | while read -r script; do
           { grep -E "^[[:space:]]*(import|export|\})[^'\"]*['\"]\.{1,2}/[^'\"]+['\"]" "$script" || true; } \
             | sed -E "s/^.*['\"](\.{1,2}\/[^'\"]+)['\"].*$/\1/" | while read -r ref; do
             [ -f "$(dirname "$script")/$ref" ] || { echo "${script#$dir/} imports $ref, which is not in the build" >&2; exit 1; }
           done
         done
-      - echo "Chrome build in {{.CHROME_DIR}}/ passed all checks"
 
-  package:chrome:
-    desc: Build, verify, and zip the Chrome extension for the Chrome Web Store
+  zip:browser:
+    internal: true
+    deps: [check:tools]
     silent: true
+    requires:
+      vars: [BROWSER, STORE, UPLOAD_URL]
+    vars:
+      DIR: '{{.DIST_DIR}}/{{.BROWSER}}'
+      ZIP: '{{.RELEASE_DIR}}/timesheet-for-jira-{{.BROWSER}}.zip'
     cmds:
-      - task: build:chrome
-      - task: verify:chrome
       - mkdir -p '{{.RELEASE_DIR}}'
-      - rm -f '{{.CHROME_ZIP}}'
+      - rm -f '{{.ZIP}}'
       - |
         # Fixed timestamps, permissions, and file order, so the same sources give the same zip.
-        find '{{.CHROME_DIR}}' -type d -exec chmod 755 {} +
-        find '{{.CHROME_DIR}}' -type f -exec chmod 644 {} +
-        find '{{.CHROME_DIR}}' -exec touch -t 198001010000 {} +
-        zip_path="$(pwd)/{{.CHROME_ZIP}}"
+        find '{{.DIR}}' -type d -exec chmod 755 {} +
+        find '{{.DIR}}' -type f -exec chmod 644 {} +
+        find '{{.DIR}}' -exec touch -t 198001010000 {} +
+        zip_path="$(pwd)/{{.ZIP}}"
         # Zip from inside the build so manifest.json sits at the root of the archive.
-        cd '{{.CHROME_DIR}}'
+        cd '{{.DIR}}'
         find . -type f | sed 's|^\./||' | LC_ALL=C sort | TZ=UTC zip -q -X -D "$zip_path" -@
       - |
-        zip_file='{{.CHROME_ZIP}}'
+        zip_file='{{.ZIP}}'
         unzip -tq "$zip_file" >/dev/null || { echo "$zip_file failed the zip integrity test" >&2; exit 1; }
         unzip -Z1 "$zip_file" | grep -qx 'manifest.json' || { echo "manifest.json is not at the root of $zip_file" >&2; exit 1; }
         # The archive must hold exactly the files of the build: nothing missing, nothing extra.
-        expected="$(cd '{{.CHROME_DIR}}' && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
+        expected="$(cd '{{.DIR}}' && find . -type f | sed 's|^\./||' | LC_ALL=C sort)"
         actual="$(unzip -Z1 "$zip_file" | LC_ALL=C sort)"
-        [ "$expected" = "$actual" ] || { echo "$zip_file does not match {{.CHROME_DIR}}/" >&2; exit 1; }
+        [ "$expected" = "$actual" ] || { echo "$zip_file does not match {{.DIR}}/" >&2; exit 1; }
       - |
-        zip_file='{{.CHROME_ZIP}}'
-        version="$(jq -r '.version' '{{.CHROME_DIR}}/manifest.json')"
+        zip_file='{{.ZIP}}'
+        version="$(jq -r '.version' '{{.DIR}}/manifest.json')"
         count="$(unzip -Z1 "$zip_file" | wc -l | tr -d ' ')"
         size="$(wc -c < "$zip_file" | tr -d ' ')"
         echo
-        echo "Chrome Web Store package ready: version $version, $count files, $size bytes"
+        echo "{{.STORE}} package ready: version $version, $count files, $size bytes"
         echo "  $(pwd)/$zip_file"
-        echo "Upload it at https://chrome.google.com/webstore/devconsole"
+        echo "Upload it at {{.UPLOAD_URL}}"
 
   clean:
     desc: Remove build output and release packages
     silent: true
     cmds:
-      - rm -rf dist '{{.RELEASE_DIR}}'
+      - rm -rf '{{.DIST_DIR}}' '{{.RELEASE_DIR}}'

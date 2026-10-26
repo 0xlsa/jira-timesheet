@@ -1,6 +1,7 @@
 # Store packages. The extension is loaded unpacked from the repository root;
 # zips for the Chrome Web Store and Firefox Add-ons are built per release
-# (`task package:chrome` builds into dist/ and writes the zip to release/).
+# (`task package:chrome` and `task package:firefox` build into dist/ and write the
+# zips to release/).
 /dist/
 /release/
 /*.zip
