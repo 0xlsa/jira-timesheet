@@ -209,6 +209,21 @@ npm test
 
 This runs `node --test tests/*.test.js`, as defined in `package.json`.
 
+### Packaging for the Chrome Web Store
+
+Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, and `unzip`. From the repository root:
+
+```bash
+task package:chrome
+```
+
+This copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/`. The manifest copy leaves out the Firefox-only keys (`browser_specific_settings` and `background.scripts`). The task then checks the build:
+
+- the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, a service worker, and a version that matches `package.json`;
+- every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build.
+
+Finally, it writes `release/timesheet-for-jira-chrome.zip` with `manifest.json` at its root. File order, timestamps, and permissions are fixed, so the same sources always produce the same zip. `task --list` shows the separate `build:chrome`, `verify:chrome`, and `clean` tasks. The package doesn't run the tests, so run `npm test` before a release.
+
 The tests run without a browser or a Jira server: Jira responses come from a fake `fetch`, and the few UI tests that build HTML use a minimal `document` stub. There are no browser-level (end-to-end) tests in the repository.
 
 | Test file | Covers |
@@ -314,6 +329,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 ├── icons/                        # Extension icons (16, 32, 48, and 128 px)
 ├── tests/                        # Node test suite (see above)
 ├── package.json                  # Metadata and the test script
+├── Taskfile.yml                  # Chrome Web Store packaging (task package:chrome)
 ├── LICENSE                       # MIT License
 └── README.md
 ```
