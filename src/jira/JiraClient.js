@@ -729,13 +729,22 @@ export class JiraClient {
    * Sends a write request, turning timeouts and network failures into errors with
    * user-facing messages and an `errorType` code.
    *
+   * Write requests carry a non-browser User-Agent. Jira's additional XSRF check rejects a
+   * POST that has a browser User-Agent unless its Origin is the Jira site itself, and
+   * Firefox sends extension requests without such an Origin, so logging work failed there.
+   * Atlassian's documented workaround is to send the request without a browser User-Agent.
+   * Firefox honors this header; Chrome ignores it, which is fine because Chrome passes the check.
+   *
    * @param {string} path
    * @param {RequestInit} options
    * @returns {Promise<Response>}
    */
   async #writeRequest(path, options) {
     try {
-      return await this.#request(path, options);
+      return await this.#request(path, {
+        ...options,
+        headers: { 'User-Agent': 'Timesheet-for-Jira', ...(options.headers || {}) }
+      });
     } catch (err) {
       const { error, errorType } = this.#handleException(err, '');
       const wrapped = new Error(error);
@@ -756,16 +765,32 @@ export class JiraClient {
     const status = response.status;
     let serverMessage = '';
 
+    // Read the body as text when possible, so a plain-text reason (such as Jira's
+    // "XSRF check failed") isn't lost when the body isn't JSON.
+    let raw = '';
+    let body = null;
     try {
-      const body = await response.json();
-      const messages = [
-        ...(Array.isArray(body?.errorMessages) ? body.errorMessages : []),
-        ...(body?.errors && typeof body.errors === 'object' ? Object.values(body.errors) : []),
-        ...(typeof body?.message === 'string' ? [body.message] : [])
-      ].filter((m) => typeof m === 'string' && m.trim());
-      serverMessage = messages.join(' ');
+      if (typeof response.text === 'function') {
+        raw = await response.text();
+        body = JSON.parse(raw);
+      } else {
+        body = await response.json();
+      }
     } catch {
       // Body is not JSON
+    }
+
+    if (body && typeof body === 'object') {
+      const messages = [
+        ...(Array.isArray(body.errorMessages) ? body.errorMessages : []),
+        ...(body.errors && typeof body.errors === 'object' ? Object.values(body.errors) : []),
+        ...(typeof body.message === 'string' ? [body.message] : [])
+      ].filter((m) => typeof m === 'string' && m.trim());
+      serverMessage = messages.join(' ');
+    } else {
+      // Short plain text only; an HTML error page says nothing useful here.
+      const text = String(raw).trim();
+      if (text && !text.startsWith('<') && text.length <= 200) serverMessage = text;
     }
 
     const withDetail = (message) => (serverMessage ? `${message} Jira says: ${serverMessage}` : message);
@@ -775,6 +800,9 @@ export class JiraClient {
     if (status === 401) {
       errorType = 'AUTH_INVALID';
       message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Connection Settings.';
+    } else if (status === 403 && /xsrf/i.test(serverMessage)) {
+      errorType = 'XSRF';
+      message = withDetail("Jira's cross-site request (XSRF) protection rejected the request, so nothing was changed.");
     } else if (status === 403) {
       errorType = 'FORBIDDEN';
       message = withDetail(action === 'create'

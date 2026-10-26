@@ -194,3 +194,51 @@ describe('JiraClient - createWorklog', () => {
     await assert.rejects(offline.client.createWorklog('100', { started: new Date(), timeSpentSeconds: 60 }), (err) => err.errorType === 'NETWORK_ERROR');
   });
 });
+
+describe('JiraClient - Jira XSRF check on write requests', () => {
+  const text = (status, body) => ({ ok: false, status, text: async () => body, json: async () => JSON.parse(body) });
+
+  it('sends a non-browser User-Agent on create, update, and delete, but not on search', async () => {
+    const { client, requests } = setup('cloud', (req) => (req.method === 'GET'
+      ? json(200, { issues: [], isLast: true })
+      : json(req.method === 'DELETE' ? 204 : 200, { id: '1' })));
+
+    await client.createWorklog('100', { started: new Date(2026, 9, 22, 9, 0), timeSpentSeconds: 60 });
+    await client.updateWorklog('100', '1', { timeSpentSeconds: 120 });
+    await client.deleteWorklog('100', '1');
+    await client.searchIssues('project = KAN');
+
+    const userAgents = requests.map((r) => `${r.method} ${r.headers['User-Agent'] ?? '-'}`);
+    assert.deepEqual(userAgents, ['POST Timesheet-for-Jira', 'PUT Timesheet-for-Jira', 'DELETE Timesheet-for-Jira', 'GET -']);
+    // The XSRF bypass header is still sent.
+    assert.ok(requests.every((r) => r.headers['X-Atlassian-Token'] === 'no-check'));
+  });
+
+  it('reports an XSRF rejection as such, not as a missing permission', async () => {
+    const { client } = setup('cloud', () => text(403, 'XSRF check failed'));
+    await assert.rejects(client.createWorklog('100', { started: new Date(), timeSpentSeconds: 60 }), (err) => {
+      assert.equal(err.errorType, 'XSRF');
+      assert.match(err.message, /XSRF\) protection rejected the request.*Jira says: XSRF check failed/);
+      assert.doesNotMatch(err.message, /permission/);
+      return true;
+    });
+  });
+
+  it('shows a short plain-text reason, but not an HTML error page', async () => {
+    const plain = setup('server', () => text(403, 'Forbidden by proxy rule 12'));
+    await assert.rejects(plain.client.deleteWorklog('A-1', '1'), /permission to delete this worklog in Jira\. Jira says: Forbidden by proxy rule 12$/);
+
+    const html = setup('server', () => text(403, '<!DOCTYPE html><html><body>Access denied</body></html>'));
+    await assert.rejects(html.client.deleteWorklog('A-1', '1'), /^Error: You don't have permission to delete this worklog in Jira\.$/);
+  });
+
+  it('still reads JSON error bodies through text()', async () => {
+    const { client } = setup('cloud', () => text(400, JSON.stringify({ errors: { timeLogged: 'Invalid time duration entered.' } })));
+    await assert.rejects(client.createWorklog('100', { started: new Date(), timeSpentSeconds: 60 }), (err) => {
+      assert.equal(err.errorType, 'INVALID');
+      assert.match(err.message, /Jira says: Invalid time duration entered\./);
+      return true;
+    });
+  });
+});
+
