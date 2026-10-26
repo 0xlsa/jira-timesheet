@@ -4,11 +4,11 @@
  *
  * - createWorklogEditorSession(): editing state (form values, validation, unsaved-changes and
  *   delete confirmations, busy state). No DOM; saving and deleting are injected callbacks.
- * - renderWorklogEditor(): the panel markup.
+ * - renderWorklogEditor(): the panel contents, built as DOM nodes.
  * - openWorklogEditor(): mounts the panel and keeps the DOM in sync with the session.
  */
 
-import { escapeHtml } from './html.js';
+import { h, svg } from './dom.js';
 import { renderIssueStatusBadge } from './weekView.js';
 import {
   MAX_DURATION_HOURS,
@@ -167,134 +167,112 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
 }
 
 /**
- * Builds the panel markup for a worklog, or for logging new work on an issue.
+ * Builds the panel for a worklog, or for logging new work on an issue.
  *
  * @param {object} worklog - Source worklog (edit) or the issue (create)
  * @param {object} form - Initial form values
  * @param {string} baseUrl - Jira instance URL for the issue link
  * @param {object} [options]
  * @param {'edit' | 'create'} [options.mode='edit']
- * @returns {string}
+ * @returns {HTMLFormElement}
  */
 export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = {}) {
   const isCreate = mode === 'create';
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(worklog.issueKey)}` : '#';
-  const richCommentNote = isRichComment(worklog.comment)
-    ? '<div class="field-hint editor-rich-note">This comment has formatting from Jira. If you edit it here, it\'s saved as plain text.</div>'
-    : '';
+  const icon = (attributes, ...shapes) => svg('svg', {
+    ...attributes, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true'
+  }, ...shapes);
+  const durationField = (id, name, label, value, max, unit) => h('span', { class: 'editor-duration-field' },
+    h('label', { for: id, class: 'sr-only' }, label),
+    h('input', {
+      type: 'number', id, name, value, min: '0', max: String(max), step: '1', inputmode: 'numeric',
+      'aria-describedby': 'worklogEditDurationError'
+    }),
+    h('span', { class: 'editor-duration-unit', 'aria-hidden': 'true' }, unit));
 
-  return `
-    <form class="editor-form" novalidate>
-      <div class="editor-header">
-        <h2 class="editor-title" id="worklogEditorTitle">${isCreate ? 'Log work' : 'Edit worklog'}</h2>
-        <button type="button" class="editor-icon-btn" data-action="close" aria-label="Close editor" title="Close">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <line x1="18" y1="6" x2="6" y2="18"/>
-            <line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
-      </div>
+  return h('form', { class: 'editor-form', novalidate: true },
+    h('div', { class: 'editor-header' },
+      h('h2', { class: 'editor-title', id: 'worklogEditorTitle' }, isCreate ? 'Log work' : 'Edit worklog'),
+      h('button', { type: 'button', class: 'editor-icon-btn', 'data-action': 'close', 'aria-label': 'Close editor', title: 'Close' },
+        icon({ class: 'icon' },
+          svg('line', { x1: '18', y1: '6', x2: '6', y2: '18' }),
+          svg('line', { x1: '6', y1: '6', x2: '18', y2: '18' })))),
 
-      <div class="editor-body">
-        <div class="editor-issue">
-          <div class="editor-issue-row">
-            <a href="${escapeHtml(issueUrl)}" target="_blank" rel="noopener noreferrer" class="issue-key-badge" title="Open ${escapeHtml(worklog.issueKey)} in Jira">${escapeHtml(worklog.issueKey || 'ISSUE')}</a>
-            ${renderIssueStatusBadge(worklog.issueStatus)}
-          </div>
-          <p class="editor-issue-summary">${escapeHtml(worklog.issueSummary || 'No summary available')}</p>
-        </div>
+    h('div', { class: 'editor-body' },
+      h('div', { class: 'editor-issue' },
+        h('div', { class: 'editor-issue-row' },
+          h('a', { href: issueUrl, target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${worklog.issueKey || ''} in Jira` },
+            worklog.issueKey || 'ISSUE'),
+          renderIssueStatusBadge(worklog.issueStatus)),
+        h('p', { class: 'editor-issue-summary' }, worklog.issueSummary || 'No summary available')),
 
-        <div class="editor-note">
-          <svg class="editor-note-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="16" x2="12" y2="12"/>
-            <line x1="12" y1="8" x2="12.01" y2="8"/>
-          </svg>
-          <span>${isCreate ? 'Enter the date, start time, duration, and work description.' : 'Edit the date, time, duration, and work description.'}</span>
-        </div>
+      h('div', { class: 'editor-note' },
+        icon({ class: 'editor-note-icon' },
+          svg('circle', { cx: '12', cy: '12', r: '10' }),
+          svg('line', { x1: '12', y1: '16', x2: '12', y2: '12' }),
+          svg('line', { x1: '12', y1: '8', x2: '12.01', y2: '8' })),
+        h('span', {}, isCreate ? 'Enter the date, start time, duration, and work description.' : 'Edit the date, time, duration, and work description.')),
 
-        <fieldset class="editor-fields">
-          <div class="form-group">
-            <label for="worklogEditDate" class="form-label">Date</label>
-            <input type="date" id="worklogEditDate" name="date" value="${escapeHtml(form.date)}" required aria-describedby="worklogEditDateError">
-            <div id="worklogEditDateError" class="field-error" data-error-for="date"></div>
-          </div>
+      h('fieldset', { class: 'editor-fields' },
+        h('div', { class: 'form-group' },
+          h('label', { for: 'worklogEditDate', class: 'form-label' }, 'Date'),
+          h('input', { type: 'date', id: 'worklogEditDate', name: 'date', value: form.date, required: true, 'aria-describedby': 'worklogEditDateError' }),
+          h('div', { id: 'worklogEditDateError', class: 'field-error', 'data-error-for': 'date' })),
 
-          <div class="form-group">
-            <label for="worklogEditTime" class="form-label">Start time</label>
-            <input type="time" id="worklogEditTime" name="time" value="${escapeHtml(form.time)}" required aria-describedby="worklogEditTimeError">
-            <div id="worklogEditTimeError" class="field-error" data-error-for="time"></div>
-          </div>
+        h('div', { class: 'form-group' },
+          h('label', { for: 'worklogEditTime', class: 'form-label' }, 'Start time'),
+          h('input', { type: 'time', id: 'worklogEditTime', name: 'time', value: form.time, required: true, 'aria-describedby': 'worklogEditTimeError' }),
+          h('div', { id: 'worklogEditTimeError', class: 'field-error', 'data-error-for': 'time' })),
 
-          <fieldset class="form-group editor-duration">
-            <legend class="form-label">Duration</legend>
-            ${isCreate ? `
-            <div class="editor-duration-presets" role="group" aria-label="Quick durations">
-              ${DURATION_PRESETS.map((p) => `<button type="button" class="duration-preset" data-preset-hours="${p.hours}" data-preset-minutes="${p.minutes}" aria-pressed="false">${p.label}</button>`).join('')}
-              <button type="button" class="duration-preset" data-action="custom-duration" aria-pressed="false">Custom</button>
-            </div>` : ''}
-            <div class="editor-duration-inputs">
-              <span class="editor-duration-field">
-                <label for="worklogEditHours" class="sr-only">Hours</label>
-                <input type="number" id="worklogEditHours" name="hours" value="${escapeHtml(form.hours)}" min="0" max="${MAX_DURATION_HOURS}" step="1" inputmode="numeric" aria-describedby="worklogEditDurationError">
-                <span class="editor-duration-unit" aria-hidden="true">h</span>
-              </span>
-              <span class="editor-duration-field">
-                <label for="worklogEditMinutes" class="sr-only">Minutes</label>
-                <input type="number" id="worklogEditMinutes" name="minutes" value="${escapeHtml(form.minutes)}" min="0" max="59" step="1" inputmode="numeric" aria-describedby="worklogEditDurationError">
-                <span class="editor-duration-unit" aria-hidden="true">m</span>
-              </span>
-            </div>
-            <div id="worklogEditDurationError" class="field-error" data-error-for="duration"></div>
-          </fieldset>
+        h('fieldset', { class: 'form-group editor-duration' },
+          h('legend', { class: 'form-label' }, 'Duration'),
+          isCreate && h('div', { class: 'editor-duration-presets', role: 'group', 'aria-label': 'Quick durations' },
+            DURATION_PRESETS.map((p) => h('button', {
+              type: 'button', class: 'duration-preset', 'data-preset-hours': p.hours, 'data-preset-minutes': p.minutes, 'aria-pressed': 'false'
+            }, p.label)),
+            h('button', { type: 'button', class: 'duration-preset', 'data-action': 'custom-duration', 'aria-pressed': 'false' }, 'Custom')),
+          h('div', { class: 'editor-duration-inputs' },
+            durationField('worklogEditHours', 'hours', 'Hours', form.hours, MAX_DURATION_HOURS, 'h'),
+            durationField('worklogEditMinutes', 'minutes', 'Minutes', form.minutes, 59, 'm')),
+          h('div', { id: 'worklogEditDurationError', class: 'field-error', 'data-error-for': 'duration' })),
 
-          <div class="form-group">
-            <label for="worklogEditComment" class="form-label">Work description (comment)</label>
-            <textarea id="worklogEditComment" name="comment" rows="5" aria-describedby="worklogEditCommentHint">${escapeHtml(form.comment)}</textarea>
-            <div id="worklogEditCommentHint" class="field-hint">${isCreate ? 'Optional. ' : ''}Describe the work you did. This is saved on the worklog only; the issue title doesn't change.</div>
-            ${richCommentNote}
-          </div>
-        </fieldset>
-      </div>
+        h('div', { class: 'form-group' },
+          h('label', { for: 'worklogEditComment', class: 'form-label' }, 'Work description (comment)'),
+          // A textarea's text is its initial value, like the text between <textarea> tags.
+          h('textarea', { id: 'worklogEditComment', name: 'comment', rows: '5', 'aria-describedby': 'worklogEditCommentHint' }, form.comment),
+          h('div', { id: 'worklogEditCommentHint', class: 'field-hint' },
+            `${isCreate ? 'Optional. ' : ''}Describe the work you did. This is saved on the worklog only; the issue title doesn't change.`),
+          isRichComment(worklog.comment) && h('div', { class: 'field-hint editor-rich-note' },
+            "This comment has formatting from Jira. If you edit it here, it's saved as plain text.")))),
 
-      <div class="editor-footer">
-        <div class="panel-alert alert-danger editor-submit-error hidden" role="alert">
-          <div class="alert-content"><p data-submit-error></p></div>
-        </div>
+    h('div', { class: 'editor-footer' },
+      h('div', { class: 'panel-alert alert-danger editor-submit-error hidden', role: 'alert' },
+        h('div', { class: 'alert-content' }, h('p', { 'data-submit-error': true }))),
 
-        <div class="editor-actions" data-actions="main">
-          ${isCreate ? '' : '<button type="button" class="btn btn-danger-outline btn-sm" data-action="delete">Delete worklog</button>'}
-          <span class="editor-actions-spacer"></span>
-          <button type="button" class="btn btn-secondary btn-sm" data-action="cancel">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm" data-action="save">
-            <span class="btn-spinner hidden" data-spinner="saving"></span>
-            <span data-save-label>${isCreate ? 'Log work' : 'Save changes'}</span>
-          </button>
-        </div>
+      h('div', { class: 'editor-actions', 'data-actions': 'main' },
+        !isCreate && h('button', { type: 'button', class: 'btn btn-danger-outline btn-sm', 'data-action': 'delete' }, 'Delete worklog'),
+        h('span', { class: 'editor-actions-spacer' }),
+        h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'cancel' }, 'Cancel'),
+        h('button', { type: 'submit', class: 'btn btn-primary btn-sm', 'data-action': 'save' },
+          h('span', { class: 'btn-spinner hidden', 'data-spinner': 'saving' }),
+          h('span', { 'data-save-label': true }, isCreate ? 'Log work' : 'Save changes'))),
 
-        <div class="editor-confirm hidden" data-confirm="discard" role="alertdialog" aria-labelledby="worklogEditorDiscardText">
-          <p id="worklogEditorDiscardText">You have unsaved changes. Discard them?</p>
-          <div class="editor-actions">
-            <span class="editor-actions-spacer"></span>
-            <button type="button" class="btn btn-secondary btn-sm" data-action="keep-editing">Keep editing</button>
-            <button type="button" class="btn btn-danger-outline btn-sm" data-action="discard">Discard changes</button>
-          </div>
-        </div>
+      h('div', { class: 'editor-confirm hidden', 'data-confirm': 'discard', role: 'alertdialog', 'aria-labelledby': 'worklogEditorDiscardText' },
+        h('p', { id: 'worklogEditorDiscardText' }, 'You have unsaved changes. Discard them?'),
+        h('div', { class: 'editor-actions' },
+          h('span', { class: 'editor-actions-spacer' }),
+          h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'keep-editing' }, 'Keep editing'),
+          h('button', { type: 'button', class: 'btn btn-danger-outline btn-sm', 'data-action': 'discard' }, 'Discard changes'))),
 
-        ${isCreate ? '' : `<div class="editor-confirm hidden" data-confirm="delete" role="alertdialog" aria-labelledby="worklogEditorDeleteText">
-          <p id="worklogEditorDeleteText">Delete this worklog from Jira? This can't be undone.</p>
-          <div class="editor-actions">
-            <span class="editor-actions-spacer"></span>
-            <button type="button" class="btn btn-secondary btn-sm" data-action="keep-worklog">Keep worklog</button>
-            <button type="button" class="btn btn-danger btn-sm" data-action="confirm-delete">
-              <span class="btn-spinner hidden" data-spinner="deleting"></span>
-              <span>Delete worklog</span>
-            </button>
-          </div>
-        </div>`}
-      </div>
-    </form>
-  `;
+      !isCreate && h('div', { class: 'editor-confirm hidden', 'data-confirm': 'delete', role: 'alertdialog', 'aria-labelledby': 'worklogEditorDeleteText' },
+        h('p', { id: 'worklogEditorDeleteText' }, "Delete this worklog from Jira? This can't be undone."),
+        h('div', { class: 'editor-actions' },
+          h('span', { class: 'editor-actions-spacer' }),
+          h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'keep-worklog' }, 'Keep worklog'),
+          h('button', { type: 'button', class: 'btn btn-danger btn-sm', 'data-action': 'confirm-delete' },
+            h('span', { class: 'btn-spinner hidden', 'data-spinner': 'deleting' }),
+            h('span', {}, 'Delete worklog')))))
+  );
 }
 
 /**
@@ -321,7 +299,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   const saveLabel = isCreate ? 'Log work' : 'Save changes';
   const firstField = isCreate ? '#worklogEditHours' : '#worklogEditDate';
 
-  root.innerHTML = renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode });
+  root.replaceChildren(renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode }));
   root.classList.remove('hidden');
   root.setAttribute('aria-labelledby', 'worklogEditorTitle');
   document.documentElement.classList.add('has-worklog-editor');
@@ -389,7 +367,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     if (!isOpen) return;
     isOpen = false;
     root.classList.add('hidden');
-    root.innerHTML = '';
+    root.replaceChildren();
     root.removeAttribute('aria-busy');
     document.documentElement.classList.remove('has-worklog-editor');
     onClose(reason);

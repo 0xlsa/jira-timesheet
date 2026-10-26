@@ -3,11 +3,11 @@
  *
  * - describeWorklogForDeletion(): the issue, date, start time, and duration shown in the dialog.
  * - createDeleteWorklogSession(): the delete request state (busy guard, error). No DOM.
- * - renderDeleteWorklogDialog(): the dialog markup.
+ * - renderDeleteWorklogDialog(): the dialog contents, built as DOM nodes.
  * - openDeleteWorklogDialog(): shows the dialog in a <dialog> element and wires it to a session.
  */
 
-import { escapeHtml } from './html.js';
+import { h } from './dom.js';
 import { formatDuration } from '../worklog/worklogUtils.js';
 
 // Same "Wednesday, 21 October 2026" shape as the day panel heading in weekView.js.
@@ -72,43 +72,33 @@ export function createDeleteWorklogSession(onDelete) {
 }
 
 /**
- * Builds the dialog markup.
+ * Builds the dialog contents.
  *
  * @param {ReturnType<typeof describeWorklogForDeletion>} details
- * @returns {string}
+ * @returns {HTMLElement} The dialog body
  */
 export function renderDeleteWorklogDialog(details) {
-  const issue = details.issueSummary
-    ? `${escapeHtml(details.issueKey)} · ${escapeHtml(details.issueSummary)}`
-    : escapeHtml(details.issueKey);
-  const date = details.startTime
-    ? `${escapeHtml(details.date)}, started ${escapeHtml(details.startTime)}`
-    : escapeHtml(details.date);
+  const issue = details.issueSummary ? `${details.issueKey} · ${details.issueSummary}` : details.issueKey;
+  const date = details.startTime ? `${details.date}, started ${details.startTime}` : details.date;
 
-  return `
-    <div class="confirm-dialog-body">
-      <h2 class="confirm-dialog-title" id="deleteWorklogTitle">Delete worklog?</h2>
-      <p class="confirm-dialog-text" id="deleteWorklogText">This permanently deletes the worklog from Jira. It can't be undone.</p>
-      <dl class="confirm-dialog-details">
-        <dt>Issue</dt>
-        <dd>${issue}</dd>
-        <dt>Date</dt>
-        <dd>${date}</dd>
-        <dt>Duration</dt>
-        <dd>${escapeHtml(details.duration)}</dd>
-      </dl>
-      <div class="panel-alert alert-danger confirm-dialog-error hidden" role="alert">
-        <div class="alert-content"><p data-delete-error></p></div>
-      </div>
-      <div class="confirm-dialog-actions">
-        <button type="button" class="btn btn-secondary btn-sm" data-action="cancel">Cancel</button>
-        <button type="button" class="btn btn-danger btn-sm" data-action="delete">
-          <span class="btn-spinner hidden" data-delete-spinner></span>
-          <span data-delete-label>Delete worklog</span>
-        </button>
-      </div>
-    </div>
-  `;
+  return h('div', { class: 'confirm-dialog-body' },
+    h('h2', { class: 'confirm-dialog-title', id: 'deleteWorklogTitle' }, 'Delete worklog?'),
+    h('p', { class: 'confirm-dialog-text', id: 'deleteWorklogText' }, "This permanently deletes the worklog from Jira. It can't be undone."),
+    h('dl', { class: 'confirm-dialog-details' },
+      h('dt', {}, 'Issue'),
+      h('dd', {}, issue),
+      h('dt', {}, 'Date'),
+      h('dd', {}, date),
+      h('dt', {}, 'Duration'),
+      h('dd', {}, details.duration)),
+    h('div', { class: 'panel-alert alert-danger confirm-dialog-error hidden', role: 'alert' },
+      h('div', { class: 'alert-content' }, h('p', { 'data-delete-error': true }))),
+    h('div', { class: 'confirm-dialog-actions' },
+      h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'cancel' }, 'Cancel'),
+      h('button', { type: 'button', class: 'btn btn-danger btn-sm', 'data-action': 'delete' },
+        h('span', { class: 'btn-spinner hidden', 'data-delete-spinner': true }),
+        h('span', { 'data-delete-label': true }, 'Delete worklog')))
+  );
 }
 
 /**
@@ -125,7 +115,7 @@ export function openDeleteWorklogDialog(dialog, { worklog, onDelete, onClose }) 
   const session = createDeleteWorklogSession(onDelete);
   let isFinished = false;
 
-  dialog.innerHTML = renderDeleteWorklogDialog(describeWorklogForDeletion(worklog));
+  dialog.replaceChildren(renderDeleteWorklogDialog(describeWorklogForDeletion(worklog)));
   dialog.setAttribute('aria-labelledby', 'deleteWorklogTitle');
   dialog.setAttribute('aria-describedby', 'deleteWorklogText');
 
@@ -154,7 +144,7 @@ export function openDeleteWorklogDialog(dialog, { worklog, onDelete, onClose }) 
     dialog.removeEventListener('cancel', onCancel);
     dialog.removeEventListener('close', onDialogClose);
     if (dialog.open) dialog.close();
-    dialog.innerHTML = '';
+    dialog.replaceChildren();
     dialog.removeAttribute('aria-busy');
     onClose(reason);
   }

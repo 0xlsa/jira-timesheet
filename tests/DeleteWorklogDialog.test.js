@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { installFakeDocument, toHtml } from './support/fakeDom.js';
 
 // The dialog's date formatters are created when its module loads, so the time zone must be
 // set before importing it (static imports would run first).
@@ -13,20 +14,6 @@ const {
 // Start times use the locale's default time format, like the worklog cards.
 const localTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-// escapeHtml() relies on a DOM element's textContent -> innerHTML round trip; emulate it.
-function installDocumentStub() {
-  globalThis.document = {
-    createElement() {
-      let text = '';
-      return {
-        set textContent(value) { text = String(value); },
-        get innerHTML() {
-          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        }
-      };
-    }
-  };
-}
 
 const worklog = {
   id: '10012',
@@ -105,17 +92,14 @@ describe('Delete worklog dialog - session', () => {
 });
 
 describe('Delete worklog dialog - markup', () => {
-  let previousDocument;
+  let restoreDocument;
   before(() => {
-    previousDocument = globalThis.document;
-    installDocumentStub();
+    restoreDocument = installFakeDocument();
   });
-  after(() => {
-    globalThis.document = previousDocument;
-  });
+  after(() => restoreDocument());
 
   it('names the worklog, says it cannot be undone, and offers Cancel and Delete', () => {
-    const html = renderDeleteWorklogDialog(describeWorklogForDeletion(worklog));
+    const html = toHtml(renderDeleteWorklogDialog(describeWorklogForDeletion(worklog)));
     assert.match(html, /id="deleteWorklogTitle">Delete worklog\?</);
     assert.match(html, /can't be undone/);
     assert.match(html, /<dd>KAN-9 · Implement worklog editing<\/dd>/);
@@ -128,7 +112,7 @@ describe('Delete worklog dialog - markup', () => {
   });
 
   it('escapes worklog text', () => {
-    const html = renderDeleteWorklogDialog(describeWorklogForDeletion({ ...worklog, issueSummary: '<img src=x>' }));
+    const html = toHtml(renderDeleteWorklogDialog(describeWorklogForDeletion({ ...worklog, issueSummary: '<img src=x>' })));
     assert.doesNotMatch(html, /<img src=x>/);
     assert.match(html, /&lt;img src=x&gt;/);
   });

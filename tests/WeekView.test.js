@@ -1,22 +1,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { installFakeDocument, toHtml } from './support/fakeDom.js';
 import { renderIssueStatusBadge, renderWorklogItem } from '../src/ui/weekView.js';
 
-// escapeHtml() relies on a DOM element's textContent -> innerHTML round trip; emulate it.
-function installDocumentStub() {
-  globalThis.document = {
-    createElement() {
-      let text = '';
-      return {
-        set textContent(value) { text = String(value); },
-        get innerHTML() {
-          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        }
-      };
-    }
-  };
-}
 
 const worklog = (issueStatus) => ({
   issueKey: 'EKB-30755',
@@ -29,23 +16,20 @@ const worklog = (issueStatus) => ({
 });
 
 describe('WeekView - issue status badge', () => {
-  let previousDocument;
+  let restoreDocument;
   before(() => {
-    previousDocument = globalThis.document;
-    installDocumentStub();
+    restoreDocument = installFakeDocument();
   });
-  after(() => {
-    globalThis.document = previousDocument;
-  });
+  after(() => restoreDocument());
 
   it('maps Jira status categories to badge classes', () => {
-    assert.match(renderIssueStatusBadge({ name: 'To Do', categoryKey: 'new' }), /status-category-new/);
-    assert.match(renderIssueStatusBadge({ name: 'In Progress', categoryKey: 'indeterminate' }), /status-category-indeterminate/);
-    assert.match(renderIssueStatusBadge({ name: 'Done', categoryKey: 'done' }), /status-category-done/);
+    assert.match(toHtml(renderIssueStatusBadge({ name: 'To Do', categoryKey: 'new' })), /status-category-new/);
+    assert.match(toHtml(renderIssueStatusBadge({ name: 'In Progress', categoryKey: 'indeterminate' })), /status-category-indeterminate/);
+    assert.match(toHtml(renderIssueStatusBadge({ name: 'Done', categoryKey: 'done' })), /status-category-done/);
   });
 
   it('renders custom or uncategorized statuses with the neutral style', () => {
-    const html = renderIssueStatusBadge({ name: 'Waiting for <Vendor>', categoryKey: 'undefined' });
+    const html = toHtml(renderIssueStatusBadge({ name: 'Waiting for <Vendor>', categoryKey: 'undefined' }));
     assert.match(html, /status-category-unknown/);
     assert.match(html, /class="issue-status-name">Waiting for &lt;Vendor&gt;</);
     assert.match(html, /title="Status: Waiting for &lt;Vendor&gt;"/);
@@ -53,18 +37,18 @@ describe('WeekView - issue status badge', () => {
   });
 
   it('renders nothing when the status is missing', () => {
-    assert.equal(renderIssueStatusBadge(null), '');
-    assert.equal(renderIssueStatusBadge(undefined), '');
-    assert.equal(renderIssueStatusBadge({ name: '  ', categoryKey: 'done' }), '');
+    assert.equal(renderIssueStatusBadge(null), null);
+    assert.equal(renderIssueStatusBadge(undefined), null);
+    assert.equal(renderIssueStatusBadge({ name: '  ', categoryKey: 'done' }), null);
   });
 
   it('places the status directly after the issue key link', () => {
-    const html = renderWorklogItem(worklog({ name: 'In Progress', categoryKey: 'indeterminate' }), 'https://jira.example.com/');
+    const html = toHtml(renderWorklogItem(worklog({ name: 'In Progress', categoryKey: 'indeterminate' }), 'https://jira.example.com/'));
     assert.match(html, /<div class="worklog-issue">\s*<a href="https:\/\/jira.example.com\/browse\/EKB-30755"[^>]*class="issue-key-badge"[\s\S]*?<\/a>\s*<span class="issue-status status-category-indeterminate"/);
   });
 
   it('keeps the worklog item intact without a status', () => {
-    const html = renderWorklogItem(worklog(null), 'https://jira.example.com');
+    const html = toHtml(renderWorklogItem(worklog(null), 'https://jira.example.com'));
     assert.doesNotMatch(html, /issue-status/);
     assert.match(html, /class="issue-key-badge"/);
     assert.match(html, /class="worklog-duration-badge">1h</);

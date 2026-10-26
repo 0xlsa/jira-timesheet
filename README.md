@@ -1,6 +1,6 @@
 # Timesheet for Jira
 
-**Timesheet for Jira** is a browser extension that shows your Jira worklogs as a weekly timesheet and lets you log new work and edit or delete existing worklogs from that view. It works with Jira Cloud and with Jira Data Center / Server 8.14 or later, and runs in Google Chrome (and other Chromium-based browsers) and Mozilla Firefox 128 or later from a single Manifest V3 codebase.
+**Timesheet for Jira** is a browser extension that shows your Jira worklogs as a weekly timesheet and lets you log new work and edit or delete existing worklogs from that view. It works with Jira Cloud and with Jira Data Center / Server 8.14 or later, and runs in Google Chrome (and other Chromium-based browsers) and Mozilla Firefox 140 or later (desktop) from a single Manifest V3 codebase.
 
 ## Table of contents
 
@@ -88,7 +88,8 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 | Browser | Support |
 | --- | --- |
 | Chrome and Chromium-based browsers | Manifest V3. The manifest doesn't declare a minimum Chrome version. |
-| Firefox | 128 or later (`browser_specific_settings.gecko.strict_min_version` in `manifest.json`), the first version that supports `optional_host_permissions`. |
+| Firefox | Desktop, 140 or later (`browser_specific_settings.gecko.strict_min_version` in `manifest.json`), the first version that supports the `data_collection_permissions` declaration (`optional_host_permissions` needs 128). |
+| Firefox for Android | Not supported. The manifest has no `browser_specific_settings.gecko_android`, so the add-on is offered on desktop Firefox only. It hasn't been tested on Android; supporting it would need `gecko_android` with a minimum of 142. |
 
 Both browsers use the same `manifest.json`. It declares `background.service_worker` (used by Chrome) and `background.scripts` (used by Firefox), so the repository folder loads unpacked in either browser. The store packages each get a copy without the other browser's keys (see [Packaging for the browser stores](#packaging-for-the-browser-stores)). See [Known limitations](#known-limitations) for what hasn't been verified in Firefox.
 
@@ -112,7 +113,7 @@ The extension isn't published in a browser extension store. Load it from a local
 3. Click **Load unpacked** and select the repository folder (the one containing `manifest.json`).
 4. Click the extension's toolbar icon to open the timesheet in a new tab.
 
-### Firefox (128 or later)
+### Firefox (140 or later)
 
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on…** and select `manifest.json` in the repository folder.
@@ -203,6 +204,7 @@ If Jira rejects a change, the panel stays open with your input and shows the rea
 - **Logging:** the auth providers keep tokens in private fields and redact them from `toJSON()` and `toString()`, and error messages don't include tokens. This reduces the chance of a token reaching a log; it isn't a guarantee for code that reads the tokens directly.
 - **Permissions:** `manifest.json` requests the `storage` permission at install time and no host permissions. `https://*/*` is listed only under `optional_host_permissions`, the upper bound of what the extension may ask for, because the instance URL is entered by the user. At run time it requests only the configured Jira site, after you click **Test Connection**, **Save Settings**, or **Allow Access** (see [Access to your Jira site](#access-to-your-jira-site)). `task package:chrome` fails if the Chrome manifest lists any `host_permissions`.
 - **Content Security Policy:** extension pages use `script-src 'self'; object-src 'self';`, so only the extension's own scripts can run.
+- **No HTML from strings:** the UI builds its elements with DOM APIs (`src/ui/dom.js`) and never assigns `innerHTML`. Jira data such as issue summaries, statuses, worklog comments, names, and error messages is always set as text or as an attribute value, so it can't become markup.
 - **Jira permissions apply:** the extension can only read, create, edit, or delete what your Jira account is allowed to. Jira enforces this, and its errors are shown in the panel.
 - **XSRF header:** every request includes `X-Atlassian-Token: no-check`, which Jira Data Center / Server expects on REST calls.
 
@@ -236,7 +238,7 @@ The task then checks the build and stops with an error, without writing a zip, i
 
 - **Both:** the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, and a version that matches `package.json`. It has no `host_permissions`, and `optional_host_permissions` includes `https://*/*`. Every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build.
 - **Chrome:** the description is at most 132 characters, and there's a background service worker.
-- **Firefox:** `browser_specific_settings.gecko.id` is set and is an email-like ID or a GUID in braces. The task prints it, because it's the ID the add-on is published under (currently `timesheet-for-jira@0xlsa`); changing it in `manifest.json` publishes a different add-on. `strict_min_version` is set (the task prints it) and is 128 or later while the manifest uses `optional_host_permissions`, which Firefox 128 added. `background.scripts` is set and `background.service_worker` isn't, and no script calls `chrome.*` directly outside `src/compat/browser-api.js`. A missing `browser_specific_settings.gecko.data_collection_permissions` is reported as a warning, not an error; the declaration and its reasoning are in `docs/store-listing/firefox/listing.md`.
+- **Firefox:** `browser_specific_settings.gecko.id` is set and is an email-like ID or a GUID in braces. The task prints it, because it's the ID the add-on is published under (currently `timesheet-for-jira@0xlsa`); changing it in `manifest.json` publishes a different add-on. `strict_min_version` is set (the task prints it), and it's at least 128 when the manifest uses `optional_host_permissions` and at least 140 when it declares `data_collection_permissions`. With `gecko_android`, the Android minimum must be at least 142; without it, the task reports that Android isn't supported. `background.scripts` is set and `background.service_worker` isn't, and no script calls `chrome.*` directly outside `src/compat/browser-api.js`. A missing `browser_specific_settings.gecko.data_collection_permissions` is reported as a warning, not an error; the declaration and its reasoning are in `docs/store-listing/firefox/listing.md`.
 
 Finally, it writes the zip with `manifest.json` at its root, tests the archive, and checks that it holds exactly the files of the build. File order, timestamps, and permissions are fixed, so the same sources always produce the same zip. `task --list` shows the separate `build:*`, `verify:*`, and `clean` tasks. Packaging doesn't run the tests, so run `npm test` before a release.
 
@@ -250,7 +252,7 @@ npx web-ext lint --source-dir dist/firefox                      # Mozilla's lint
 
 Upload `release/timesheet-for-jira-chrome.zip` as a new item or a new version in the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole). Upload `release/timesheet-for-jira-firefox.zip` in the [Firefox Add-on Developer Hub](https://addons.mozilla.org/developers/addon/submit/distribution). Firefox doesn't need a source code upload, because the package holds the original, unminified source. Building a package doesn't make it ready to publish: the store listings in `docs/store-listing/` list the decisions and assets still needed before submission.
 
-The tests run without a browser or a Jira server: Jira responses come from a fake `fetch`, and the few UI tests that build HTML use a minimal `document` stub. There are no browser-level (end-to-end) tests in the repository.
+The tests run without a browser or a Jira server: Jira responses come from a fake `fetch`, and the UI tests run against a minimal DOM in `tests/support/fakeDom.js`, which has no HTML parser and serializes nodes back to escaped HTML for assertions. There are no browser-level (end-to-end) tests in the repository.
 
 | Test file | Covers |
 | --- | --- |
@@ -264,6 +266,7 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `WorklogEditor.test.js` | The editor session (save, validation, errors, duplicate submits, unsaved changes, delete confirmation, Log work mode), the panel markup, and the card's action buttons |
 | `DeleteWorklogDialog.test.js` | The delete confirmation: the details shown (local date, start time, duration), success, failures that keep the error, ignoring a second click while deleting, and escaping |
 | `WeekView.test.js` | Issue status labels and their theme colors |
+| `SafeRendering.test.js` | Jira text containing markup (such as `<img src=x onerror=alert(1)>`) shown as text in worklog cards, the weekly view, the edit and Log work panel, the delete confirmation, and connection status messages; the DOM helpers refusing event handler attributes; the weekly view's day and edit buttons |
 | `WeeklyWorklogService.test.js` | Week ranges across a daylight-saving change, loading a week, and recalculating day and week totals after creating, editing, or deleting a worklog |
 | `WeeklyWorklogIntegration.test.js` | Total invariants, chronological order within days, week navigation boundaries, and day selection not changing totals |
 | `SettingsStore.test.js` | Per-edition URLs and tokens, settings saved by older versions, the "configured" rule, the Cloud email, and the last connection test result |
@@ -342,7 +345,8 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   ├── settings/
 │   │   └── settingsStore.js           # Settings and credential persistence
 │   ├── ui/
-│   │   ├── html.js                    # HTML escaping
+│   │   ├── dom.js                     # Builds elements without parsing HTML
+│   │   ├── connectionStatus.js        # Connection status messages on the settings page
 │   │   ├── weekView.js                # Weekday cards and worklog cards
 │   │   ├── worklogEditor.js           # Edit worklog / Log work panel
 │   │   └── deleteWorklogDialog.js     # Delete worklog confirmation

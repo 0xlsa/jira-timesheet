@@ -3,7 +3,7 @@
  * Pure DOM rendering; state and data loading stay with the page controller.
  */
 
-import { escapeHtml } from './html.js';
+import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
@@ -22,95 +22,84 @@ const STATUS_CATEGORY_CLASSES = {
   done: 'status-category-done'
 };
 
+const ICON_STROKE = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' };
+
+/** Small icon in a worklog's meta row (start time, author). */
+const metaIcon = (...shapes) => svg('svg', { class: 'meta-icon', ...ICON_STROKE }, ...shapes);
+
+/** Icon inside a worklog action button. */
+const buttonIcon = (...shapes) => svg('svg', {
+  class: 'icon', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true'
+}, ...shapes);
+
 /**
- * Builds the status label (colored dot + name) shown under the issue key, or '' when the status is unknown.
+ * Builds the status label (colored dot + name) shown under the issue key, or null when the status is unknown.
  * @param {{ name: string, categoryKey?: string } | null | undefined} status
- * @returns {string}
+ * @returns {HTMLElement | null}
  */
 export function renderIssueStatusBadge(status) {
   const name = typeof status?.name === 'string' ? status.name.trim() : '';
-  if (!name) return '';
+  if (!name) return null;
 
   const categoryClass = STATUS_CATEGORY_CLASSES[status.categoryKey] || 'status-category-unknown';
-  return `
-    <span class="issue-status ${categoryClass}" title="Status: ${escapeHtml(name)}">
-      <span class="issue-status-dot" aria-hidden="true"></span>
-      <span class="issue-status-name">${escapeHtml(name)}</span>
-    </span>`;
+  return h('span', { class: `issue-status ${categoryClass}`, title: `Status: ${name}` },
+    h('span', { class: 'issue-status-dot', 'aria-hidden': 'true' }),
+    h('span', { class: 'issue-status-name' }, name));
 }
 
 /**
- * Builds the HTML for a single worklog entry in the selected-day panel.
+ * Builds the contents of a single worklog entry in the selected-day panel.
  * @param {object} wl
  * @param {string} baseUrl
  * @param {object} [options]
  * @param {boolean} [options.editable=false] - Show the edit (pencil) button
  * @param {boolean} [options.canLogWork=false] - Show the log work (plus) button for the worklog's issue
  * @param {boolean} [options.deletable=false] - Show the delete (trash) button
- * @returns {string}
+ * @returns {DocumentFragment}
  */
 export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = false, deletable = false } = {}) {
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(wl.issueKey)}` : '#';
+  const issueKey = wl.issueKey || '';
+  const worklogId = String(wl.id);
 
-  return `
-    <div class="worklog-issue">
-      <a href="${escapeHtml(issueUrl)}" target="_blank" rel="noopener noreferrer" class="issue-key-badge" title="Open ${escapeHtml(wl.issueKey)} in Jira">
-        ${escapeHtml(wl.issueKey || 'ISSUE')}
-      </a>
-      ${renderIssueStatusBadge(wl.issueStatus)}
-    </div>
-    <div class="worklog-body">
-      <span class="issue-summary" title="${escapeHtml(wl.issueSummary)}">${escapeHtml(wl.issueSummary)}</span>
-      ${wl.comment ? `<div class="worklog-comment">${escapeHtml(wl.comment)}</div>` : ''}
-      <div class="worklog-meta-row">
-        <span class="worklog-time">
-          <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <polyline points="12 6 12 12 16 14"/>
-          </svg>
-          Started ${escapeHtml(wl.formattedStartTime)}
-        </span>
-        ${wl.author?.displayName ? `
-        <span class="worklog-author">
-          <svg class="meta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-            <circle cx="12" cy="7" r="4"/>
-          </svg>
-          ${escapeHtml(wl.author.displayName)}
-        </span>` : ''}
-      </div>
-    </div>
-    <div class="worklog-side">
-      <span class="worklog-duration-badge">${escapeHtml(wl.formattedDuration)}</span>
-      ${canLogWork || editable || deletable ? `
-      <div class="worklog-actions">
-        ${canLogWork ? `
-        <button type="button" class="worklog-log-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Log work on ${escapeHtml(wl.issueKey)}" title="Log work">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-        </button>` : ''}
-        ${editable ? `
-        <button type="button" class="worklog-edit-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Edit worklog for ${escapeHtml(wl.issueKey)}, started ${escapeHtml(wl.formattedStartTime)}" title="Edit worklog">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 20h9"/>
-            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-          </svg>
-        </button>` : ''}
-        ${deletable ? `
-        <button type="button" class="worklog-delete-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Delete worklog for ${escapeHtml(wl.issueKey)}, started ${escapeHtml(wl.formattedStartTime)}" title="Delete worklog">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-            <path d="M10 11v6"/>
-            <path d="M14 11v6"/>
-            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-          </svg>
-        </button>` : ''}
-      </div>` : ''}
-    </div>
-  `;
+  return fragment(
+    h('div', { class: 'worklog-issue' },
+      h('a', { href: issueUrl, target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issueKey} in Jira` },
+        wl.issueKey || 'ISSUE'),
+      renderIssueStatusBadge(wl.issueStatus)),
+    h('div', { class: 'worklog-body' },
+      h('span', { class: 'issue-summary', title: wl.issueSummary || '' }, wl.issueSummary),
+      wl.comment && h('div', { class: 'worklog-comment' }, wl.comment),
+      h('div', { class: 'worklog-meta-row' },
+        h('span', { class: 'worklog-time' },
+          metaIcon(
+            svg('circle', { cx: '12', cy: '12', r: '10' }),
+            svg('polyline', { points: '12 6 12 12 16 14' })),
+          `Started ${wl.formattedStartTime}`),
+        wl.author?.displayName && h('span', { class: 'worklog-author' },
+          metaIcon(
+            svg('path', { d: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' }),
+            svg('circle', { cx: '12', cy: '7', r: '4' })),
+          wl.author.displayName))),
+    h('div', { class: 'worklog-side' },
+      h('span', { class: 'worklog-duration-badge' }, wl.formattedDuration),
+      (canLogWork || editable || deletable) && h('div', { class: 'worklog-actions' },
+        canLogWork && h('button', { type: 'button', class: 'worklog-log-btn', 'data-worklog-id': worklogId, 'aria-label': `Log work on ${issueKey}`, title: 'Log work' },
+          buttonIcon(
+            svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+            svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))),
+        editable && h('button', { type: 'button', class: 'worklog-edit-btn', 'data-worklog-id': worklogId, 'aria-label': `Edit worklog for ${issueKey}, started ${wl.formattedStartTime}`, title: 'Edit worklog' },
+          buttonIcon(
+            svg('path', { d: 'M12 20h9' }),
+            svg('path', { d: 'M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z' }))),
+        deletable && h('button', { type: 'button', class: 'worklog-delete-btn', 'data-worklog-id': worklogId, 'aria-label': `Delete worklog for ${issueKey}, started ${wl.formattedStartTime}`, title: 'Delete worklog' },
+          buttonIcon(
+            svg('polyline', { points: '3 6 5 6 21 6' }),
+            svg('path', { d: 'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6' }),
+            svg('path', { d: 'M10 11v6' }),
+            svg('path', { d: 'M14 11v6' }),
+            svg('path', { d: 'M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2' })))))
+  );
 }
 
 /**
@@ -129,7 +118,7 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
  * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
  */
 export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId }) {
-  container.innerHTML = '';
+  container.replaceChildren();
 
   const weekDays = week.weekDays || [];
   const selectedDay = weekDays.find((d) => d.dateKey === selectedDateKey) || weekDays[0];
@@ -155,16 +144,16 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     dayCard.setAttribute('aria-controls', 'selectedDayPanel');
     dayCard.title = `${day.dayName}, ${day.formattedDate}`;
 
-    dayCard.innerHTML = `
-      <span class="day-card-top">
-        <span class="day-name">${escapeHtml(day.shortDayName)}</span>
-        ${day.isToday ? '<span class="badge-today">Today</span>' : ''}
-      </span>
-      <span class="day-date">${escapeHtml(String(day.dayOfMonth))}</span>
-      <span class="day-duration">${escapeHtml(day.formattedTotal)}</span>
-      <span class="day-count">${day.worklogCount} ${day.worklogCount === 1 ? 'worklog' : 'worklogs'}</span>
-      <span class="day-indicator" aria-hidden="true"><span class="day-indicator-fill" style="width: ${fillPercent.toFixed(1)}%"></span></span>
-    `;
+    dayCard.append(
+      h('span', { class: 'day-card-top' },
+        h('span', { class: 'day-name' }, day.shortDayName),
+        day.isToday && h('span', { class: 'badge-today' }, 'Today')),
+      h('span', { class: 'day-date' }, String(day.dayOfMonth)),
+      h('span', { class: 'day-duration' }, day.formattedTotal),
+      h('span', { class: 'day-count' }, `${day.worklogCount} ${day.worklogCount === 1 ? 'worklog' : 'worklogs'}`),
+      h('span', { class: 'day-indicator', 'aria-hidden': 'true' },
+        h('span', { class: 'day-indicator-fill', style: `width: ${fillPercent.toFixed(1)}%` }))
+    );
 
     dayCard.addEventListener('click', () => onSelectDay(day.dateKey));
     strip.appendChild(dayCard);
@@ -179,15 +168,13 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
   panel.setAttribute('role', 'tabpanel');
 
   const countLabel = `${selectedDay.worklogCount} ${selectedDay.worklogCount === 1 ? 'worklog' : 'worklogs'}`;
-  panel.innerHTML = `
-    <div class="day-panel-header">
-      <div>
-        <h3 class="day-panel-title">${escapeHtml(selectedDay.dayName)}, ${escapeHtml(LONG_DATE_FORMAT.format(selectedDay.date))}</h3>
-        <span class="day-panel-meta">${countLabel} &bull; ${escapeHtml(selectedDay.formattedTotal)} total</span>
-      </div>
-      <span class="day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}">${escapeHtml(selectedDay.formattedTotal)}</span>
-    </div>
-  `;
+  panel.append(
+    h('div', { class: 'day-panel-header' },
+      h('div', {},
+        h('h3', { class: 'day-panel-title' }, `${selectedDay.dayName}, ${LONG_DATE_FORMAT.format(selectedDay.date)}`),
+        h('span', { class: 'day-panel-meta' }, `${countLabel} \u2022 ${selectedDay.formattedTotal} total`)),
+      h('span', { class: `day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}` }, selectedDay.formattedTotal))
+  );
 
   if (selectedDay.worklogs.length > 0) {
     const listEl = document.createElement('div');
@@ -196,11 +183,11 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     selectedDay.worklogs.forEach((wl) => {
       const itemEl = document.createElement('div');
       itemEl.className = `worklog-item ${editingWorklogId && String(wl.id) === editingWorklogId ? 'is-editing' : ''}`;
-      itemEl.innerHTML = renderWorklogItem(wl, baseUrl, {
+      itemEl.append(renderWorklogItem(wl, baseUrl, {
         editable: Boolean(onEditWorklog) && isEditableWorklog(wl),
         canLogWork: Boolean(onLogWork) && Boolean(wl.issueId || wl.issueKey),
         deletable: Boolean(onDeleteWorklog) && isEditableWorklog(wl)
-      });
+      }));
       listEl.appendChild(itemEl);
     });
 

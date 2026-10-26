@@ -120,9 +120,24 @@ tasks:
         echo "$min" | grep -Eq '^[0-9]+(\.[0-9]+)*$' || fail "strict_min_version \"$min\" is not a version number"
         echo "Minimum Firefox version: $min"
         # The supported versions come from manifest.json. This only catches a minimum that is too
-        # old for a key the manifest uses: Firefox 128 added optional_host_permissions.
+        # old for a key the manifest uses: Firefox 128 added optional_host_permissions, and
+        # Firefox 140 added data_collection_permissions (the built-in data consent).
         if [ "$(jq 'has("optional_host_permissions")' "$manifest")" = true ] && [ "${min%%.*}" -lt 128 ]; then
           fail "strict_min_version $min is below 128, the first Firefox with optional_host_permissions"
+        fi
+        if [ "$(jq '.browser_specific_settings.gecko | has("data_collection_permissions")' "$manifest")" = true ] && [ "${min%%.*}" -lt 140 ]; then
+          fail "strict_min_version $min is below 140, the first Firefox with data_collection_permissions"
+        fi
+        # Without gecko_android the add-on is offered on desktop Firefox only. With it, Android
+        # inherits the desktop minimum unless it sets its own, and needs 142 for the data consent.
+        if [ "$(jq '.browser_specific_settings | has("gecko_android")' "$manifest")" = true ]; then
+          android_min="$(jq -r --arg min "$min" '.browser_specific_settings.gecko_android.strict_min_version // $min' "$manifest")"
+          echo "Minimum Firefox for Android version: $android_min"
+          if [ "$(jq '.browser_specific_settings.gecko | has("data_collection_permissions")' "$manifest")" = true ] && [ "${android_min%%.*}" -lt 142 ]; then
+            fail "Firefox for Android minimum $android_min is below 142, the first with data_collection_permissions"
+          fi
+        else
+          echo "Firefox for Android: not supported (no browser_specific_settings.gecko_android)"
         fi
         [ "$(jq -r '.background.scripts | type' "$manifest")" = array ] && [ "$(jq '.background.scripts | length' "$manifest")" -gt 0 ] \
           || fail "background.scripts must list the background script; Firefox doesn't run background.service_worker"

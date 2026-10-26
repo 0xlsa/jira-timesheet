@@ -7,7 +7,7 @@
  * - presentation of the weekly view (src/ui/weekView.js),
  * - browser platform services (src/compat/browser-api.js).
  *
- * Compatible with Chrome (MV3) and Firefox (MV3, 128+).
+ * Compatible with Chrome (MV3) and Firefox (MV3, 140+).
  */
 
 import { JiraUrlValidator } from './src/validation/JiraUrlValidator.js';
@@ -30,7 +30,8 @@ import {
 } from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
 import { createPlatform } from './src/compat/browser-api.js';
-import { escapeHtml } from './src/ui/html.js';
+import { h } from './src/ui/dom.js';
+import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
 import { renderWeek } from './src/ui/weekView.js';
 import { openWorklogEditor } from './src/ui/worklogEditor.js';
 import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
@@ -692,14 +693,14 @@ function setDeploymentType(type) {
   if (type === 'cloud') {
     radioCloud.checked = true;
     cloudEmailGroup.classList.remove('hidden');
-    tokenLabel.innerHTML = 'Atlassian API Token <span class="required">*</span>';
+    tokenLabel.replaceChildren('Atlassian API Token ', h('span', { class: 'required' }, '*'));
     jiraTokenInput.placeholder = 'Enter your Atlassian API token';
     cloudTokenHelp.classList.remove('hidden');
     serverTokenHelp.classList.add('hidden');
   } else {
     radioServer.checked = true;
     cloudEmailGroup.classList.add('hidden');
-    tokenLabel.innerHTML = 'Personal Access Token (PAT) <span class="required">*</span>';
+    tokenLabel.replaceChildren('Personal Access Token (PAT) ', h('span', { class: 'required' }, '*'));
     jiraTokenInput.placeholder = 'Enter your Personal Access Token (PAT)';
     cloudTokenHelp.classList.add('hidden');
     serverTokenHelp.classList.remove('hidden');
@@ -753,7 +754,7 @@ function invalidateConnectionStatus() {
   connectionTestId++;
   hasUntestedChanges = true;
   statusArea.className = 'status-container hidden';
-  statusArea.innerHTML = '';
+  statusArea.replaceChildren();
 }
 
 /**
@@ -826,88 +827,8 @@ function validateForm() {
  * @param {object} payload
  */
 function renderStatus(type, payload = {}) {
-  statusArea.className = 'status-container';
-  statusArea.classList.remove('hidden');
-
-  if (type === 'loading') {
-    statusArea.classList.add('status-info');
-    statusArea.innerHTML = `
-      <div class="status-header">
-        <span class="btn-spinner"></span>
-        <span>Connecting to Jira...</span>
-      </div>
-      <div class="status-body">Verifying credentials and identity endpoint.</div>
-    `;
-    return;
-  }
-
-  if (type === 'success') {
-    statusArea.classList.add('status-success');
-    const user = payload.user || {};
-    const serverInfo = payload.serverInfo;
-    const initial = (user.displayName || 'U').charAt(0).toUpperCase();
-
-    let metaDetails = user.emailAddress || user.name || '';
-    if (serverInfo && serverInfo.version) {
-      metaDetails += metaDetails ? ` • Jira v${serverInfo.version}` : `Jira v${serverInfo.version}`;
-    }
-
-    statusArea.innerHTML = `
-      <div class="status-header">
-        <svg class="status-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-          <polyline points="22 4 12 14.01 9 11.01"/>
-        </svg>
-        <span>Connection Successful</span>
-      </div>
-      <div class="status-body">
-        <div class="user-card">
-          <div class="user-avatar">${escapeHtml(initial)}</div>
-          <div class="user-details">
-            <span class="user-name">${escapeHtml(user.displayName || 'Authenticated User')}</span>
-            <span class="user-meta">${escapeHtml(metaDetails)}</span>
-          </div>
-        </div>
-        <span class="status-timestamp">Verified at: ${new Date(payload.testedAt || Date.now()).toLocaleTimeString()}</span>
-      </div>
-    `;
-    return;
-  }
-
-  if (type === 'error') {
-    statusArea.classList.add('status-error');
-    statusArea.innerHTML = `
-      <div class="status-header">
-        <svg class="status-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <span>Connection Failed</span>
-      </div>
-      <div class="status-body">
-        <p>${escapeHtml(payload.error || 'Unable to connect to Jira.')}</p>
-        ${payload.serverMessage ? `<p style="margin-top: 4px; font-size: 12px; opacity: 0.9;"><strong>Server detail:</strong> ${escapeHtml(payload.serverMessage)}</p>` : ''}
-        <span class="status-timestamp">Attempted at: ${new Date(payload.testedAt || Date.now()).toLocaleTimeString()}</span>
-      </div>
-    `;
-    return;
-  }
-
-  if (type === 'info') {
-    statusArea.classList.add('status-info');
-    statusArea.innerHTML = `
-      <div class="status-header">
-        <svg class="status-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="16" x2="12" y2="12"/>
-          <line x1="12" y1="8" x2="12.01" y2="8"/>
-        </svg>
-        <span>${escapeHtml(payload.title || 'Notification')}</span>
-      </div>
-      <div class="status-body">${escapeHtml(payload.message || '')}</div>
-    `;
-  }
+  statusArea.className = `status-container ${STATUS_CLASSES[type] || 'status-info'}`;
+  statusArea.replaceChildren(...renderConnectionStatus(type, payload));
 }
 
 /**

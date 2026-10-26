@@ -2,24 +2,11 @@ process.env.TZ = 'Europe/London';
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { installFakeDocument, toHtml } from './support/fakeDom.js';
 import { createWorklogEditorSession, renderWorklogEditor } from '../src/ui/worklogEditor.js';
 import { renderWorklogItem } from '../src/ui/weekView.js';
 import { toNewWorklogForm } from '../src/worklog/worklogEdit.js';
 
-// escapeHtml() relies on a DOM element's textContent -> innerHTML round trip; emulate it.
-function installDocumentStub() {
-  globalThis.document = {
-    createElement() {
-      let text = '';
-      return {
-        set textContent(value) { text = String(value); },
-        get innerHTML() {
-          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        }
-      };
-    }
-  };
-}
 
 const worklog = {
   id: '10042',
@@ -235,18 +222,15 @@ describe('WorklogEditor session - deleting', () => {
 });
 
 describe('WorklogEditor markup', () => {
-  let previousDocument;
+  let restoreDocument;
   before(() => {
-    previousDocument = globalThis.document;
-    installDocumentStub();
+    restoreDocument = installFakeDocument();
   });
-  after(() => {
-    globalThis.document = previousDocument;
-  });
+  after(() => restoreDocument());
 
   it('prepopulates labeled inputs and shows the issue read-only', () => {
     const { session } = setup();
-    const html = renderWorklogEditor(worklog, session.initialForm, 'https://acme.atlassian.net');
+    const html = toHtml(renderWorklogEditor(worklog, session.initialForm, 'https://acme.atlassian.net'));
 
     assert.match(html, /<label for="worklogEditDate" class="form-label">Date<\/label>\s*<input type="date" id="worklogEditDate" name="date" value="2026-10-22"/);
     assert.match(html, /<label for="worklogEditTime" class="form-label">Start time<\/label>\s*<input type="time" id="worklogEditTime" name="time" value="09:39"/);
@@ -264,7 +248,7 @@ describe('WorklogEditor markup', () => {
 
   it('has separate save, cancel, and delete actions, with delete behind a confirmation', () => {
     const { session } = setup();
-    const html = renderWorklogEditor(worklog, session.initialForm, '');
+    const html = toHtml(renderWorklogEditor(worklog, session.initialForm, ''));
     assert.match(html, /type="submit"[^>]*data-action="save"/);
     assert.match(html, /type="button"[^>]*data-action="cancel"/);
     assert.match(html, /type="button"[^>]*data-action="delete"/);
@@ -274,26 +258,26 @@ describe('WorklogEditor markup', () => {
 
   it('warns that editing a formatted Jira Cloud comment saves plain text', () => {
     const rich = { ...worklog, comment: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x', marks: [{ type: 'strong' }] }] }] } };
-    assert.match(renderWorklogEditor(rich, createWorklogEditorSession(rich, {}).initialForm, ''), /saved as plain text/);
-    assert.doesNotMatch(renderWorklogEditor(worklog, setup().session.initialForm, ''), /saved as plain text/);
+    assert.match(toHtml(renderWorklogEditor(rich, createWorklogEditorSession(rich, {}).initialForm, '')), /saved as plain text/);
+    assert.doesNotMatch(toHtml(renderWorklogEditor(worklog, setup().session.initialForm, '')), /saved as plain text/);
   });
 
   it('escapes worklog text', () => {
     const hostile = { ...worklog, issueSummary: '<img src=x>', comment: '</textarea><b>' };
-    const html = renderWorklogEditor(hostile, createWorklogEditorSession(hostile, {}).initialForm, '');
+    const html = toHtml(renderWorklogEditor(hostile, createWorklogEditorSession(hostile, {}).initialForm, ''));
     assert.doesNotMatch(html, /<img src=x>|<\/textarea><b>/);
   });
 
   it('adds an edit button for the worklog only when editing is available', () => {
     const item = { ...worklog, formattedStartTime: '09:39', formattedDuration: '2h', comment: '', author: { displayName: 'Dev' } };
-    const editable = renderWorklogItem(item, '', { editable: true });
+    const editable = toHtml(renderWorklogItem(item, '', { editable: true }));
     assert.match(editable, /<button type="button" class="worklog-edit-btn" data-worklog-id="10042" aria-label="Edit worklog for EKB-30804, started 09:39"/);
-    assert.doesNotMatch(renderWorklogItem(item, ''), /worklog-edit-btn/);
+    assert.doesNotMatch(toHtml(renderWorklogItem(item, '')), /worklog-edit-btn/);
   });
 
   it('orders the right-hand controls as duration, log work, edit, delete, with labels and tooltips', () => {
     const item = { ...worklog, formattedStartTime: '09:39', formattedDuration: '2h', comment: '', author: { displayName: 'Dev' } };
-    const html = renderWorklogItem(item, '', { editable: true, canLogWork: true, deletable: true });
+    const html = toHtml(renderWorklogItem(item, '', { editable: true, canLogWork: true, deletable: true }));
     const side = html.slice(html.indexOf('class="worklog-side"'));
 
     const order = ['worklog-duration-badge', 'worklog-log-btn', 'worklog-edit-btn', 'worklog-delete-btn'].map((cls) => side.indexOf(`class="${cls}"`));
@@ -303,8 +287,8 @@ describe('WorklogEditor markup', () => {
     assert.match(side, /class="worklog-log-btn" data-worklog-id="10042" aria-label="Log work on EKB-30804" title="Log work"/);
     assert.match(side, /class="worklog-edit-btn"[^>]*title="Edit worklog"/);
     assert.match(side, /class="worklog-delete-btn" data-worklog-id="10042" aria-label="Delete worklog for EKB-30804, started 09:39" title="Delete worklog"/);
-    assert.doesNotMatch(renderWorklogItem(item, '', { editable: true, canLogWork: true }), /worklog-delete-btn/);
-    assert.doesNotMatch(renderWorklogItem(item, '', { editable: true }), /worklog-log-btn/);
+    assert.doesNotMatch(toHtml(renderWorklogItem(item, '', { editable: true, canLogWork: true })), /worklog-delete-btn/);
+    assert.doesNotMatch(toHtml(renderWorklogItem(item, '', { editable: true })), /worklog-log-btn/);
   });
 });
 
@@ -426,18 +410,15 @@ describe('WorklogEditor session - logging new work', () => {
 });
 
 describe('WorklogEditor markup - logging new work', () => {
-  let previousDocument;
+  let restoreDocument;
   before(() => {
-    previousDocument = globalThis.document;
-    installDocumentStub();
+    restoreDocument = installFakeDocument();
   });
-  after(() => {
-    globalThis.document = previousDocument;
-  });
+  after(() => restoreDocument());
 
   it('shows the issue read-only, quick durations, and no delete action', () => {
     const { session } = setupCreate();
-    const html = renderWorklogEditor(issue, session.initialForm, 'https://acme.atlassian.net', { mode: 'create' });
+    const html = toHtml(renderWorklogEditor(issue, session.initialForm, 'https://acme.atlassian.net', { mode: 'create' }));
 
     assert.match(html, /id="worklogEditorTitle">Log work</);
     assert.match(html, /class="issue-key-badge"[^>]*>EKB-30835</);
@@ -445,7 +426,7 @@ describe('WorklogEditor markup - logging new work', () => {
     assert.match(html, /issue-status status-category-new/);
     assert.match(html, /name="date" value="2026-10-21"/);
     assert.match(html, /name="time" value="14:07"/);
-    assert.match(html, /data-save-label>Log work</);
+    assert.match(html, /data-save-label="">Log work</);
     assert.doesNotMatch(html, /data-action="delete"|data-confirm="delete"/);
 
     const presets = [...html.matchAll(/<button type="button" class="duration-preset"([^>]*)>([^<]+)</g)];
@@ -458,6 +439,6 @@ describe('WorklogEditor markup - logging new work', () => {
   });
 
   it('keeps quick durations out of the edit panel', () => {
-    assert.doesNotMatch(renderWorklogEditor(worklog, setup().session.initialForm, ''), /duration-preset/);
+    assert.doesNotMatch(toHtml(renderWorklogEditor(worklog, setup().session.initialForm, '')), /duration-preset/);
   });
 });
