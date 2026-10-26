@@ -50,7 +50,7 @@ The extension doesn't read your browsing history or the content of web pages you
 ## Permissions
 
 - **Storage:** to keep the settings described above in your browser.
-- **Access to `https://*/*`:** the extension needs to reach the Jira site you enter, and that address can be any HTTPS site (`*.atlassian.net` or your organization's own domain). It only ever sends requests to the site you configured.
+- **Access to your Jira site:** the extension has no access to any website when you install it. When you test or save your settings, your browser asks you to allow access to the one Jira site you entered (for example `https://your-domain.atlassian.net/*`). Because that can be any HTTPS address (`*.atlassian.net` or your organization's own domain), the extension declares `https://*/*` as optional access it may ask for, but it only asks for, and only sends requests to, the site you configured. You can remove this access at any time in your browser's extension settings.
 
 ## Your choices
 

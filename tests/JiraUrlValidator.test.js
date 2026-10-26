@@ -36,7 +36,8 @@ describe('JiraUrlValidator', () => {
     const result = JiraUrlValidator.validate('https://jira.internal:8443/jira/');
     assert.equal(result.isValid, true);
     assert.equal(result.sanitizedUrl, 'https://jira.internal:8443/jira');
-    assert.equal(result.originPattern, 'https://jira.internal:8443/*');
+    // Firefox doesn't support ports in match patterns, so the pattern covers the host on any port.
+    assert.equal(result.originPattern, 'https://jira.internal/*');
   });
 
   it('strips accidental REST API suffixes', () => {

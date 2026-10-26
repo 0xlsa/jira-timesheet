@@ -73,3 +73,69 @@ describe('createPlatform', () => {
     assert.deepEqual(await platform.storage.get(['a', 'b']), { a: 1 });
   });
 });
+
+describe('createPlatform hostAccess', () => {
+  /** Fake `permissions` API holding granted origins. */
+  function fakePermissions(granted = [], { allow = true } = {}) {
+    const calls = [];
+    return {
+      granted,
+      calls,
+      async contains({ origins }) { return origins.every((o) => granted.includes(o)); },
+      async request({ origins }) {
+        calls.push(['request', origins]);
+        if (allow) for (const o of origins) if (!granted.includes(o)) granted.push(o);
+        return allow;
+      },
+      async getAll() { return { permissions: ['storage'], origins: [...granted] }; },
+      async remove({ origins }) {
+        calls.push(['remove', origins]);
+        for (const o of origins) granted.splice(granted.indexOf(o), 1);
+        return true;
+      }
+    };
+  }
+
+  it('checks and requests access to a single site', async () => {
+    const permissions = fakePermissions();
+    const { hostAccess } = createPlatform({ storage: { local: {} }, permissions });
+
+    assert.equal(await hostAccess.has('https://jira.example.com/*'), false);
+    assert.equal(await hostAccess.request('https://jira.example.com/*'), true);
+    assert.equal(await hostAccess.has('https://jira.example.com/*'), true);
+    assert.deepEqual(permissions.calls, [['request', ['https://jira.example.com/*']]]);
+  });
+
+  it('reports a denied request', async () => {
+    const { hostAccess } = createPlatform({ storage: { local: {} }, permissions: fakePermissions([], { allow: false }) });
+    assert.equal(await hostAccess.request('https://jira.example.com/*'), false);
+    assert.equal(await hostAccess.has('https://jira.example.com/*'), false);
+  });
+
+  it('revokes only single-site access for sites no longer configured', async () => {
+    const permissions = fakePermissions([
+      'https://old.example.com/*',
+      'https://acme.atlassian.net/*',
+      'https://jira.example.com/*',
+      'https://*/*'
+    ]);
+    const { hostAccess } = createPlatform({ storage: { local: {} }, permissions });
+
+    await hostAccess.removeExcept(['https://acme.atlassian.net/*', 'https://jira.example.com/*']);
+    assert.deepEqual(permissions.calls, [['remove', ['https://old.example.com/*']]]);
+    assert.deepEqual(permissions.granted, ['https://acme.atlassian.net/*', 'https://jira.example.com/*', 'https://*/*']);
+  });
+
+  it('does not call remove when nothing is unused', async () => {
+    const permissions = fakePermissions(['https://jira.example.com/*']);
+    await createPlatform({ storage: { local: {} }, permissions }).hostAccess.removeExcept(['https://jira.example.com/*']);
+    assert.deepEqual(permissions.calls, []);
+  });
+
+  it('allows every site outside an extension', async () => {
+    const { hostAccess } = createPlatform(null, {});
+    assert.equal(await hostAccess.has('https://jira.example.com/*'), true);
+    assert.equal(await hostAccess.request('https://jira.example.com/*'), true);
+    await hostAccess.removeExcept([]);
+  });
+});

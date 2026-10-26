@@ -1,6 +1,6 @@
 # Timesheet for Jira
 
-**Timesheet for Jira** is a browser extension that shows your Jira worklogs as a weekly timesheet and lets you log new work and edit or delete existing worklogs from that view. It works with Jira Cloud and with Jira Data Center / Server 8.14 or later, and runs in Google Chrome (and other Chromium-based browsers) and Mozilla Firefox 116 or later from a single Manifest V3 codebase.
+**Timesheet for Jira** is a browser extension that shows your Jira worklogs as a weekly timesheet and lets you log new work and edit or delete existing worklogs from that view. It works with Jira Cloud and with Jira Data Center / Server 8.14 or later, and runs in Google Chrome (and other Chromium-based browsers) and Mozilla Firefox 128 or later from a single Manifest V3 codebase.
 
 ## Table of contents
 
@@ -88,7 +88,7 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 | Browser | Support |
 | --- | --- |
 | Chrome and Chromium-based browsers | Manifest V3. The manifest doesn't declare a minimum Chrome version. |
-| Firefox | 116 or later (`browser_specific_settings.gecko.strict_min_version` in `manifest.json`). |
+| Firefox | 128 or later (`browser_specific_settings.gecko.strict_min_version` in `manifest.json`), the first version that supports `optional_host_permissions`. |
 
 Both browsers use the same `manifest.json`. It declares `background.service_worker` (used by Chrome) and `background.scripts` (used by Firefox), so there are no browser-specific manifests or builds. See [Known limitations](#known-limitations) for what hasn't been verified in Firefox.
 
@@ -112,7 +112,7 @@ The extension isn't published in a browser extension store. Load it from a local
 3. Click **Load unpacked** and select the repository folder (the one containing `manifest.json`).
 4. Click the extension's toolbar icon to open the timesheet in a new tab.
 
-### Firefox (116 or later)
+### Firefox (128 or later)
 
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on…** and select `manifest.json` in the repository folder.
@@ -132,7 +132,7 @@ Open the **Connection Settings** tab.
 2. Under **Jira Edition**, select **Jira Cloud**.
 3. Enter your **Jira Instance URL**, for example `https://your-domain.atlassian.net`.
 4. Enter your **Atlassian Account Email** and the **Atlassian API Token**.
-5. Click **Test Connection** and check that your account is shown.
+5. Click **Test Connection**. Your browser asks you to allow the extension to access your Jira site; choose **Allow**. Check that your account is shown.
 6. Click **Save Settings**.
 
 ### Jira Data Center / Server
@@ -141,10 +141,19 @@ Open the **Connection Settings** tab.
 2. Under **Jira Edition**, select **Data Center / Server**.
 3. Enter your **Jira Instance URL**, including any context path, for example `https://jira.your-company.com/jira`.
 4. Enter the **Personal Access Token (PAT)**.
-5. Click **Test Connection** and check that your account and Jira version are shown.
+5. Click **Test Connection**. Your browser asks you to allow the extension to access your Jira site; choose **Allow**. Check that your account and Jira version are shown.
 6. Click **Save Settings**.
 
 The instance URL must use HTTPS and can't contain a username or password, a query string, or a fragment. If you paste a URL that ends in a REST path such as `/rest/api/2/myself`, or in a Jira page path such as `/browse/PROJ-1` or `/secure/...`, that suffix is removed.
+
+### Access to your Jira site
+
+The extension has no access to any website when you install it. The first time you click **Test Connection** or **Save Settings** for a Jira site, your browser asks whether to allow Timesheet for Jira to access that one site (for example `https://jira.your-company.com/*`). The browser doesn't ask again for a site you've already allowed.
+
+- If you decline, settings are still saved, and the **Weekly Worklogs** tab shows an **Allow Access** button instead of loading worklogs.
+- If you remove the extension's access to the site later (Chrome: the extension's **Site access** settings; Firefox: the **Permissions** tab in the Add-ons Manager), the **Weekly Worklogs** tab offers **Allow Access** again.
+- When you save a different instance URL, access to Jira sites that are no longer in your settings is removed. The Jira Cloud and Data Center / Server sites are both kept, so switching edition doesn't ask again.
+- Access is per host, on any port: Firefox doesn't support ports in permission patterns, so `https://jira.internal:8443` is requested as `https://jira.internal/*`.
 
 ## Usage
 
@@ -192,7 +201,7 @@ If Jira rejects a change, the panel stays open with your input and shows the rea
 - **HTTPS only:** the instance URL must use HTTPS.
 - **Tokens stay in headers:** credentials are sent only in the `Authorization` header, never in URLs. Requests are sent with `credentials: 'omit'`, so browser cookies for the Jira site aren't used.
 - **Logging:** the auth providers keep tokens in private fields and redact them from `toJSON()` and `toString()`, and error messages don't include tokens. This reduces the chance of a token reaching a log; it isn't a guarantee for code that reads the tokens directly.
-- **Permissions:** `manifest.json` requests the `storage` permission and the host permission `https://*/*`. The broad pattern is needed because the instance URL is entered by the user. It's granted at install time, so there's no permission prompt at run time.
+- **Permissions:** `manifest.json` requests the `storage` permission at install time and no host permissions. `https://*/*` is listed only under `optional_host_permissions`, the upper bound of what the extension may ask for, because the instance URL is entered by the user. At run time it requests only the configured Jira site, after you click **Test Connection**, **Save Settings**, or **Allow Access** (see [Access to your Jira site](#access-to-your-jira-site)). `task package:chrome` fails if the Chrome manifest lists any `host_permissions`.
 - **Content Security Policy:** extension pages use `script-src 'self'; object-src 'self';`, so only the extension's own scripts can run.
 - **Jira permissions apply:** the extension can only read, create, edit, or delete what your Jira account is allowed to. Jira enforces this, and its errors are shown in the panel.
 - **XSRF header:** every request includes `X-Atlassian-Token: no-check`, which Jira Data Center / Server expects on REST calls.
@@ -279,7 +288,7 @@ graph TD
 - **Worklog logic (`src/worklog/`):** `worklogUtils.js` has pure functions for weeks, local-time grouping, duration formatting, and aggregation. `worklogEdit.js` converts between worklogs and the edit form, validates input, and formats Jira dates and ADF comments. `weeklyWorklogService.js` loads a week and applies created, edited, or deleted worklogs to it.
 - **UI (`src/ui/`):** `weekView.js` renders the weekday cards and the selected day's worklogs. `worklogEditor.js` holds the Edit worklog / Log work panel: an editing session with no DOM dependency, plus the markup and DOM wiring. `deleteWorklogDialog.js` is the delete confirmation, a native `<dialog>` with the same split.
 - **Settings (`src/settings/settingsStore.js`):** owns the storage keys, per-edition URLs and tokens, and the last connection test result. It takes the storage area as a parameter (`storage.local` in the extension, in-memory in tests).
-- **Platform (`src/compat/browser-api.js`):** one implementation for Chrome and Firefox, with an in-memory storage and `window.open` fallback when the page runs outside an extension.
+- **Platform (`src/compat/browser-api.js`):** one implementation for Chrome and Firefox, with an in-memory storage and `window.open` fallback when the page runs outside an extension. Its `hostAccess` checks, requests, and removes access to Jira sites through the `permissions` API.
 
 ### Jira REST endpoints
 

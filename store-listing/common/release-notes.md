@@ -23,4 +23,5 @@ Timesheet for Jira shows your Jira worklogs as a weekly timesheet and lets you c
 
 **Other**
 - Light and dark themes.
-- Works in Chrome and in Firefox 116 or later.
+- Works in Chrome and in Firefox 128 or later.
+- Asks for access only to the Jira site you configure, not to every website.

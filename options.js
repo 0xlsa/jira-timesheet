@@ -7,7 +7,7 @@
  * - presentation of the weekly view (src/ui/weekView.js),
  * - browser platform services (src/compat/browser-api.js).
  *
- * Compatible with Chrome (MV3) and Firefox (MV3, 116+).
+ * Compatible with Chrome (MV3) and Firefox (MV3, 128+).
  */
 
 import { JiraUrlValidator } from './src/validation/JiraUrlValidator.js';
@@ -76,6 +76,9 @@ const worklogErrorAlert = document.getElementById('worklogErrorAlert');
 const worklogErrorTitle = document.getElementById('worklogErrorTitle');
 const worklogErrorMessage = document.getElementById('worklogErrorMessage');
 const retryWorklogFetchBtn = document.getElementById('retryWorklogFetchBtn');
+const siteAccessAlert = document.getElementById('siteAccessAlert');
+const siteAccessMessage = document.getElementById('siteAccessMessage');
+const grantSiteAccessBtn = document.getElementById('grantSiteAccessBtn');
 const emptyWeekBanner = document.getElementById('emptyWeekBanner');
 const daysContainer = document.getElementById('daysContainer');
 const worklogEditorRoot = document.getElementById('worklogEditor');
@@ -441,6 +444,79 @@ function openEditor(worklogId) {
   renderDays(currentAggregatedData, currentBaseUrl);
 }
 
+// ============================================================================
+// Jira Site Access
+// ============================================================================
+
+/**
+ * Returns the host of a Jira instance URL, for messages.
+ * @param {string} baseUrl
+ * @returns {string}
+ */
+function getSiteHost(baseUrl) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+
+/**
+ * Asks the browser for access to the Jira site of an instance URL (just that site, not
+ * every HTTPS site; see `optional_host_permissions` in manifest.json). Call it synchronously
+ * from a click or submit handler, before any `await`, or the browser won't show its prompt.
+ * Resolves to true when access is granted; when it already was, the browser doesn't ask again.
+ *
+ * @param {string} baseUrl - Validated Jira instance URL
+ * @returns {Promise<boolean>}
+ */
+function requestSiteAccess(baseUrl) {
+  return platform.hostAccess.request(JiraUrlValidator.validate(baseUrl).originPattern);
+}
+
+/**
+ * Message shown when the user hasn't allowed access to the Jira site.
+ * @param {string} baseUrl
+ * @returns {string}
+ */
+function siteAccessDeniedMessage(baseUrl) {
+  return `Timesheet for Jira needs your permission to connect to ${getSiteHost(baseUrl)}. ` +
+    'Try again and choose Allow when your browser asks.';
+}
+
+/**
+ * Revokes access to Jira sites that are no longer in the saved settings, keeping the
+ * Cloud and Data Center / Server sites, so switching edition doesn't ask again.
+ * @param {string[]} baseUrls
+ */
+async function removeUnusedSiteAccess(baseUrls) {
+  const keep = baseUrls
+    .map((url) => JiraUrlValidator.validate(url))
+    .filter((check) => check.isValid)
+    .map((check) => check.originPattern);
+  try {
+    await platform.hostAccess.removeExcept(keep);
+  } catch (err) {
+    console.warn('Could not remove access to unused Jira sites:', err);
+  }
+}
+
+/**
+ * Shows the weekly view's prompt to allow access to the configured Jira site.
+ * @param {string} baseUrl
+ */
+function showSiteAccessNeeded(baseUrl) {
+  siteAccessMessage.textContent = `Timesheet for Jira needs your permission to connect to ${getSiteHost(baseUrl)}. ` +
+    'It reads and changes only your worklogs on that site, and gets no access to other sites.';
+  siteAccessAlert.classList.remove('hidden');
+  worklogErrorAlert.classList.add('hidden');
+  emptyWeekBanner.classList.add('hidden');
+
+  const emptyAggregated = buildEmptyWeek(currentMonday);
+  currentAggregatedData = emptyAggregated;
+  renderDays(emptyAggregated);
+}
+
 /**
  * Fetches worklogs from Jira for the current week and updates all views.
  *
@@ -462,6 +538,8 @@ async function loadAndRenderWorklogs(options = {}) {
     console.error('Storage access error:', err);
     settings = normalizeSettings({});
   }
+
+  siteAccessAlert.classList.add('hidden');
 
   if (!isConfigured(settings)) {
     unconfiguredAlert.classList.remove('hidden');
@@ -504,11 +582,7 @@ async function loadAndRenderWorklogs(options = {}) {
   currentBaseUrl = client.baseUrl;
 
   // Update instance card header immediately with domain
-  try {
-    userInstanceHost.textContent = new URL(client.baseUrl).host;
-  } catch {
-    userInstanceHost.textContent = client.baseUrl;
-  }
+  userInstanceHost.textContent = getSiteHost(client.baseUrl);
 
   deploymentBadge.textContent = settings.deploymentType === 'cloud' ? 'Cloud' : 'Data Center';
   deploymentBadge.className = `stat-badge ${settings.deploymentType === 'cloud' ? 'badge-cloud' : 'badge-server'}`;
@@ -518,6 +592,13 @@ async function loadAndRenderWorklogs(options = {}) {
   emptyWeekBanner.classList.add('hidden');
 
   try {
+    // Without access to the Jira site every request fails, so ask for it instead. Access is
+    // missing if it was never granted for this site, or the user removed it in the browser.
+    if (!(await platform.hostAccess.has(JiraUrlValidator.validate(client.baseUrl).originPattern))) {
+      showSiteAccessNeeded(client.baseUrl);
+      return;
+    }
+
     const aggregated = await loadWeek(client, { monday, sunday });
 
     // Populate user metadata from response
@@ -542,6 +623,7 @@ async function loadAndRenderWorklogs(options = {}) {
  * @param {string} message
  */
 function showWorklogError(title, message) {
+  siteAccessAlert.classList.add('hidden');
   worklogErrorTitle.textContent = title;
   worklogErrorMessage.textContent = message;
   worklogErrorAlert.classList.remove('hidden');
@@ -837,12 +919,20 @@ async function onTestConnection() {
     return;
   }
 
+  // Before any await, so the browser still treats it as part of the click.
+  const siteAccess = requestSiteAccess(formValidation.values.baseUrl);
   const testId = ++connectionTestId;
 
   renderStatus('loading');
   setBusy(true);
 
   try {
+    if (!(await siteAccess)) {
+      if (testId !== connectionTestId) return;
+      renderStatus('error', { error: siteAccessDeniedMessage(formValidation.values.baseUrl) });
+      return;
+    }
+
     const { client } = createJiraClient(formValidation.values);
     const result = await client.testConnection();
     // Settings changed while the test was running: the result no longer applies.
@@ -880,10 +970,19 @@ async function onSaveSettings(event) {
 
   const { baseUrl, deploymentType, email, token } = formValidation.values;
 
+  // Before any await, so the browser still treats it as part of the submit. Settings are
+  // saved even if access is refused; the weekly view then offers to allow it.
+  const siteAccess = requestSiteAccess(baseUrl).catch((err) => {
+    console.warn('Jira site access request failed:', err);
+    return false;
+  });
+
   jiraBaseUrlInput.value = baseUrl;
   setBusy(true);
 
   try {
+    const hasSiteAccess = await siteAccess;
+
     baseUrlsByType[deploymentType] = baseUrl;
     tokensByType[deploymentType] = token;
 
@@ -895,10 +994,17 @@ async function onSaveSettings(event) {
       await settingsStore.clearTestResult();
     }
 
-    renderStatus('info', {
-      title: 'Settings Saved',
-      message: 'Your Jira configuration has been successfully saved to local browser storage.'
-    });
+    await removeUnusedSiteAccess([baseUrlsByType.cloud, baseUrlsByType.server]);
+
+    renderStatus('info', hasSiteAccess
+      ? {
+        title: 'Settings Saved',
+        message: 'Your Jira configuration has been successfully saved to local browser storage.'
+      }
+      : {
+        title: 'Settings Saved Without Site Access',
+        message: `Your Jira configuration has been saved. ${siteAccessDeniedMessage(baseUrl)}`
+      });
 
     // Refresh worklog view with updated settings
     loadAndRenderWorklogs({ force: true });
@@ -994,6 +1100,25 @@ refreshWorklogsBtn.addEventListener('click', () => {
 
 retryWorklogFetchBtn.addEventListener('click', () => {
   loadAndRenderWorklogs({ force: true });
+});
+
+grantSiteAccessBtn.addEventListener('click', async () => {
+  if (!currentBaseUrl) return;
+
+  let granted;
+  try {
+    // First statement of the click handler, so the browser shows its prompt.
+    granted = await requestSiteAccess(currentBaseUrl);
+  } catch (err) {
+    showWorklogError('Unable to Request Access', err.message || 'The browser refused the access request.');
+    return;
+  }
+
+  if (granted) {
+    loadAndRenderWorklogs({ force: true });
+  } else {
+    siteAccessMessage.textContent = siteAccessDeniedMessage(currentBaseUrl);
+  }
 });
 
 // Settings Form Actions

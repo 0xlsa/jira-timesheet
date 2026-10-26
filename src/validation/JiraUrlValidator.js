@@ -10,7 +10,7 @@
  * - Rejects URLs with hash fragments (e.g. #anchor).
  * - Preserves deployment context paths (e.g. /jira in https://company.com/jira).
  * - Normalizes trailing slashes.
- * - Extracts origin pattern for Chrome Extension host permissions.
+ * - Extracts the origin pattern used to request host permission for the Jira site.
  */
 export class JiraUrlValidator {
   /**
@@ -129,9 +129,10 @@ export class JiraUrlValidator {
     const portPart = parsedUrl.port ? `:${parsedUrl.port}` : '';
     const sanitizedUrl = `${parsedUrl.protocol}//${parsedUrl.hostname}${portPart}${pathname}`;
 
-    // Construct origin match pattern for Chrome permissions
-    // Form: https://hostname:port/* or https://hostname/*
-    const originPattern = `${parsedUrl.protocol}//${parsedUrl.hostname}${portPart}/*`;
+    // Origin match pattern for the host permission requested at run time: https://hostname/*
+    // The port is left out because Firefox doesn't support ports in match patterns; without
+    // one, Chrome and Firefox both match the host on any port.
+    const originPattern = `${parsedUrl.protocol}//${parsedUrl.hostname}/*`;
 
     return {
       isValid: true,
@@ -142,7 +143,7 @@ export class JiraUrlValidator {
   }
 
   /**
-   * Returns the origin pattern needed for Chrome runtime host permissions.
+   * Returns the origin pattern used to request host permission for the Jira site.
    *
    * @param {string} url
    * @returns {string}

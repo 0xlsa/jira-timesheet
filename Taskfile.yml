@@ -83,6 +83,12 @@ tasks:
         [ "$version" = "$package_version" ] || fail "version $version does not match package.json ($package_version)"
         [ -n "$(jq -r '.icons["128"] // empty' "$manifest")" ] || fail "missing the 128 px icon the Chrome Web Store requires"
         [ -n "$(jq -r '.background.service_worker // empty' "$manifest")" ] || fail "missing background.service_worker"
+        # Jira sites are requested one at a time at run time (optional_host_permissions), so
+        # installing the extension must not grant access to any site.
+        [ "$(jq '.host_permissions // [] | length' "$manifest")" = 0 ] \
+          || fail "host_permissions must be empty; request Jira sites through optional_host_permissions"
+        [ "$(jq -r '.optional_host_permissions // [] | index("https://*/*") != null' "$manifest")" = true ] \
+          || fail "optional_host_permissions must include https://*/* so any Jira site can be requested"
       - |
         # Every file the manifest names must be in the build.
         dir='{{.CHROME_DIR}}'

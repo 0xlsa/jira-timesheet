@@ -1,7 +1,7 @@
 /**
  * Timesheet for Jira - Background Service Worker (Manifest V3)
  * Handles extension lifecycle, action clicks, and runtime messaging.
- * Compatible with Chrome (MV3) and Firefox (MV3, 116+).
+ * Compatible with Chrome (MV3) and Firefox (MV3, 128+).
  */
 
 import { createJiraClient } from './src/jira/createJiraClient.js';

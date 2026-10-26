@@ -111,7 +111,7 @@ Mozilla's policy defines data transmission as "any data that is collected, used,
     "required": ["authenticationInfo", "personallyIdentifyingInfo", "websiteContent"]
   }
   ```
-  Required data is shown to users at install time, and installing accepts it. Firefox's built-in consent applies to Firefox 140 and later; for earlier versions the add-on would need its own consent screen, so Mozilla recommends raising `strict_min_version` from `116.0` to `140.0`.
+  Required data is shown to users at install time, and installing accepts it. Firefox's built-in consent applies to Firefox 140 and later; for earlier versions the add-on would need its own consent screen, so Mozilla recommends raising `strict_min_version` from `128.0` (the minimum for `optional_host_permissions`) to `140.0`.
 - **Minimal:** `"required": ["none"]`, arguing the data only goes to the user's own Jira site and never to the developer. This depends on the reviewer agreeing.
 
 Which categories to declare, and whether to raise the minimum Firefox version, are decisions to make before the submission build.

@@ -64,19 +64,79 @@ export function createMemoryStorageArea(initial = {}) {
 }
 
 /**
+ * Matches a host permission for one HTTPS host, the only kind `hostAccess.request`
+ * asks for. Broader grants the user made in the browser (e.g. `https://*\/*`) never match.
+ */
+const SINGLE_HOST_PATTERN = /^https:\/\/[^*/]+\/\*$/;
+
+/**
+ * Access to Jira sites through optional host permissions (`optional_host_permissions`
+ * in manifest.json). Outside an extension there is no permissions API, and every
+ * check passes.
+ *
+ * @param {object | undefined} permissions - `browser.permissions` / `chrome.permissions`
+ */
+function createHostAccess(permissions) {
+  if (!permissions) {
+    return {
+      async has() { return true; },
+      async request() { return true; },
+      async removeExcept() {}
+    };
+  }
+
+  return {
+    /**
+     * @param {string} originPattern - e.g. `https://jira.example.com/*`
+     * @returns {Promise<boolean>}
+     */
+    async has(originPattern) {
+      return permissions.contains({ origins: [originPattern] });
+    },
+
+    /**
+     * Asks the user for access to one site. Call it synchronously from a click or submit
+     * handler: browsers only prompt during a user action, and Firefox no longer counts it
+     * as one after an `await`. Resolves to true without prompting when already granted.
+     * (The body runs synchronously up to its first `await`, so being `async` keeps the
+     * user action and turns a thrown error into a rejection.)
+     *
+     * @param {string} originPattern
+     * @returns {Promise<boolean>}
+     */
+    async request(originPattern) {
+      return permissions.request({ origins: [originPattern] });
+    },
+
+    /**
+     * Revokes single-site access this extension requested earlier for sites that are no
+     * longer configured.
+     *
+     * @param {string[]} keepPatterns - Origin patterns still in use
+     */
+    async removeExcept(keepPatterns) {
+      const { origins = [] } = await permissions.getAll();
+      const unused = origins.filter((origin) => SINGLE_HOST_PATTERN.test(origin) && !keepPatterns.includes(origin));
+      if (unused.length) await permissions.remove({ origins: unused });
+    }
+  };
+}
+
+/**
  * Platform services used by the UI. Chrome and Firefox expose the same
  * WebExtensions APIs for these, so there is one implementation; the only
  * branch is extension vs. plain web page.
  *
  * @param {object | null} [api] - Extension API object (`browser` / `chrome`)
  * @param {Window} [win] - Window used for the non-extension fallback
- * @returns {{ storage: object, openTab: (url: string) => void }}
+ * @returns {{ storage: object, hostAccess: object, openTab: (url: string) => void }}
  */
 export function createPlatform(api = isExtensionContext() ? ext : null, win = globalThis) {
   const storage = api?.storage?.local ?? createMemoryStorageArea();
 
   return {
     storage,
+    hostAccess: createHostAccess(api?.permissions),
     openTab(url) {
       if (api?.tabs?.create) {
         api.tabs.create({ url });

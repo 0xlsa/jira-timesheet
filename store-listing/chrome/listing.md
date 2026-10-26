@@ -93,12 +93,12 @@ All 10 Chrome screenshots exist (5 screens × dark and light); swap themes as pr
 
 | Permission | Justification |
 | --- | --- |
-| `storage` | Saves the user's Jira connection settings (instance URL, Atlassian account email, API token or personal access token) and the last connection-test result in the browser, so they don't have to be re-entered. |
-| Host permission `https://*/*` | The extension calls the Jira REST API of the instance the user enters. That can be any HTTPS address: Jira Cloud sites on `*.atlassian.net` or self-hosted Jira Data Center / Server on the organization's own domain, so it can't be listed in advance. Requests are only sent to the configured instance's origin; the extension doesn't read or modify web pages. |
+| `storage` | Saves the user's Jira connection settings in chrome.storage.local so they don't have to be re-entered: the selected Jira edition, the Jira instance URL for Jira Cloud and for Jira Data Center / Server, the Atlassian account email (Jira Cloud), the API token (Jira Cloud) or personal access token (Data Center / Server), the result of the last successful connection test (Jira display name, username, account ID or user key, email address, and, on Data Center / Server, the Jira version, deployment type, and server title), and the time the settings were last saved. No worklog or issue data is stored. Storage is local to the browser profile and isn't synced or sent anywhere. |
+| Optional host permission `https://*/*` | The extension has no host access at install time. It reads and writes the user's worklogs through the Jira REST API of the instance the user enters, which can be any HTTPS address: a Jira Cloud site on *.atlassian.net or a self-hosted Jira Data Center / Server on the organization's own domain, so it can't be listed in advance. `https://*/*` is declared only in optional_host_permissions. When the user clicks Test Connection, Save Settings, or Allow Access, the extension calls chrome.permissions.request for that one site (for example `https://jira.example.com/*`). The extension sends requests only to that site's origin, has no content scripts, and doesn't read or modify web pages. When the user saves a different instance URL, it removes access to sites that are no longer configured. |
 
 ### Remote code
 
-**No, I am not using remote code.** All scripts are in the package; the content security policy is `script-src 'self'; object-src 'self';`.
+**No, I am not using remote code.** Every script is in the package: `background.js`, `options.js`, and the ES modules under `src/`, loaded with relative imports. The only script tag is `<script type="module" src="options.js">`. The code has no `eval`, `new Function`, dynamic `import()`, `importScripts`, or WebAssembly, and it has no third-party libraries or build step that downloads code. The content security policy is `script-src 'self'; object-src 'self';`. Network requests go only to the user's Jira REST API and return JSON data, which is never executed.
 
 ### Data usage
 

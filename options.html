@@ -166,6 +166,18 @@
         <button type="button" id="goToSettingsBtn" class="btn btn-primary btn-sm">Open Settings</button>
       </div>
 
+      <div id="siteAccessAlert" class="panel-alert alert-warning hidden">
+        <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+          <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        </svg>
+        <div class="alert-content">
+          <h4>Allow Access to Your Jira Site</h4>
+          <p id="siteAccessMessage">Timesheet for Jira needs your permission to connect to your Jira site.</p>
+        </div>
+        <button type="button" id="grantSiteAccessBtn" class="btn btn-primary btn-sm">Allow Access</button>
+      </div>
+
       <div id="worklogErrorAlert" class="panel-alert alert-danger hidden">
         <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2" />
@@ -265,7 +277,8 @@
             </button>
           </div>
           <div id="urlHint" class="field-hint">
-            Enter your Jira instance URL, including any context path.
+            Enter your Jira instance URL, including any context path. When you test or save, your browser
+            asks you to allow Timesheet for Jira to connect to this site. It doesn't get access to any other site.
           </div>
           <div id="urlError" class="field-error" role="alert"></div>
         </div>
