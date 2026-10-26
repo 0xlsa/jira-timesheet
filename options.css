@@ -138,6 +138,10 @@
   color: #166534;
 }
 
+[data-theme="light"] .alert-danger p {
+  color: #991b1b;
+}
+
 [data-theme="light"] .status-error {
   color: #991b1b;
 }
@@ -757,9 +761,14 @@ body {
 
 /* Individual Worklog Item */
 .worklog-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  /* Columns: issue key + status | summary, comment, metadata | duration + actions.
+     Rows: summary | comment | metadata | spare (absorbs a taller issue column). The body and
+     side wrappers use `display: contents`, so the actions can share the metadata row. */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto 1fr;
+  align-items: start;
+  column-gap: 14px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -843,13 +852,34 @@ body {
   background-color: var(--success);
 }
 
-.worklog-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1 1 0;
+.worklog-body,
+.worklog-side {
+  display: contents;
+}
+
+.worklog-issue {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+
+.issue-summary {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   padding-top: 4px;
+}
+
+.worklog-comment {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.worklog-meta-row {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
 }
 
 .issue-summary {
@@ -867,17 +897,77 @@ body {
   color: var(--duration-highlight);
   background-color: rgba(56, 189, 248, 0.1);
   border: 1px solid rgba(56, 189, 248, 0.25);
-  padding: 6px 12px;
+  padding: 3px 12px;
   border-radius: var(--radius-sm);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+
+/* Duration level with the summary; log work and edit buttons centered on the metadata row */
+.worklog-duration-badge {
+  grid-column: 3;
+  grid-row: 1 / 4;
+  justify-self: end;
+}
+
+.worklog-actions {
+  grid-column: 3;
+  grid-row: 3;
+  /* The row also holds the metadata's top margin, so align to its bottom: with the overhang
+     below, the 24px buttons are centered on the 18px metadata line without making the row taller. */
+  align-self: end;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-block: -3px;
+}
+
+.worklog-log-btn,
+.worklog-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.worklog-log-btn:hover,
+.worklog-edit-btn:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.worklog-log-btn:focus-visible,
+.worklog-edit-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.worklog-log-btn .icon,
+.worklog-edit-btn .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Worklog open in the editor */
+.worklog-item.is-editing,
+.worklog-item.is-editing:hover {
+  border-color: var(--primary-border);
+  box-shadow: 0 0 0 1px var(--primary-border);
 }
 
 .worklog-meta-row {
   display: flex;
   align-items: center;
   gap: 6px 14px;
-  margin-top: 4px;
+  margin-top: 8px;
   font-size: 12px;
   color: var(--text-subtle);
   flex-wrap: wrap;
@@ -918,15 +1008,18 @@ body {
     padding: 16px;
   }
 
+  /* Issue key + status and duration on top; summary, comment, and metadata below at full
+     width, with the actions centered on the metadata row. */
   .worklog-item {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 8px 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto;
+    column-gap: 14px;
   }
 
   /* Summary sits on its own row here, so the status can use the width up to the duration badge */
   .worklog-issue {
-    grid-column: 1 / span 2;
+    grid-column: 1;
+    grid-row: 1;
     min-width: 0;
   }
 
@@ -934,16 +1027,320 @@ body {
     width: auto;
   }
 
-  .worklog-body {
+  .issue-summary {
     grid-column: 1 / -1;
     grid-row: 2;
+    margin-top: 8px;
     padding-top: 0;
   }
 
+  .worklog-comment {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  .worklog-meta-row {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
   .worklog-duration-badge {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 1;
   }
+
+  .worklog-actions {
+    grid-column: 2;
+    grid-row: 4;
+  }
+}
+
+/* ==========================================================================
+   EDIT WORKLOG PANEL
+   Beside the timesheet on wide windows, over its right side on medium ones,
+   and a full editing view on narrow ones.
+   ========================================================================== */
+
+.worklog-editor {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  width: 380px;
+  max-width: 100%;
+  background-color: var(--bg-card);
+  border-left: 1px solid var(--border-color);
+  box-shadow: var(--shadow-md);
+}
+
+@media (min-width: 1240px) {
+  .has-worklog-editor body {
+    padding-right: 396px;
+  }
+}
+
+@media (max-width: 720px) {
+  .worklog-editor {
+    width: 100%;
+    border-left: none;
+  }
+
+  .has-worklog-editor body {
+    overflow: hidden;
+  }
+}
+
+.editor-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.editor-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.editor-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+
+.editor-icon-btn:hover:not(:disabled) {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.editor-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editor-icon-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.editor-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.editor-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-issue-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+/* The worklog list's status label fills its column; here it sits beside the key. */
+.editor-issue-row .issue-status {
+  width: auto;
+  min-width: 0;
+}
+
+.editor-issue-summary {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-main);
+  overflow-wrap: anywhere;
+}
+
+.editor-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-subtle);
+  background-color: var(--bg-card-highlight);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.editor-note-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.editor-fields,
+.editor-duration {
+  border: none;
+  min-width: 0;
+}
+
+.editor-fields .form-group {
+  margin-bottom: 14px;
+}
+
+.editor-fields:disabled input,
+.editor-fields:disabled textarea {
+  opacity: 0.7;
+}
+
+.editor-duration legend {
+  padding: 0;
+}
+
+.editor-duration-inputs {
+  display: flex;
+  gap: 12px;
+}
+
+.editor-duration-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.editor-duration-unit {
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.worklog-editor input,
+.worklog-editor textarea {
+  color-scheme: dark;
+}
+
+[data-theme="light"] .worklog-editor input,
+[data-theme="light"] .worklog-editor textarea {
+  color-scheme: light;
+}
+
+.worklog-editor textarea {
+  resize: vertical;
+  min-height: 104px;
+  line-height: 1.45;
+}
+
+.editor-rich-note {
+  color: var(--warning);
+}
+
+.editor-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.editor-submit-error {
+  padding: 10px 12px;
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-actions-spacer {
+  flex: 1;
+}
+
+.editor-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-confirm p {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* Declared before the base .btn rules, so these use .btn.* to win over its transparent border. */
+.btn.btn-danger {
+  background-color: #da3633;
+  color: #ffffff;
+}
+
+.btn.btn-danger:hover:not(:disabled) {
+  background-color: #b62324;
+}
+
+.btn.btn-danger-outline {
+  background-color: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.btn.btn-danger-outline:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Confirmation toast; an always-present live region that collapses when empty */
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 60;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.app-toast:empty {
+  padding: 0;
+  border: none;
+  box-shadow: none;
 }
 
 /* ==========================================================================
@@ -1074,7 +1471,11 @@ body {
 input[type="url"],
 input[type="email"],
 input[type="password"],
-input[type="text"] {
+input[type="text"],
+input[type="date"],
+input[type="time"],
+input[type="number"],
+textarea {
   width: 100%;
   padding: 8px 12px;
   background-color: var(--bg-input);
@@ -1086,7 +1487,8 @@ input[type="text"] {
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
-input:focus {
+input:focus,
+textarea:focus {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);

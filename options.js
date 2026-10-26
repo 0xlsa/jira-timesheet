@@ -20,11 +20,18 @@ import {
   formatWeekRange,
   buildEmptyWeek
 } from './src/worklog/worklogUtils.js';
-import { loadWeek } from './src/worklog/weeklyWorklogService.js';
+import {
+  loadWeek,
+  saveWorklogChanges,
+  deleteWorklog,
+  replaceWorklogInWeek,
+  removeWorklogFromWeek
+} from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
 import { createPlatform } from './src/compat/browser-api.js';
 import { escapeHtml } from './src/ui/html.js';
 import { renderWeek } from './src/ui/weekView.js';
+import { openWorklogEditor } from './src/ui/worklogEditor.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -67,6 +74,8 @@ const worklogErrorMessage = document.getElementById('worklogErrorMessage');
 const retryWorklogFetchBtn = document.getElementById('retryWorklogFetchBtn');
 const emptyWeekBanner = document.getElementById('emptyWeekBanner');
 const daysContainer = document.getElementById('daysContainer');
+const worklogEditorRoot = document.getElementById('worklogEditor');
+const appToast = document.getElementById('appToast');
 
 // Settings Form Elements
 const form = document.getElementById('settingsForm');
@@ -100,6 +109,14 @@ let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
 let currentAggregatedData = null;
 let isBusyFetching = false;
+
+// Jira client and instance URL of the displayed week; set when worklogs load.
+let currentClient = null;
+let currentBaseUrl = '';
+
+// Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
+let worklogEditor = null;
+let toastTimer = null;
 
 // Settings form values kept per Jira edition, so Cloud and Data Center / Server
 // instance URLs and tokens never overwrite each other when switching editions.
@@ -151,6 +168,9 @@ initTheme();
  * @param {'weekly' | 'settings'} tabId
  */
 function switchTab(tabId) {
+  // The editor belongs to the weekly view; leaving it asks about unsaved changes first.
+  if (tabId !== 'weekly' && worklogEditor && !worklogEditor.requestClose()) return;
+
   if (tabId === 'weekly') {
     tabWeekly.classList.add('active');
     tabWeekly.setAttribute('aria-selected', 'true');
@@ -219,8 +239,105 @@ function renderDays(aggregatedData, baseUrl = '') {
       updateSelectedDayMetric(dateKey);
       renderDays(aggregatedData, baseUrl);
       daysContainer.querySelector(`.day-card[data-date-key="${dateKey}"]`)?.focus();
+    },
+    onEditWorklog: aggregatedData.sourceWorklogs ? openEditor : undefined,
+    onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
+    editingWorklogId: worklogEditor?.worklogId
+  });
+}
+
+/**
+ * Shows a loaded week: totals, the selected-day card, the empty-week banner, and the days.
+ *
+ * @param {object} aggregated - From loadWeek() or a week updated after an edit
+ * @param {string} baseUrl
+ */
+function showWeek(aggregated, baseUrl) {
+  currentAggregatedData = aggregated;
+
+  weeklyTotalDuration.textContent = aggregated.formattedWeekTotal;
+  weeklyTotalCount.textContent = `${aggregated.totalWorklogsCount} worklog${aggregated.totalWorklogsCount === 1 ? '' : 's'}`;
+
+  updateSelectedDayMetric(selectedDateKey);
+  emptyWeekBanner.classList.toggle('hidden', aggregated.hasAnyWorklogs);
+  renderDays(aggregated, baseUrl);
+}
+
+// ============================================================================
+// Worklog Editing
+// ============================================================================
+
+/**
+ * Shows a short confirmation message at the bottom of the page.
+ * @param {string} message
+ */
+function showToast(message) {
+  clearTimeout(toastTimer);
+  appToast.textContent = message;
+  toastTimer = setTimeout(() => { appToast.textContent = ''; }, 4000);
+}
+
+/**
+ * Entry point for logging more work on a worklog's issue (the card's + button). The issue
+ * comes from the week already loaded, so this makes no Jira requests.
+ * The Log Work flow isn't built yet; until it is, this tells the user so.
+ * @param {string} worklogId - A worklog on the issue to log work against
+ */
+function startLogWork(worklogId) {
+  const worklog = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
+  if (!worklog) return;
+
+  showToast(`Logging new work on ${worklog.issueKey} isn't available yet.`);
+}
+
+/**
+ * Opens the Edit Worklog panel for a worklog in the displayed week. If another worklog
+ * is open with unsaved changes, the user is asked to discard them first.
+ * @param {string} worklogId
+ */
+function openEditor(worklogId) {
+  if (worklogEditor) {
+    if (worklogEditor.worklogId === worklogId) {
+      worklogEditor.focus();
+      return;
+    }
+    if (!worklogEditor.requestClose()) return;
+  }
+
+  const worklog = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
+  const client = currentClient;
+  if (!worklog || !client) return;
+
+  worklogEditor = openWorklogEditor(worklogEditorRoot, {
+    worklog,
+    baseUrl: client.baseUrl,
+    onSave: async (changes) => {
+      const updated = await saveWorklogChanges(client, worklog, changes);
+      // The user may have moved to another week meanwhile; that week reloads from Jira anyway.
+      if (currentAggregatedData?.sourceWorklogs?.some((wl) => String(wl.id) === worklogId)) {
+        showWeek(replaceWorklogInWeek(currentAggregatedData, updated), currentBaseUrl);
+      }
+      const movedTo = new Date(updated.started);
+      const stillInWeek = currentAggregatedData.weekDays.some((d) => d.dateKey === getLocalDateKey(movedTo));
+      showToast(stillInWeek ? 'Worklog updated.' : `Worklog updated and moved to ${movedTo.toLocaleDateString()}.`);
+    },
+    onDelete: async () => {
+      await deleteWorklog(client, worklog);
+      if (currentAggregatedData?.sourceWorklogs) {
+        showWeek(removeWorklogFromWeek(currentAggregatedData, worklogId), currentBaseUrl);
+      }
+      showToast('Worklog deleted.');
+    },
+    onClose: () => {
+      worklogEditor = null;
+      if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+      // Return focus to the edited worklog's button, or the day panel if it moved or was deleted.
+      (daysContainer.querySelector(`.worklog-edit-btn[data-worklog-id="${CSS.escape(worklogId)}"]`) ||
+        daysContainer.querySelector('.day-card.is-selected'))?.focus();
     }
   });
+
+  renderDays(currentAggregatedData, currentBaseUrl);
 }
 
 /**
@@ -282,6 +399,9 @@ async function loadAndRenderWorklogs(options = {}) {
     return;
   }
 
+  currentClient = client;
+  currentBaseUrl = client.baseUrl;
+
   // Update instance card header immediately with domain
   try {
     userInstanceHost.textContent = new URL(client.baseUrl).host;
@@ -306,24 +426,7 @@ async function loadAndRenderWorklogs(options = {}) {
       userAvatar.textContent = initial;
     }
 
-    currentAggregatedData = aggregated;
-
-    // Update Totals
-    weeklyTotalDuration.textContent = aggregated.formattedWeekTotal;
-    weeklyTotalCount.textContent = `${aggregated.totalWorklogsCount} worklog${aggregated.totalWorklogsCount === 1 ? '' : 's'}`;
-
-    // Update Selected Day Card
-    updateSelectedDayMetric(selectedDateKey);
-
-    // Show empty week banner if no results
-    if (!aggregated.hasAnyWorklogs) {
-      emptyWeekBanner.classList.remove('hidden');
-    } else {
-      emptyWeekBanner.classList.add('hidden');
-    }
-
-    // Render weekday cards and selected-day panel
-    renderDays(aggregated, client.baseUrl);
+    showWeek(aggregated, client.baseUrl);
   } catch (err) {
     console.error('Failed to load Jira worklogs:', err);
     showWorklogError('Error Fetching Worklogs', err.message || 'Unable to connect to Jira REST API.');
@@ -846,6 +949,14 @@ jiraTokenInput.addEventListener('input', () => {
 
 testConnectionBtn.addEventListener('click', onTestConnection);
 form.addEventListener('submit', onSaveSettings);
+
+// Warn before leaving the page with unsaved worklog edits
+window.addEventListener('beforeunload', (event) => {
+  if (worklogEditor?.isDirty) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', loadSavedSettings);

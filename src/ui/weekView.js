@@ -4,6 +4,7 @@
  */
 
 import { escapeHtml } from './html.js';
+import { isEditableWorklog } from '../worklog/worklogEdit.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
 const DAY_INDICATOR_FULL_SECONDS = 8 * 60 * 60;
@@ -42,9 +43,12 @@ export function renderIssueStatusBadge(status) {
  * Builds the HTML for a single worklog entry in the selected-day panel.
  * @param {object} wl
  * @param {string} baseUrl
+ * @param {object} [options]
+ * @param {boolean} [options.editable=false] - Show the edit (pencil) button
+ * @param {boolean} [options.canLogWork=false] - Show the log work (plus) button for the worklog's issue
  * @returns {string}
  */
-export function renderWorklogItem(wl, baseUrl) {
+export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = false } = {}) {
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(wl.issueKey)}` : '#';
 
   return `
@@ -75,7 +79,26 @@ export function renderWorklogItem(wl, baseUrl) {
         </span>` : ''}
       </div>
     </div>
-    <span class="worklog-duration-badge">${escapeHtml(wl.formattedDuration)}</span>
+    <div class="worklog-side">
+      <span class="worklog-duration-badge">${escapeHtml(wl.formattedDuration)}</span>
+      ${canLogWork || editable ? `
+      <div class="worklog-actions">
+        ${canLogWork ? `
+        <button type="button" class="worklog-log-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Log work on ${escapeHtml(wl.issueKey)}" title="Log work">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>` : ''}
+        ${editable ? `
+        <button type="button" class="worklog-edit-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Edit worklog for ${escapeHtml(wl.issueKey)}, started ${escapeHtml(wl.formattedStartTime)}" title="Edit worklog">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h9"/>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </button>` : ''}
+      </div>` : ''}
+    </div>
   `;
 }
 
@@ -89,8 +112,11 @@ export function renderWorklogItem(wl, baseUrl) {
  * @param {string} options.selectedDateKey - Selected day; falls back to Monday when not in this week
  * @param {string} [options.baseUrl] - Jira instance URL used for issue links
  * @param {(dateKey: string) => void} options.onSelectDay - Called when a weekday card is clicked
+ * @param {(worklogId: string) => void} [options.onEditWorklog] - Called when a worklog's edit button is clicked; no edit buttons without it
+ * @param {(worklogId: string) => void} [options.onLogWork] - Called when a worklog's log work button is clicked; no log work buttons without it
+ * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onEditWorklog, onLogWork, editingWorklogId }) {
   container.innerHTML = '';
 
   const weekDays = week.weekDays || [];
@@ -157,10 +183,22 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
     selectedDay.worklogs.forEach((wl) => {
       const itemEl = document.createElement('div');
-      itemEl.className = 'worklog-item';
-      itemEl.innerHTML = renderWorklogItem(wl, baseUrl);
+      itemEl.className = `worklog-item ${editingWorklogId && String(wl.id) === editingWorklogId ? 'is-editing' : ''}`;
+      itemEl.innerHTML = renderWorklogItem(wl, baseUrl, {
+        editable: Boolean(onEditWorklog) && isEditableWorklog(wl),
+        canLogWork: Boolean(onLogWork) && Boolean(wl.issueId || wl.issueKey)
+      });
       listEl.appendChild(itemEl);
     });
+
+    if (onEditWorklog || onLogWork) {
+      listEl.addEventListener('click', (event) => {
+        const editBtn = event.target.closest('.worklog-edit-btn');
+        if (editBtn) onEditWorklog?.(editBtn.dataset.worklogId);
+        const logBtn = event.target.closest('.worklog-log-btn');
+        if (logBtn) onLogWork?.(logBtn.dataset.worklogId);
+      });
+    }
 
     panel.appendChild(listEl);
   } else {

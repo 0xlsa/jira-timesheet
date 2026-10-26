@@ -1,6 +1,7 @@
 import { JiraUrlValidator } from '../validation/JiraUrlValidator.js';
 import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
+import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -602,6 +603,156 @@ export class JiraClient {
     }
 
     return await this.#parseJson(response, endpoint);
+  }
+
+  /**
+   * Updates an existing worklog in place (`PUT /issue/{issue}/worklog/{id}`). Only the
+   * fields passed are sent; Jira leaves the others unchanged. The issue itself is not touched.
+   *
+   * @param {string} issueIdOrKey
+   * @param {string} worklogId
+   * @param {object} changes
+   * @param {Date} [changes.started] - New start, sent with the local UTC offset
+   * @param {number} [changes.timeSpentSeconds] - New duration; whole minutes, at least 60
+   * @param {string} [changes.comment] - New comment text; sent as ADF on Jira Cloud
+   * @returns {Promise<object>} The updated worklog returned by Jira
+   */
+  async updateWorklog(issueIdOrKey, worklogId, changes = {}) {
+    if (!issueIdOrKey || !worklogId) {
+      throw new Error('An issue and a worklog ID are required.');
+    }
+
+    const body = {};
+    if (changes.started !== undefined) {
+      body.started = formatJiraDateTime(changes.started);
+    }
+    if (changes.timeSpentSeconds !== undefined) {
+      const seconds = changes.timeSpentSeconds;
+      if (!Number.isInteger(seconds) || seconds < 60) {
+        throw new Error('Duration must be a whole number of seconds and at least 1 minute.');
+      }
+      body.timeSpentSeconds = seconds;
+    }
+    if (changes.comment !== undefined) {
+      body.comment = this.deploymentType === 'cloud' ? plainTextToAdf(changes.comment) : String(changes.comment);
+    }
+    if (Object.keys(body).length === 0) {
+      throw new Error('No worklog changes to save.');
+    }
+
+    const path = this.#worklogPath(issueIdOrKey, worklogId);
+    const response = await this.#writeRequest(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      throw await this.#worklogWriteError(response, 'edit');
+    }
+
+    return await this.#parseJson(response, path);
+  }
+
+  /**
+   * Deletes a worklog (`DELETE /issue/{issue}/worklog/{id}`).
+   *
+   * @param {string} issueIdOrKey
+   * @param {string} worklogId
+   * @returns {Promise<void>}
+   */
+  async deleteWorklog(issueIdOrKey, worklogId) {
+    if (!issueIdOrKey || !worklogId) {
+      throw new Error('An issue and a worklog ID are required.');
+    }
+
+    const response = await this.#writeRequest(this.#worklogPath(issueIdOrKey, worklogId), { method: 'DELETE' });
+
+    if (!response.ok) {
+      throw await this.#worklogWriteError(response, 'delete');
+    }
+  }
+
+  /**
+   * @param {string} issueIdOrKey
+   * @param {string} worklogId
+   * @returns {string}
+   */
+  #worklogPath(issueIdOrKey, worklogId) {
+    return this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog/${encodeURIComponent(worklogId)}`);
+  }
+
+  /**
+   * Sends a write request, turning timeouts and network failures into errors with
+   * user-facing messages and an `errorType` code.
+   *
+   * @param {string} path
+   * @param {RequestInit} options
+   * @returns {Promise<Response>}
+   */
+  async #writeRequest(path, options) {
+    try {
+      return await this.#request(path, options);
+    } catch (err) {
+      const { error, errorType } = this.#handleException(err, '');
+      const wrapped = new Error(error);
+      wrapped.errorType = errorType;
+      throw wrapped;
+    }
+  }
+
+  /**
+   * Builds the error for a failed worklog edit or delete. Messages name the cause
+   * (expired token, missing permission, worklog gone) and include Jira's own reason.
+   *
+   * @param {Response} response
+   * @param {'edit' | 'delete'} action
+   * @returns {Promise<Error>}
+   */
+  async #worklogWriteError(response, action) {
+    const status = response.status;
+    let serverMessage = '';
+
+    try {
+      const body = await response.json();
+      const messages = [
+        ...(Array.isArray(body?.errorMessages) ? body.errorMessages : []),
+        ...(body?.errors && typeof body.errors === 'object' ? Object.values(body.errors) : []),
+        ...(typeof body?.message === 'string' ? [body.message] : [])
+      ].filter((m) => typeof m === 'string' && m.trim());
+      serverMessage = messages.join(' ');
+    } catch {
+      // Body is not JSON
+    }
+
+    const withDetail = (message) => (serverMessage ? `${message} Jira says: ${serverMessage}` : message);
+    let message;
+    let errorType;
+
+    if (status === 401) {
+      errorType = 'AUTH_INVALID';
+      message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Connection Settings.';
+    } else if (status === 403) {
+      errorType = 'FORBIDDEN';
+      message = withDetail(`You don't have permission to ${action} this worklog in Jira.`);
+    } else if (status === 404) {
+      errorType = 'NOT_FOUND';
+      message = 'This worklog no longer exists in Jira, or you can no longer see its issue. Sync to refresh the week.';
+    } else if (status === 400) {
+      errorType = 'INVALID';
+      message = withDetail(`Jira didn't accept the ${action === 'edit' ? 'changes' : 'deletion'}.`);
+    } else if (status >= 500) {
+      errorType = 'SERVER_ERROR';
+      message = `Jira returned a server error (${status}). Try again in a moment.`;
+    } else {
+      errorType = 'HTTP_ERROR';
+      message = withDetail(`Unexpected response from Jira (${status}).`);
+    }
+
+    const err = new Error(message);
+    err.errorType = errorType;
+    err.status = status;
+    return err;
   }
 
   /**

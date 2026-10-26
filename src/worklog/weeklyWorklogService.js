@@ -8,7 +8,8 @@ import { getWeekRange, getWeekDays, aggregateWorklogsByWeek } from './worklogUti
  * @param {Date} week.monday - First day of the week
  * @param {Date} [week.sunday] - Last day of the week (defaults to the Sunday after `monday`)
  * @param {Date} [week.now=new Date()] - Reference used to mark "today"
- * @returns {Promise<{ user: object } & ReturnType<typeof aggregateWorklogsByWeek>>}
+ * @returns {Promise<{ user: object, sourceWorklogs: Array<object> } & ReturnType<typeof aggregateWorklogsByWeek>>}
+ *   `sourceWorklogs` keeps the worklogs as Jira returned them (raw comment and start time) for editing.
  */
 export async function loadWeek(client, { monday, sunday, now = new Date() }) {
   const range = getWeekRange(monday);
@@ -17,5 +18,76 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
   const result = await client.getWorklogsForDateRange(range.monday, end);
   const aggregated = aggregateWorklogsByWeek(result.worklogs, getWeekDays(range.monday, now));
 
-  return { user: result.user, ...aggregated };
+  return { user: result.user, sourceWorklogs: result.worklogs, ...aggregated };
+}
+
+/**
+ * Re-aggregates a loaded week from a new list of source worklogs, keeping its user and days.
+ *
+ * @param {object} week - From loadWeek()
+ * @param {Array<object>} sourceWorklogs
+ * @param {Date} now
+ */
+function rebuildWeek(week, sourceWorklogs, now) {
+  const aggregated = aggregateWorklogsByWeek(sourceWorklogs, getWeekDays(week.weekDays[0].date, now));
+  return { ...week, sourceWorklogs, ...aggregated };
+}
+
+/**
+ * Returns the week with one worklog replaced by its updated version. Day totals, the week
+ * total, and counts are recalculated; a worklog moved to another week drops out.
+ *
+ * @param {object} week - From loadWeek()
+ * @param {object} updatedWorklog - Source worklog with the same `id`
+ * @param {Date} [now=new Date()]
+ */
+export function replaceWorklogInWeek(week, updatedWorklog, now = new Date()) {
+  const id = String(updatedWorklog.id);
+  const others = (week.sourceWorklogs || []).filter((wl) => String(wl.id) !== id);
+  return rebuildWeek(week, [...others, updatedWorklog], now);
+}
+
+/**
+ * Returns the week without the given worklog, with totals and counts recalculated.
+ *
+ * @param {object} week - From loadWeek()
+ * @param {string} worklogId
+ * @param {Date} [now=new Date()]
+ */
+export function removeWorklogFromWeek(week, worklogId, now = new Date()) {
+  const id = String(worklogId);
+  return rebuildWeek(week, (week.sourceWorklogs || []).filter((wl) => String(wl.id) !== id), now);
+}
+
+/**
+ * Saves worklog changes to Jira and returns the source worklog updated with the values
+ * Jira stored, so the view matches Jira without reloading the week.
+ *
+ * @param {{ updateWorklog: Function }} client
+ * @param {object} worklog - Source worklog (from `week.sourceWorklogs`)
+ * @param {{ started?: Date, timeSpentSeconds?: number, comment?: string }} changes
+ * @returns {Promise<object>}
+ */
+export async function saveWorklogChanges(client, worklog, changes) {
+  const saved = await client.updateWorklog(worklog.issueId || worklog.issueKey, worklog.id, changes) || {};
+
+  return {
+    ...worklog,
+    started: saved.started ?? (changes.started ? changes.started.toISOString() : worklog.started),
+    timeSpentSeconds: Number(saved.timeSpentSeconds ?? changes.timeSpentSeconds ?? worklog.timeSpentSeconds) || 0,
+    timeSpent: saved.timeSpent ?? worklog.timeSpent,
+    // Jira omits an empty comment from the response.
+    comment: saved.comment !== undefined ? saved.comment : (changes.comment !== undefined ? changes.comment : worklog.comment)
+  };
+}
+
+/**
+ * Deletes a worklog in Jira.
+ *
+ * @param {{ deleteWorklog: Function }} client
+ * @param {object} worklog - Source worklog
+ * @returns {Promise<void>}
+ */
+export async function deleteWorklog(client, worklog) {
+  await client.deleteWorklog(worklog.issueId || worklog.issueKey, worklog.id);
 }
