@@ -1,0 +1,38 @@
+# Store packages. The extension is loaded unpacked from the repository root;
+# zips for the Chrome Web Store and Firefox Add-ons are built per release.
+/*.zip
+/*.xpi
+/*.crx
+/web-ext-artifacts/
+
+# Private key from Chrome's "Pack extension". It signs the .crx and must never
+# be shared. The project has no legitimate .pem files.
+*.pem
+
+# Local credentials and environment files (for example, the Jira demo
+# credentials used to capture screenshots). Templates may be committed.
+.env
+.env.*
+*.env
+!.env.example
+
+# Node.js: the project has no dependencies, but npm or npx tools may add these.
+node_modules/
+npm-debug.log*
+
+# Test coverage output (node --test --experimental-test-coverage with a file reporter)
+coverage/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Editors and local tool settings
+.vscode/
+.claude/settings.local.json
+*.swp
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
