@@ -276,6 +276,7 @@ export function aggregateWorklogsByWeek(rawWorklogs = [], weekDays = []) {
         issueId: worklog.issueId || '',
         issueKey: worklog.issueKey || '',
         issueSummary: worklog.issueSummary || 'No summary available',
+        issueStatus: worklog.issueStatus?.name ? worklog.issueStatus : null,
         comment: parseWorklogComment(worklog.comment),
         started: startDate,
         formattedStartTime: startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),

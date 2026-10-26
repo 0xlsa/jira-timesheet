@@ -14,19 +14,46 @@ const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric'
 });
 
+// Jira status category keys with a dedicated badge color; anything else (custom or `undefined`) is neutral.
+const STATUS_CATEGORY_CLASSES = {
+  new: 'status-category-new',
+  indeterminate: 'status-category-indeterminate',
+  done: 'status-category-done'
+};
+
+/**
+ * Builds the status label (colored dot + name) shown under the issue key, or '' when the status is unknown.
+ * @param {{ name: string, categoryKey?: string } | null | undefined} status
+ * @returns {string}
+ */
+export function renderIssueStatusBadge(status) {
+  const name = typeof status?.name === 'string' ? status.name.trim() : '';
+  if (!name) return '';
+
+  const categoryClass = STATUS_CATEGORY_CLASSES[status.categoryKey] || 'status-category-unknown';
+  return `
+    <span class="issue-status ${categoryClass}" title="Status: ${escapeHtml(name)}">
+      <span class="issue-status-dot" aria-hidden="true"></span>
+      <span class="issue-status-name">${escapeHtml(name)}</span>
+    </span>`;
+}
+
 /**
  * Builds the HTML for a single worklog entry in the selected-day panel.
  * @param {object} wl
  * @param {string} baseUrl
  * @returns {string}
  */
-function renderWorklogItem(wl, baseUrl) {
+export function renderWorklogItem(wl, baseUrl) {
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(wl.issueKey)}` : '#';
 
   return `
-    <a href="${escapeHtml(issueUrl)}" target="_blank" rel="noopener noreferrer" class="issue-key-badge" title="Open ${escapeHtml(wl.issueKey)} in Jira">
-      ${escapeHtml(wl.issueKey || 'ISSUE')}
-    </a>
+    <div class="worklog-issue">
+      <a href="${escapeHtml(issueUrl)}" target="_blank" rel="noopener noreferrer" class="issue-key-badge" title="Open ${escapeHtml(wl.issueKey)} in Jira">
+        ${escapeHtml(wl.issueKey || 'ISSUE')}
+      </a>
+      ${renderIssueStatusBadge(wl.issueStatus)}
+    </div>
     <div class="worklog-body">
       <span class="issue-summary" title="${escapeHtml(wl.issueSummary)}">${escapeHtml(wl.issueSummary)}</span>
       ${wl.comment ? `<div class="worklog-comment">${escapeHtml(wl.comment)}</div>` : ''}

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { JiraClient } from '../src/jira/JiraClient.js';
+import { JiraClient, toIssueStatus } from '../src/jira/JiraClient.js';
 import { JiraCloudTokenProvider } from '../src/auth/JiraCloudTokenProvider.js';
 import { JiraPatProvider } from '../src/auth/JiraPatProvider.js';
 
@@ -290,5 +290,77 @@ describe('JiraClient - Worklog & Search Methods', () => {
     const result = await client.getWorklogsForDateRange(new Date(2026, 9, 19), new Date(2026, 9, 25));
     assert.equal(result.worklogs.length, 0);
   });
+
+  it('requests the issue status in the same search and attaches it to each worklog', async () => {
+    const searchFields = [];
+    const makeFetch = (status) => async (url) => {
+      if (url.includes('/myself')) {
+        return { ok: true, status: 200, json: async () => ({ accountId: 'acc-1', name: 'dev', displayName: 'Dev' }) };
+      }
+      searchFields.push(new URL(url).searchParams.get('fields'));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          total: 1,
+          issues: [{
+            id: '1',
+            key: 'EKB-30755',
+            fields: {
+              summary: 'Status test',
+              status,
+              worklog: {
+                total: 1,
+                worklogs: [{
+                  id: 'wl-1',
+                  started: '2026-10-20T10:00:00.000',
+                  timeSpentSeconds: 3600,
+                  author: { accountId: 'acc-1', name: 'dev', displayName: 'Dev' }
+                }]
+              }
+            }
+          }]
+        })
+      };
+    };
+
+    const cloud = new JiraClient('https://acme.atlassian.net', new JiraCloudTokenProvider('dev@example.com', 'token'), {
+      fetchFn: makeFetch({ name: 'In Review', statusCategory: { key: 'indeterminate', colorName: 'yellow' } })
+    });
+    const cloudResult = await cloud.getWorklogsForDateRange(new Date(2026, 9, 19), new Date(2026, 9, 25));
+    assert.deepEqual(cloudResult.worklogs[0].issueStatus, { name: 'In Review', categoryKey: 'indeterminate' });
+
+    const dataCenter = new JiraClient('https://jira.example.com', new JiraPatProvider('pat'), {
+      fetchFn: makeFetch({ name: 'Closed', statusCategory: { key: 'done' } })
+    });
+    const dcResult = await dataCenter.getWorklogsForDateRange(new Date(2026, 9, 19), new Date(2026, 9, 25));
+    assert.deepEqual(dcResult.worklogs[0].issueStatus, { name: 'Closed', categoryKey: 'done' });
+
+    const missing = new JiraClient('https://jira.example.com', new JiraPatProvider('pat'), { fetchFn: makeFetch(undefined) });
+    const missingResult = await missing.getWorklogsForDateRange(new Date(2026, 9, 19), new Date(2026, 9, 25));
+    assert.equal(missingResult.worklogs[0].issueStatus, null);
+
+    // One search per load, with status requested alongside the existing fields
+    assert.deepEqual(searchFields, ['summary,status,worklog', 'summary,status,worklog', 'summary,status,worklog']);
+  });
 });
 
+describe('toIssueStatus', () => {
+  it('keeps the status name and category key', () => {
+    assert.deepEqual(
+      toIssueStatus({ name: ' Waiting for Customer ', statusCategory: { key: 'indeterminate' } }),
+      { name: 'Waiting for Customer', categoryKey: 'indeterminate' }
+    );
+  });
+
+  it('keeps custom statuses without a category', () => {
+    assert.deepEqual(toIssueStatus({ name: 'Parked' }), { name: 'Parked', categoryKey: '' });
+  });
+
+  it('returns null when the status or its name is missing', () => {
+    assert.equal(toIssueStatus(undefined), null);
+    assert.equal(toIssueStatus(null), null);
+    assert.equal(toIssueStatus({}), null);
+    assert.equal(toIssueStatus({ name: '   ', statusCategory: { key: 'done' } }), null);
+  });
+});

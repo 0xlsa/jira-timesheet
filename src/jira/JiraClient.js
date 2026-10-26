@@ -49,6 +49,22 @@ export function isWorklogByUser(worklog, user) {
 }
 
 /**
+ * Reduces a Jira issue `status` field to the name and status category key shown in the UI.
+ * Cloud and Data Center / Server both return `{ name, statusCategory: { key } }`, where the
+ * category key is `new`, `indeterminate`, `done`, or (for unmapped statuses) `undefined`.
+ *
+ * @param {object} [status]
+ * @returns {{ name: string, categoryKey: string } | null} Null when the status has no name
+ */
+export function toIssueStatus(status) {
+  const name = typeof status?.name === 'string' ? status.name.trim() : '';
+  if (!name) return null;
+
+  const categoryKey = status.statusCategory?.key;
+  return { name, categoryKey: typeof categoryKey === 'string' ? categoryKey : '' };
+}
+
+/**
  * JiraClient
  * Centralized Jira REST API client for connection verification and API operations.
  *
@@ -707,7 +723,7 @@ export class JiraClient {
     const jql = `worklogAuthor = currentUser() AND worklogDate >= "${jqlStartDate}" AND worklogDate <= "${jqlEndDate}" order by updated desc`;
 
     // 3. Paginate through all matching issues
-    const issues = await this.#searchAllIssues(jql, ['summary', 'worklog']);
+    const issues = await this.#searchAllIssues(jql, ['summary', 'status', 'worklog']);
 
     // 4. Extract and filter worklogs
     const collectedWorklogs = [];
@@ -717,6 +733,7 @@ export class JiraClient {
       const issueKey = issue.key;
       const issueSummary = issue.fields?.summary || 'No summary available';
       const issueId = issue.id;
+      const issueStatus = toIssueStatus(issue.fields?.status);
 
       let rawWorklogs = [];
       const worklogField = issue.fields?.worklog;
@@ -760,6 +777,7 @@ export class JiraClient {
             issueId,
             issueKey,
             issueSummary,
+            issueStatus,
             comment: wl.comment,
             started: wl.started,
             timeSpentSeconds: Number(wl.timeSpentSeconds) || 0,

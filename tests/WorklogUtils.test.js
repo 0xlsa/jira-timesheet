@@ -252,3 +252,19 @@ describe('WorklogUtils - Aggregation & Math Correctness', () => {
   });
 });
 
+describe('WorklogUtils - Issue status', () => {
+  it('passes the issue status through and drops empty statuses', () => {
+    const weekDays = getWeekDays(new Date(2026, 9, 19));
+    const result = aggregateWorklogsByWeek([
+      { id: '1', issueKey: 'A-1', started: '2026-10-19T09:00:00', timeSpentSeconds: 60, issueStatus: { name: 'Done', categoryKey: 'done' } },
+      { id: '2', issueKey: 'A-2', started: '2026-10-19T10:00:00', timeSpentSeconds: 60 },
+      { id: '3', issueKey: 'A-3', started: '2026-10-19T11:00:00', timeSpentSeconds: 60, issueStatus: { name: '' } }
+    ], weekDays);
+
+    const [first, second, third] = result.weekDays[0].worklogs;
+    assert.deepEqual(first.issueStatus, { name: 'Done', categoryKey: 'done' });
+    assert.equal(second.issueStatus, null);
+    assert.equal(third.issueStatus, null);
+    assert.equal(result.weekTotalSeconds, 180);
+  });
+});

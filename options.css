@@ -790,6 +790,59 @@ body {
   text-decoration: underline;
 }
 
+/* Issue key with the Jira issue status underneath. The fixed minimum width keeps
+   summaries aligned across cards; only a longer issue key widens the column. */
+.worklog-issue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  flex-shrink: 0;
+  min-width: 124px;
+}
+
+/* Unboxed status label: colored dot + status name. `width: 0` with `min-width: 100%`
+   stops long names from widening the column; they wrap (max 2 lines) instead. */
+.issue-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 0;
+  min-width: 100%;
+  padding-left: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 15px;
+  color: var(--text-subtle);
+}
+
+.issue-status-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+}
+
+.issue-status-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Status category colors follow Jira: To Do gray, In Progress blue, Done green */
+.status-category-indeterminate .issue-status-dot {
+  background-color: var(--primary);
+}
+
+.status-category-done .issue-status-dot {
+  background-color: var(--success);
+}
+
 .worklog-body {
   display: flex;
   flex-direction: column;
@@ -871,8 +924,14 @@ body {
     gap: 8px 14px;
   }
 
-  .issue-key-badge {
-    grid-column: 1;
+  /* Summary sits on its own row here, so the status can use the width up to the duration badge */
+  .worklog-issue {
+    grid-column: 1 / span 2;
+    min-width: 0;
+  }
+
+  .issue-status {
+    width: auto;
   }
 
   .worklog-body {
