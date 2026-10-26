@@ -1,9 +1,8 @@
 # Support for Timesheet for Jira
 
-**Contact:** `[TO BE DECIDED: support email address]`
-**Support site / issue tracker:** `[TO BE DECIDED: support URL]`
+**Support site / issue tracker:** [GitHub Issues](https://github.com/0xlsa/jira-timesheet/issues)
 
-When you contact support, include your browser and version, your Jira edition (Cloud or Data Center / Server), and the exact error message shown by the extension. **Never send your API token or personal access token.**
+When you open an issue, include your browser and version, your Jira edition (Cloud or Data Center / Server), and the exact error message shown by the extension. Issues are public, so **never include your API token or personal access token.**
 
 ## Getting connected
 

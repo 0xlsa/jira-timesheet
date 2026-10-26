@@ -79,8 +79,8 @@ All 10 Chrome screenshots exist (5 screens × dark and light); swap themes as pr
 | Field | Value |
 | --- | --- |
 | Official URL | `[TO BE DECIDED]`: optional; must be a site verified in Google Search Console |
-| Homepage URL | `[TO BE DECIDED: homepage URL]` |
-| Support URL | `[TO BE DECIDED: support URL]` |
+| Homepage URL | `https://github.com/0xlsa/jira-timesheet` |
+| Support URL | `https://github.com/0xlsa/jira-timesheet/issues` |
 | Mature content | Off |
 
 ## Privacy practices tab
@@ -118,7 +118,9 @@ Certifications to tick (all true for this implementation):
 
 ### Privacy policy URL
 
-`[TO BE DECIDED: public URL hosting ../common/privacy-policy.md]`
+`https://github.com/0xlsa/jira-timesheet/blob/main/docs/store-listing/common/privacy-policy.md`
+
+The policy file in the public repository (`../common/privacy-policy.md`). Check that the page loads, signed out, before submitting.
 
 ## Distribution
 

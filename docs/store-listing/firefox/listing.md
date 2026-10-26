@@ -85,16 +85,16 @@ All 10 Firefox screenshots exist (5 screens × dark and light), 1280×800 PNG. T
 
 | Field | Value |
 | --- | --- |
-| Support email | `[TO BE DECIDED: support email address]` (recommended as a minimum) |
-| Support website | `[TO BE DECIDED: support URL]` |
-| Homepage | `[TO BE DECIDED: homepage URL]` |
+| Support email | Leave empty: support is through GitHub Issues, below. `[TO BE DECIDED: add a support email address?]` |
+| Support website | `https://github.com/0xlsa/jira-timesheet/issues` |
+| Homepage | `https://github.com/0xlsa/jira-timesheet` |
 
 ## Technical details
 
 | Field | Value |
 | --- | --- |
 | License | MIT (`LICENSE` in the repository) |
-| Privacy policy | Paste the full text of `../common/privacy-policy.md`. AMO expects the full text in the listing, even when it's also hosted elsewhere. |
+| Privacy policy | Paste the full text of `../common/privacy-policy.md`. AMO expects the full text in the listing, even though it's also available at `https://github.com/0xlsa/jira-timesheet/blob/main/docs/store-listing/common/privacy-policy.md`. |
 | Source code | Not required: the package contains the original, unminified, unbundled source. |
 | Experimental | No |
 | Release notes | `../common/release-notes.md` |

@@ -197,6 +197,8 @@ If Jira rejects a change, the panel stays open with your input and shows the rea
 
 ## Privacy and security
 
+The [privacy policy](docs/store-listing/common/privacy-policy.md) explains what the extension stores, what it sends to your Jira site, and what it never collects.
+
 - **Where credentials are stored:** the instance URLs, Cloud account email, and tokens are saved with the WebExtensions `storage.local` API in your browser profile. This is **not encrypted secret storage** (such as an OS keychain); anyone with access to your browser profile can read it. On shared computers, use a separate browser profile or operating-system account. Use tokens with only the access you need, and revoke them in Jira or Atlassian when you no longer use the extension.
 - **Where requests go:** all Jira requests are made by `JiraClient`, which checks that every request URL has the same origin as the configured instance URL before adding credentials. The extension contains no analytics or other remote services.
 - **HTTPS only:** the instance URL must use HTTPS.
@@ -358,6 +360,9 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │       └── weeklyWorklogService.js    # Loads a week and applies worklog changes
 ├── icons/                        # Extension icons (16, 32, 48, and 128 px)
 ├── tests/                        # Node test suite (see above)
+├── docs/
+│   ├── store-listing/             # Store listing drafts; common/privacy-policy.md is the privacy policy
+│   └── screenshots/               # Screenshots used in this README and the listings
 ├── package.json                  # Metadata and the test script
 ├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License

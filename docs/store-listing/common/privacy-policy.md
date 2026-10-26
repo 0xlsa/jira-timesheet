@@ -1,8 +1,10 @@
 # Privacy Policy for Timesheet for Jira
 
-**Effective date:** `[TO BE DECIDED: publication date]`
+**Effective date:** `[SET ON PUBLICATION: the date this version is first published, e.g. 2026-11-02]`
+
 **Applies to:** Timesheet for Jira browser extension, version 1.0.0, for Chrome and Firefox
-**Contact:** `[TO BE DECIDED: support email address]`
+
+**Contact:** [GitHub Issues](https://github.com/0xlsa/jira-timesheet/issues)
 
 Timesheet for Jira shows your Jira worklogs as a weekly timesheet and lets you log, edit, and delete worklogs. This policy explains what data the extension handles, where it's kept, and where it's sent.
 
@@ -63,8 +65,8 @@ The extension doesn't read your browsing history or the content of web pages you
 
 ## Changes to this policy
 
-If this policy changes, the new version will be published at `[TO BE DECIDED: privacy policy URL]` with a new effective date.
+If this policy changes, the new version will be published at <https://github.com/0xlsa/jira-timesheet/blob/main/docs/store-listing/common/privacy-policy.md> with a new effective date. Earlier versions are in the [history of this file](https://github.com/0xlsa/jira-timesheet/commits/main/docs/store-listing/common/privacy-policy.md) in the extension's public repository.
 
 ## Contact
 
-Questions about this policy: `[TO BE DECIDED: support email address]`.
+Questions about this policy: open an issue at <https://github.com/0xlsa/jira-timesheet/issues>. Issues are public, so don't include your API token, personal access token, or other private details.
