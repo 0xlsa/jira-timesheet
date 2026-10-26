@@ -762,8 +762,8 @@ body {
 /* Individual Worklog Item */
 .worklog-item {
   /* Columns: issue key + status | summary, comment, metadata | duration + actions.
-     Rows: summary | comment | metadata | spare (absorbs a taller issue column). The body and
-     side wrappers use `display: contents`, so the actions can share the metadata row. */
+     Rows: summary | comment | metadata | spare (absorbs a taller issue or side column).
+     The body wrapper uses `display: contents`, so its parts sit in those rows. */
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto auto auto 1fr;
@@ -852,8 +852,7 @@ body {
   background-color: var(--success);
 }
 
-.worklog-body,
-.worklog-side {
+.worklog-body {
   display: contents;
 }
 
@@ -903,24 +902,21 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Duration level with the summary; log work and edit buttons centered on the metadata row */
-.worklog-duration-badge {
+/* Duration with the log work and edit buttons directly beneath it, in their own column
+   spanning every row, so the summary, comment, and metadata never move them. */
+.worklog-side {
   grid-column: 3;
-  grid-row: 1 / 4;
-  justify-self: end;
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 .worklog-actions {
-  grid-column: 3;
-  grid-row: 3;
-  /* The row also holds the metadata's top margin, so align to its bottom: with the overhang
-     below, the 24px buttons are centered on the 18px metadata line without making the row taller. */
-  align-self: end;
-  justify-self: end;
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-block: -3px;
 }
 
 .worklog-log-btn,
@@ -1009,7 +1005,7 @@ body {
   }
 
   /* Issue key + status and duration on top; summary, comment, and metadata below at full
-     width, with the actions centered on the metadata row. */
+     width, with the actions beneath the duration. */
   .worklog-item {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto;
@@ -1040,18 +1036,13 @@ body {
   }
 
   .worklog-meta-row {
-    grid-column: 1;
+    grid-column: 1 / -1;
     grid-row: 4;
   }
 
-  .worklog-duration-badge {
+  .worklog-side {
     grid-column: 2;
     grid-row: 1;
-  }
-
-  .worklog-actions {
-    grid-column: 2;
-    grid-row: 4;
   }
 }
 
