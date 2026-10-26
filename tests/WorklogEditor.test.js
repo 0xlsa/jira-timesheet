@@ -149,6 +149,7 @@ describe('WorklogEditor session - editing and saving', () => {
 });
 
 describe('WorklogEditor session - unsaved changes', () => {
+
   it('closes immediately when there are no changes', () => {
     const { session } = setup();
     assert.equal(session.requestClose(), true);
@@ -284,17 +285,19 @@ describe('WorklogEditor markup', () => {
     assert.doesNotMatch(renderWorklogItem(item, ''), /worklog-edit-btn/);
   });
 
-  it('orders the right-hand controls as duration, log work, edit, with labels and tooltips', () => {
+  it('orders the right-hand controls as duration, log work, edit, delete, with labels and tooltips', () => {
     const item = { ...worklog, formattedStartTime: '09:39', formattedDuration: '2h', comment: '', author: { displayName: 'Dev' } };
-    const html = renderWorklogItem(item, '', { editable: true, canLogWork: true });
+    const html = renderWorklogItem(item, '', { editable: true, canLogWork: true, deletable: true });
     const side = html.slice(html.indexOf('class="worklog-side"'));
 
-    const order = ['worklog-duration-badge', 'worklog-log-btn', 'worklog-edit-btn'].map((cls) => side.indexOf(`class="${cls}"`));
+    const order = ['worklog-duration-badge', 'worklog-log-btn', 'worklog-edit-btn', 'worklog-delete-btn'].map((cls) => side.indexOf(`class="${cls}"`));
     assert.ok(order.every((i) => i > 0), 'all three controls render');
     assert.deepEqual([...order].sort((a, b) => a - b), order);
 
     assert.match(side, /class="worklog-log-btn" data-worklog-id="10042" aria-label="Log work on EKB-30804" title="Log work"/);
     assert.match(side, /class="worklog-edit-btn"[^>]*title="Edit worklog"/);
+    assert.match(side, /class="worklog-delete-btn" data-worklog-id="10042" aria-label="Delete worklog for EKB-30804, started 09:39" title="Delete worklog"/);
+    assert.doesNotMatch(renderWorklogItem(item, '', { editable: true, canLogWork: true }), /worklog-delete-btn/);
     assert.doesNotMatch(renderWorklogItem(item, '', { editable: true }), /worklog-log-btn/);
   });
 });

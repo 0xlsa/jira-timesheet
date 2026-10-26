@@ -33,6 +33,7 @@ import { createPlatform } from './src/compat/browser-api.js';
 import { escapeHtml } from './src/ui/html.js';
 import { renderWeek } from './src/ui/weekView.js';
 import { openWorklogEditor } from './src/ui/worklogEditor.js';
+import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 
 const platform = createPlatform();
@@ -77,6 +78,7 @@ const retryWorklogFetchBtn = document.getElementById('retryWorklogFetchBtn');
 const emptyWeekBanner = document.getElementById('emptyWeekBanner');
 const daysContainer = document.getElementById('daysContainer');
 const worklogEditorRoot = document.getElementById('worklogEditor');
+const deleteWorklogDialog = document.getElementById('deleteWorklogDialog');
 const appToast = document.getElementById('appToast');
 
 // Settings Form Elements
@@ -118,6 +120,8 @@ let currentBaseUrl = '';
 
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
+// True while the delete worklog confirmation is open.
+let isDeleteDialogOpen = false;
 let toastTimer = null;
 
 // Settings form values kept per Jira edition, so Cloud and Data Center / Server
@@ -244,6 +248,7 @@ function renderDays(aggregatedData, baseUrl = '') {
     },
     onEditWorklog: aggregatedData.sourceWorklogs ? openEditor : undefined,
     onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
+    onDeleteWorklog: aggregatedData.sourceWorklogs ? confirmDeleteWorklog : undefined,
     editingWorklogId: worklogEditor?.worklogId
   });
 }
@@ -331,6 +336,47 @@ function startLogWork(worklogId) {
 }
 
 /**
+ * Deletes a worklog in Jira, then removes it from the displayed week and recalculates the
+ * totals. The week changes only after Jira confirms; a failed request rejects with a
+ * user-facing Error and leaves the week as it was.
+ * @param {object} client
+ * @param {object} worklog - Source worklog
+ */
+async function deleteWorklogAndRefresh(client, worklog) {
+  await deleteWorklog(client, worklog);
+  if (currentAggregatedData?.sourceWorklogs) {
+    showWeek(removeWorklogFromWeek(currentAggregatedData, String(worklog.id)), currentBaseUrl);
+  }
+  showToast('Worklog deleted.');
+}
+
+/**
+ * Asks to confirm deleting a worklog in the displayed week (the card's trash button).
+ * An open editor is closed first, asking about unsaved changes as usual.
+ * @param {string} worklogId
+ */
+function confirmDeleteWorklog(worklogId) {
+  if (isDeleteDialogOpen) return;
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  const worklog = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
+  const client = currentClient;
+  if (!worklog || !client) return;
+
+  isDeleteDialogOpen = true;
+  openDeleteWorklogDialog(deleteWorklogDialog, {
+    worklog,
+    onDelete: () => deleteWorklogAndRefresh(client, worklog),
+    onClose: (reason) => {
+      isDeleteDialogOpen = false;
+      // Back to the trash button, or the selected day once the worklog is gone.
+      ((reason === 'cancelled' && daysContainer.querySelector(`.worklog-delete-btn[data-worklog-id="${CSS.escape(worklogId)}"]`)) ||
+        daysContainer.querySelector('.day-card.is-selected'))?.focus();
+    }
+  });
+}
+
+/**
  * Opens the Edit Worklog panel for a worklog in the displayed week. If another worklog
  * is open with unsaved changes, the user is asked to discard them first.
  * @param {string} worklogId
@@ -361,13 +407,7 @@ function openEditor(worklogId) {
       const stillInWeek = currentAggregatedData.weekDays.some((d) => d.dateKey === getLocalDateKey(movedTo));
       showToast(stillInWeek ? 'Worklog updated.' : `Worklog updated and moved to ${movedTo.toLocaleDateString()}.`);
     },
-    onDelete: async () => {
-      await deleteWorklog(client, worklog);
-      if (currentAggregatedData?.sourceWorklogs) {
-        showWeek(removeWorklogFromWeek(currentAggregatedData, worklogId), currentBaseUrl);
-      }
-      showToast('Worklog deleted.');
-    },
+    onDelete: () => deleteWorklogAndRefresh(client, worklog),
     onClose: () => {
       worklogEditor = null;
       if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);

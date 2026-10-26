@@ -46,9 +46,10 @@ export function renderIssueStatusBadge(status) {
  * @param {object} [options]
  * @param {boolean} [options.editable=false] - Show the edit (pencil) button
  * @param {boolean} [options.canLogWork=false] - Show the log work (plus) button for the worklog's issue
+ * @param {boolean} [options.deletable=false] - Show the delete (trash) button
  * @returns {string}
  */
-export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = false } = {}) {
+export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = false, deletable = false } = {}) {
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(wl.issueKey)}` : '#';
 
   return `
@@ -81,7 +82,7 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
     </div>
     <div class="worklog-side">
       <span class="worklog-duration-badge">${escapeHtml(wl.formattedDuration)}</span>
-      ${canLogWork || editable ? `
+      ${canLogWork || editable || deletable ? `
       <div class="worklog-actions">
         ${canLogWork ? `
         <button type="button" class="worklog-log-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Log work on ${escapeHtml(wl.issueKey)}" title="Log work">
@@ -95,6 +96,16 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 20h9"/>
             <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </button>` : ''}
+        ${deletable ? `
+        <button type="button" class="worklog-delete-btn" data-worklog-id="${escapeHtml(String(wl.id))}" aria-label="Delete worklog for ${escapeHtml(wl.issueKey)}, started ${escapeHtml(wl.formattedStartTime)}" title="Delete worklog">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+            <path d="M10 11v6"/>
+            <path d="M14 11v6"/>
+            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
           </svg>
         </button>` : ''}
       </div>` : ''}
@@ -114,9 +125,10 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
  * @param {(dateKey: string) => void} options.onSelectDay - Called when a weekday card is clicked
  * @param {(worklogId: string) => void} [options.onEditWorklog] - Called when a worklog's edit button is clicked; no edit buttons without it
  * @param {(worklogId: string) => void} [options.onLogWork] - Called when a worklog's log work button is clicked; no log work buttons without it
+ * @param {(worklogId: string) => void} [options.onDeleteWorklog] - Called when a worklog's delete button is clicked; no delete buttons without it
  * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onEditWorklog, onLogWork, editingWorklogId }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId }) {
   container.innerHTML = '';
 
   const weekDays = week.weekDays || [];
@@ -186,17 +198,20 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
       itemEl.className = `worklog-item ${editingWorklogId && String(wl.id) === editingWorklogId ? 'is-editing' : ''}`;
       itemEl.innerHTML = renderWorklogItem(wl, baseUrl, {
         editable: Boolean(onEditWorklog) && isEditableWorklog(wl),
-        canLogWork: Boolean(onLogWork) && Boolean(wl.issueId || wl.issueKey)
+        canLogWork: Boolean(onLogWork) && Boolean(wl.issueId || wl.issueKey),
+        deletable: Boolean(onDeleteWorklog) && isEditableWorklog(wl)
       });
       listEl.appendChild(itemEl);
     });
 
-    if (onEditWorklog || onLogWork) {
+    if (onEditWorklog || onLogWork || onDeleteWorklog) {
       listEl.addEventListener('click', (event) => {
         const editBtn = event.target.closest('.worklog-edit-btn');
         if (editBtn) onEditWorklog?.(editBtn.dataset.worklogId);
         const logBtn = event.target.closest('.worklog-log-btn');
         if (logBtn) onLogWork?.(logBtn.dataset.worklogId);
+        const deleteBtn = event.target.closest('.worklog-delete-btn');
+        if (deleteBtn) onDeleteWorklog?.(deleteBtn.dataset.worklogId);
       });
     }
 
