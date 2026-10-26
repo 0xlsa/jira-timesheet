@@ -281,7 +281,8 @@ export function aggregateWorklogsByWeek(rawWorklogs = [], weekDays = []) {
         started: startDate,
         formattedStartTime: startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         timeSpentSeconds: durationSeconds,
-        formattedDuration: formatDuration(durationSeconds, { zeroLabel: '0m' }),
+        // Same "0h 00m" shape as the day and week totals, so badges read consistently.
+        formattedDuration: formatDuration(durationSeconds, { padZeroMinutes: true, alwaysShowHours: true }),
         author: {
           displayName: worklog.author?.displayName || 'Unknown Author',
           name: worklog.author?.name || '',

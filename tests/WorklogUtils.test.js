@@ -268,3 +268,20 @@ describe('WorklogUtils - Issue status', () => {
     assert.equal(result.weekTotalSeconds, 180);
   });
 });
+
+describe('WorklogUtils - Worklog duration badge', () => {
+  it('always shows hours and two-digit minutes', () => {
+    const weekDays = getWeekDays(new Date(2026, 9, 19));
+    const durations = [3600, 2700, 5400, 300, 45900, 0];
+    const result = aggregateWorklogsByWeek(
+      durations.map((seconds, i) => ({ id: String(i), issueKey: 'A-1', started: `2026-10-19T0${i}:00:00`, timeSpentSeconds: seconds })),
+      weekDays
+    );
+
+    assert.deepEqual(
+      result.weekDays[0].worklogs.map((wl) => wl.formattedDuration),
+      ['1h 00m', '0h 45m', '1h 30m', '0h 05m', '12h 45m', '0h 00m']
+    );
+  });
+});
+
