@@ -78,8 +78,10 @@ Recommended 1280×800 (1.6:1); no count limit. Proposed Firefox set, in this ord
 3. `docs/screenshots/firefox/worklog-log-work-light.png`: logging work
 4. `docs/screenshots/firefox/worklog-edit-dark.png`: editing a worklog
 5. `docs/screenshots/firefox/worklog-delete-confirm-light.png`: delete confirmation
+6. `docs/screenshots/firefox/connection-settings-cloud-dark.png`: connection settings for Jira Cloud, in the dark theme
+7. `docs/screenshots/firefox/connection-settings-data-center-light.png`: connection settings for Jira Data Center / Server
 
-All 10 Firefox screenshots exist (5 screens × dark and light), 1280×800 PNG. They show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`.
+All 14 Firefox screenshots exist (7 screens × dark and light), 1280×800 PNG. They show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`, except the connection settings screenshots, whose fields are blank.
 
 ## Support information
 

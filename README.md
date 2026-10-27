@@ -36,6 +36,14 @@ Change an existing worklog's date, start time, duration, or work description wit
 
 ![Timesheet for Jira: editing a worklog](docs/screenshots/chrome/worklog-edit-light.png)
 
+### Connection settings
+
+Connect to Jira Cloud with your Atlassian account email and an API token, or to Jira Data Center / Server with a personal access token. Test the connection before you save.
+
+![Timesheet for Jira: connection settings for Jira Cloud](docs/screenshots/chrome/connection-settings-cloud-light.png)
+
+![Timesheet for Jira: connection settings for Jira Data Center / Server](docs/screenshots/chrome/connection-settings-data-center-light.png)
+
 These screenshots were taken in Chrome; the extension looks and works the same in Firefox. It has light and dark themes. Dark-theme screenshots, Firefox screenshots, and the Log work and delete screens are in [`docs/screenshots/`](docs/screenshots/).
 
 ## Features

@@ -72,7 +72,7 @@ English (United States)
 4. `docs/screenshots/chrome/worklog-edit-dark.png`: editing a worklog
 5. `docs/screenshots/chrome/worklog-delete-confirm-light.png`: delete confirmation
 
-All 10 Chrome screenshots exist (5 screens × dark and light); swap themes as preferred. They show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots.
+All 14 Chrome screenshots exist (7 screens × dark and light); swap themes or screens as preferred. The connection settings screenshots (`connection-settings-cloud-*.png` and `connection-settings-data-center-*.png`) are not in the proposed set and have blank fields. The others show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots.
 
 ### Additional fields
 
