@@ -15,6 +15,9 @@ const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric'
 });
 
+// The add button's accessible label ("26 October").
+const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' });
+
 // Jira status category keys with a dedicated badge color; anything else (custom or `undefined`) is neutral.
 const STATUS_CATEGORY_CLASSES = {
   new: 'status-category-new',
@@ -112,12 +115,14 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
  * @param {string} options.selectedDateKey - Selected day; falls back to Monday when not in this week
  * @param {string} [options.baseUrl] - Jira instance URL used for issue links
  * @param {(dateKey: string) => void} options.onSelectDay - Called when a weekday card is clicked
+ * @param {(dateKey: string) => void} [options.onAddWorklog] - Called with the selected day when its panel's add
+ *   button is clicked; no add button without it
  * @param {(worklogId: string) => void} [options.onEditWorklog] - Called when a worklog's edit button is clicked; no edit buttons without it
  * @param {(worklogId: string) => void} [options.onLogWork] - Called when a worklog's log work button is clicked; no log work buttons without it
  * @param {(worklogId: string) => void} [options.onDeleteWorklog] - Called when a worklog's delete button is clicked; no delete buttons without it
  * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -168,12 +173,23 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
   panel.setAttribute('role', 'tabpanel');
 
   const countLabel = `${selectedDay.worklogCount} ${selectedDay.worklogCount === 1 ? 'worklog' : 'worklogs'}`;
+  const addButton = onAddWorklog && h('button', {
+    type: 'button', class: 'day-add-btn', 'data-date-key': selectedDay.dateKey, title: 'Add worklog',
+    'aria-label': `Add worklog for ${selectedDay.dayName}, ${DAY_LABEL_FORMAT.format(selectedDay.date)}`
+  },
+  buttonIcon(
+    svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+    svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' })));
+  addButton?.addEventListener('click', () => onAddWorklog(selectedDay.dateKey));
+
   panel.append(
     h('div', { class: 'day-panel-header' },
       h('div', {},
         h('h3', { class: 'day-panel-title' }, `${selectedDay.dayName}, ${LONG_DATE_FORMAT.format(selectedDay.date)}`),
         h('span', { class: 'day-panel-meta' }, `${countLabel} \u2022 ${selectedDay.formattedTotal} total`)),
-      h('span', { class: `day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}` }, selectedDay.formattedTotal))
+      h('div', { class: 'day-panel-side' },
+        h('span', { class: `day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}` }, selectedDay.formattedTotal),
+        addButton))
   );
 
   if (selectedDay.worklogs.length > 0) {

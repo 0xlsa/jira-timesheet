@@ -74,6 +74,7 @@ These screenshots were taken in Chrome; the extension looks and works the same i
 
 **Logging work**
 - **+** on a worklog card opens a **Log work** form for that card's issue.
+- The circular **+** beside the selected day's total opens the same form on that day, where you find the issue by its key (such as `ABC-123`); matching issues are suggested as you type.
 - The date defaults to the selected day and the start time to the current time. While the form is open, selecting another day in the calendar moves the date to that day, and entering a date in the displayed week selects that day.
 - 15m, 30m, and 1h buttons fill in the duration; **Custom** moves to the hours field. The work description is optional.
 
@@ -189,11 +190,13 @@ Nothing is deleted until you confirm. While the request runs, the buttons are di
 
 ### Logging work
 
-1. Click **+** on a worklog card. The **Log work** panel opens for that card's issue.
+1. Click **+** on a worklog card. The **Log work** panel opens for that card's issue. Or select a day and click the circular **+** beside its total, then, in **Issue**, type the issue key with at least one digit of its number (such as `ABC-1`) and choose the issue with the mouse, or with the arrow keys and **Enter**.
 2. Check the date and start time, then enter a duration (or click 15m, 30m, or 1h).
 3. Optionally, describe the work, then click **Log work**.
 
 The new worklog appears on its day, and the timesheet switches to that day if it's in the displayed week.
+
+The issue search finds issues by key only, not by summary. For `ABC-3` it asks Jira for ABC-3 and the ten keys one digit longer (ABC-30 to ABC-39), at most 10 issues with only their summary and status, and lists the exact key first. Only the typed key, or the typed key followed by more digits, is ever suggested: `ABC-30864` never suggests ABC-3086. If the typed key isn't among the results, it's looked up directly, which also finds an issue that moved to another key. Typing pauses for 300 ms before a search, earlier answers are reused, and a search that a newer one replaces is cancelled. **Enter** picks the highlighted issue, or else the one whose key is exactly what you typed.
 
 ### Panel layout and keyboard
 
@@ -273,9 +276,11 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `JiraClientWorklogWrite.test.js` | Creating, updating, and deleting worklogs on both editions: request paths and bodies, ADF comments on Cloud, validation before sending, the non-browser User-Agent on writes, and error messages (including XSRF rejections and plain-text error bodies) |
 | `WorklogUtils.test.js` | Monday-based weeks and month boundaries, date keys, week range labels, duration formatting, comment parsing (plain text and ADF), aggregation and deduplication, issue status pass-through |
 | `WorklogEdit.test.js` | Edit and Log work form values in local time, ADF comment conversion, Jira date/time format and UTC offsets, validation (including daylight-saving gaps), and which fields count as changed |
-| `WorklogEditor.test.js` | The editor session (save, validation, errors, duplicate submits, unsaved changes, delete confirmation, Log work mode), the panel markup, and the card's action buttons |
+| `WorklogEditor.test.js` | The editor session (save, validation, errors, duplicate submits, unsaved changes, delete confirmation, Log work mode), the panel markup, the card's action buttons, and logging work from a day: choosing the issue in the panel, then saving it on that day |
+| `IssueKeySearch.test.js` | Which input is searched (any project prefix, a digit after the hyphen), the JQL, exact-key-first ordering with keys that are prefixes of each other (EKB-308, EKB-3086, EKB-30864; KAN-1, KAN-10) against a fake Jira that behaves like Cloud and like Data Center, and each edition's endpoint, 10-result limit, fields, exact-key lookup, errors, and cancellation |
+| `IssuePicker.test.js` | The issue search's 300 ms debounce, cancelled and ignored stale searches, reused answers, the 10-suggestion limit, empty and failed searches, and the field's keyboard and mouse use, including **Enter** picking the exact key |
 | `DeleteWorklogDialog.test.js` | The delete confirmation: the details shown (local date, start time, duration), success, failures that keep the error, ignoring a second click while deleting, and escaping |
-| `WeekView.test.js` | Issue status labels and their theme colors |
+| `WeekView.test.js` | Issue status labels and their theme colors; the original weekday cards and selected-day panel; the selected day's circular add button, its label, and its date across weeks; a new worklog appearing on its day with the updated totals |
 | `SafeRendering.test.js` | Jira text containing markup (such as `<img src=x onerror=alert(1)>`) shown as text in worklog cards, the weekly view, the edit and Log work panel, the delete confirmation, and connection status messages; the DOM helpers refusing event handler attributes; the weekly view's day and edit buttons |
 | `WeeklyWorklogService.test.js` | Week ranges across a daylight-saving change, loading a week, and recalculating day and week totals after creating, editing, or deleting a worklog |
 | `WeeklyWorklogIntegration.test.js` | Total invariants, chronological order within days, week navigation boundaries, and day selection not changing totals |
@@ -316,7 +321,7 @@ graph TD
 - **Auth providers (`src/auth/`):** `JiraAuthProvider` defines the contract (`getAuthHeaders`, `getIdentityEndpoint`, `getDeploymentType`, `validate`). `JiraCloudTokenProvider` implements Basic authentication with an email and API token, and `JiraPatProvider` implements Bearer authentication with a PAT.
 - **Jira client (`src/jira/JiraClient.js`):** all Jira REST calls, with a 15-second timeout and the origin check. `createJiraClient.js` validates the instance URL and picks the auth provider for the edition.
 - **Worklog logic (`src/worklog/`):** `worklogUtils.js` has pure functions for weeks, local-time grouping, duration formatting, and aggregation. `worklogEdit.js` converts between worklogs and the edit form, validates input, and formats Jira dates and ADF comments. `weeklyWorklogService.js` loads a week and applies created, edited, or deleted worklogs to it.
-- **UI (`src/ui/`):** `weekView.js` renders the weekday cards and the selected day's worklogs. `worklogEditor.js` holds the Edit worklog / Log work panel: an editing session with no DOM dependency, plus the markup and DOM wiring. `deleteWorklogDialog.js` is the delete confirmation, a native `<dialog>` with the same split.
+- **UI (`src/ui/`):** `weekView.js` renders the weekday cards and the selected day's worklogs. `worklogEditor.js` holds the Edit worklog / Log work panel: an editing session with no DOM dependency, plus the markup and DOM wiring. `issuePicker.js` is the panel's issue field, with the same split: a suggester that decides when to search (debounce, cancellation, reused answers), plus the combobox markup and wiring. `deleteWorklogDialog.js` is the delete confirmation, a native `<dialog>` with the same split.
 - **Settings (`src/settings/settingsStore.js`):** owns the storage keys, per-edition URLs and tokens, and the last connection test result. It takes the storage area as a parameter (`storage.local` in the extension, in-memory in tests).
 - **Platform (`src/compat/browser-api.js`):** one implementation for Chrome and Firefox, with an in-memory storage and `window.open` fallback when the page runs outside an extension. Its `hostAccess` checks, requests, and removes access to Jira sites through the `permissions` API.
 
@@ -327,6 +332,8 @@ graph TD
 | Current user | `GET /rest/api/3/myself` (falls back to `/rest/api/2/myself` on 404) | `GET /rest/api/2/myself` |
 | Jira version (Test Connection only) | — | `GET /rest/api/2/serverInfo` |
 | Find the week's worklogs | `GET /rest/api/3/search/jql`, paged with `nextPageToken` | `GET /rest/api/2/search`, paged with `startAt` |
+| Suggest issues for a typed key | `GET /rest/api/3/search/jql` with `maxResults=10&fields=summary,status` | `GET /rest/api/2/search` with `validateQuery=warn&maxResults=10&fields=summary,status` |
+| Look up the exact typed key (when it isn't among the suggestions) | `GET /rest/api/3/issue/{key}?fields=summary,status` | `GET /rest/api/2/issue/{key}?fields=summary,status` |
 | All worklogs of an issue (when it has more than 20) | `GET /rest/api/3/issue/{issue}/worklog` | `GET /rest/api/2/issue/{issue}/worklog` |
 | Log work | `POST /rest/api/3/issue/{issue}/worklog` | `POST /rest/api/2/issue/{issue}/worklog` |
 | Edit a worklog | `PUT /rest/api/3/issue/{issue}/worklog/{id}` | `PUT /rest/api/2/issue/{issue}/worklog/{id}` |
@@ -351,6 +358,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/
 │   │   ├── JiraClient.js              # Jira REST client
+│   │   ├── issueKeySearch.js          # Partial issue keys: JQL and matching
 │   │   └── createJiraClient.js        # Builds a client from connection settings
 │   ├── settings/
 │   │   └── settingsStore.js           # Settings and credential persistence
@@ -359,6 +367,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── connectionStatus.js        # Connection status messages on the settings page
 │   │   ├── weekView.js                # Weekday cards and worklog cards
 │   │   ├── worklogEditor.js           # Edit worklog / Log work panel
+│   │   ├── issuePicker.js             # Issue field with key autocomplete
 │   │   └── deleteWorklogDialog.js     # Delete worklog confirmation
 │   ├── validation/
 │   │   └── JiraUrlValidator.js        # URL validation and origin checks
@@ -379,7 +388,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 
 ## Known limitations
 
-- **Logging work starts from an existing worklog.** **+** is on worklog cards, so you can only log work on an issue that already has one of your worklogs in the displayed week. There's no issue search.
+- **Issue search is by key only.** The Log work panel finds issues by key (such as `ABC-12`), not by words in their summary, and only after a digit of the number is typed. Each search covers the typed key and keys one digit longer; type more digits to reach longer keys.
 - **Firefox and Jira's XSRF check.** Jira rejects a `POST` that has a browser User-Agent unless its `Origin` is the Jira site itself, and Firefox's extension requests don't pass that check, so logging work failed in Firefox with a 403. Creating, editing, and deleting worklogs therefore send `User-Agent: Timesheet-for-Jira`, Atlassian's documented workaround (Firefox honors it; Chrome ignores it and doesn't need it). Search uses GET for the same reason. If a proxy or a future Jira change still rejects a request, the panel shows Jira's reason, for example "XSRF check failed".
 - **Remaining estimate.** When you log, edit, or delete work, Jira adjusts the issue's remaining estimate automatically (Jira's default), as it does in Jira itself.
 - **Comment formatting.** Worklog cards show comments as plain text. Editing a Jira Cloud comment with formatting saves it as plain text; the panel warns you first.

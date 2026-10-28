@@ -1,9 +1,10 @@
 /**
  * A minimal DOM for tests that build UI with src/ui/dom.js. Node has no DOM and the
  * project has no dependencies, so this covers just what the UI modules use: elements,
- * SVG elements, fragments, text, attributes, dataset, classList, textContent, simple
- * selectors (tag, #id, .class, [attr], [attr="value"], compounded; no combinators), and
- * events that bubble. There is no HTML parser, so text can never turn into elements.
+ * SVG elements, fragments, text, attributes, dataset, classList, textContent, form field
+ * values, focus, simple selectors (tag, #id, .class, [attr], [attr="value"], compounded,
+ * and comma-separated lists; no combinators), and events that bubble (with preventDefault()
+ * and stopPropagation()). There is no HTML parser, so text can never turn into elements.
  *
  * toHtml() serializes nodes the way a browser does, escaping text and attribute values.
  */
@@ -124,10 +125,28 @@ class FakeElement extends FakeNode {
   set title(value) { this.setAttribute('title', value); }
   get type() { return this.getAttribute('type') ?? ''; }
   set type(value) { this.setAttribute('type', value); }
+  get name() { return this.getAttribute('name') ?? ''; }
+  set name(value) { this.setAttribute('name', value); }
 
   get children() {
     return this.childNodes.filter((child) => child instanceof FakeElement);
   }
+
+  /** Form field value: starts from the `value` attribute (or a textarea's text), then set by the user. */
+  get value() {
+    if (this._value !== undefined) return this._value;
+    return this.localName === 'textarea' ? this.textContent : (this.getAttribute('value') ?? '');
+  }
+
+  set value(value) {
+    this._value = String(value);
+  }
+
+  focus() {
+    this.ownerDocument.activeElement = this;
+  }
+
+  select() {}
 
   get dataset() {
     const toAttribute = (key) => `data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
@@ -157,6 +176,7 @@ class FakeElement extends FakeNode {
   }
 
   matches(selector) {
+    if (selector.includes(',')) return selector.split(',').some((part) => this.matches(part.trim()));
     const parts = selector.match(/^([a-z][\w-]*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="[^"]*")?\])*)$/i);
     if (!parts) throw new Error(`fakeDom: unsupported selector "${selector}"`);
     const [, tag, rest] = parts;
@@ -184,13 +204,23 @@ class FakeElement extends FakeNode {
     (this.listeners[type] ??= []).push(listener);
   }
 
-  /** Dispatches `event` on this element and bubbles it up, like a real click. */
+  /**
+   * Dispatches `event` on this element and bubbles it up, like a real click.
+   * @returns {boolean} False when a listener called preventDefault()
+   */
   dispatchEvent(event) {
-    const bubbling = { target: this, ...event };
-    for (let el = this; el instanceof FakeElement; el = el.parentNode) {
+    let stopped = false;
+    const bubbling = {
+      target: this,
+      defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { stopped = true; },
+      ...event
+    };
+    for (let el = this; el instanceof FakeElement && !stopped; el = el.parentNode) {
       for (const listener of el.listeners[event.type] ?? []) listener(bubbling);
     }
-    return true;
+    return !bubbling.defaultPrevented;
   }
 
   click() {
@@ -199,6 +229,11 @@ class FakeElement extends FakeNode {
 }
 
 class FakeDocument {
+  constructor() {
+    this.documentElement = this.createElement('html');
+    this.activeElement = null;
+  }
+
   createElement(tagName) {
     return new FakeElement(this, tagName.toLowerCase(), 'http://www.w3.org/1999/xhtml');
   }

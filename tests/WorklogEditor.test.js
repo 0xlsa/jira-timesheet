@@ -1,9 +1,11 @@
 process.env.TZ = 'Europe/London';
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { installFakeDocument, toHtml } from './support/fakeDom.js';
-import { createWorklogEditorSession, renderWorklogEditor } from '../src/ui/worklogEditor.js';
+import { createWorklogEditorSession, renderWorklogEditor, openWorklogEditor } from '../src/ui/worklogEditor.js';
+import { ISSUE_SEARCH_DEBOUNCE_MS } from '../src/ui/issuePicker.js';
+import { h } from '../src/ui/dom.js';
 import { renderWorklogItem } from '../src/ui/weekView.js';
 import { toNewWorklogForm } from '../src/worklog/worklogEdit.js';
 
@@ -440,5 +442,177 @@ describe('WorklogEditor markup - logging new work', () => {
 
   it('keeps quick durations out of the edit panel', () => {
     assert.doesNotMatch(toHtml(renderWorklogEditor(worklog, setup().session.initialForm, '')), /duration-preset/);
+  });
+});
+
+describe('WorklogEditor - logging work from a day (issue picked in the panel)', () => {
+  const pickedIssue = { issueId: '305', issueKey: 'KAN-305', issueSummary: 'Update documentation', issueStatus: null };
+  const dayForm = () => toNewWorklogForm({ dateKey: '2026-10-27', now: new Date(2026, 9, 28, 14, 7) });
+
+  it('starts on the given day with no issue, and needs one before saving', async () => {
+    const saved = [];
+    const session = createWorklogEditorSession(null, {
+      mode: 'create', initialForm: dayForm(), onSave: async (values, issue) => { saved.push({ values, issue }); }
+    });
+    assert.equal(session.pickIssue, true);
+    assert.equal(session.state.form.date, '2026-10-27');
+    assert.equal(session.state.issue, null);
+
+    session.setField('hours', '1');
+    assert.deepEqual(await session.save(), { status: 'invalid' });
+    assert.equal(session.state.errors.issue, 'Choose the issue to log work on.');
+    assert.equal(saved.length, 0);
+
+    session.setIssue(pickedIssue);
+    assert.equal(session.state.errors.issue, undefined);
+    assert.deepEqual(await session.save(), { status: 'saved' });
+    assert.equal(saved[0].issue, pickedIssue);
+    assert.equal(saved[0].values.started.getTime(), new Date(2026, 9, 27, 14, 7).getTime());
+    assert.equal(saved[0].values.timeSpentSeconds, 3600);
+  });
+
+  it('counts a chosen issue as an unsaved change', () => {
+    const session = createWorklogEditorSession(null, { mode: 'create', initialForm: dayForm(), onSave: async () => {} });
+    assert.equal(session.isDirty, false);
+    session.setIssue(pickedIssue);
+    assert.equal(session.isDirty, true);
+    assert.equal(session.requestClose(), false);
+  });
+
+  it('keeps the issue fixed when one was given', () => {
+    const session = createWorklogEditorSession(pickedIssue, { mode: 'create', initialForm: dayForm(), onSave: async () => {} });
+    session.setIssue(null);
+    assert.equal(session.pickIssue, false);
+    assert.equal(session.state.issue, pickedIssue);
+  });
+
+  describe('panel', () => {
+    let restoreDocument;
+    beforeEach(() => {
+      restoreDocument = installFakeDocument();
+      mock.timers.enable({ apis: ['setTimeout'] });
+    });
+    afterEach(() => {
+      mock.timers.reset();
+      restoreDocument();
+    });
+
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+    it('renders the existing Log work form with an issue field first and the day preselected', () => {
+      const html = toHtml(renderWorklogEditor(null, dayForm(), '', { mode: 'create' }));
+
+      assert.match(html, /id="worklogEditorTitle">Log work</);
+      assert.match(html, /<fieldset class="editor-fields"><div class="form-group issue-picker"/);
+      assert.match(html, /role="combobox"/);
+      assert.match(html, /name="date" value="2026-10-27"/);
+      assert.doesNotMatch(html, /class="editor-issue"/);
+      const fieldNames = [...html.matchAll(/<(?:input|textarea)[^>]*name="([^"]+)"/g)].map((m) => m[1]);
+      assert.deepEqual(fieldNames, ['date', 'time', 'hours', 'minutes', 'comment']);
+    });
+
+    it('finds the issue by key, then logs the work on the chosen day through the same save', async () => {
+      const root = h('aside', { class: 'worklog-editor hidden' });
+      const searches = [];
+      const saved = [];
+      const closed = [];
+
+      openWorklogEditor(root, {
+        mode: 'create',
+        worklog: null,
+        baseUrl: 'https://acme.atlassian.net',
+        initialForm: dayForm(),
+        searchIssues: async (query, options) => {
+          searches.push({ query, maxResults: options.maxResults });
+          return [{ ...pickedIssue, issueKey: 'KAN-3' }, pickedIssue];
+        },
+        onSave: async (values, issue) => { saved.push({ values, issue }); },
+        onClose: (reason) => closed.push(reason)
+      });
+
+      const search = root.querySelector('#worklogIssueSearch');
+      assert.equal(root.classList.contains('hidden'), false);
+      assert.equal(document.activeElement, search, 'the issue field has focus');
+      assert.equal(root.querySelector('#worklogEditDate').value, '2026-10-27');
+
+      // Submitting without an issue shows the error on the issue field.
+      root.querySelector('.editor-form').dispatchEvent({ type: 'submit' });
+      await flush();
+      assert.equal(root.querySelector('[data-error-for="issue"]').textContent, 'Choose the issue to log work on.');
+      assert.equal(search.getAttribute('aria-invalid'), 'true');
+      assert.equal(saved.length, 0);
+
+      search.value = 'KAN-30';
+      search.dispatchEvent({ type: 'input' });
+      mock.timers.tick(ISSUE_SEARCH_DEBOUNCE_MS);
+      await flush();
+      assert.deepEqual(searches, [{ query: 'KAN-30', maxResults: 10 }]);
+
+      root.querySelectorAll('[role="option"]')[1].click();
+      assert.equal(search.getAttribute('aria-invalid'), 'false');
+      assert.equal(root.querySelector('[data-error-for="issue"]').textContent, '');
+      assert.equal(root.querySelector('.issue-picker-selected').querySelector('.editor-issue-summary').textContent, 'Update documentation');
+
+      const hours = root.querySelector('#worklogEditHours');
+      hours.value = '2';
+      hours.dispatchEvent({ type: 'input' });
+      root.querySelector('.editor-form').dispatchEvent({ type: 'submit' });
+      await flush();
+
+      assert.equal(saved.length, 1);
+      assert.deepEqual(saved[0].issue, pickedIssue);
+      assert.equal(saved[0].values.started.getTime(), new Date(2026, 9, 27, 14, 7).getTime());
+      assert.equal(saved[0].values.timeSpentSeconds, 7200);
+      assert.deepEqual(closed, ['saved']);
+    });
+  });
+});
+
+describe('WorklogEditor panel - closing', () => {
+  let restoreDocument;
+  beforeEach(() => {
+    restoreDocument = installFakeDocument();
+  });
+  afterEach(() => restoreDocument());
+
+  const issue = { issueId: '100', issueKey: 'EKB-30804', issueSummary: 'Summary', issueStatus: null };
+  const open = (options) => {
+    const root = h('aside', { class: 'worklog-editor hidden' });
+    const closed = [];
+    openWorklogEditor(root, { baseUrl: '', onSave: async () => {}, onClose: (reason) => closed.push(reason), ...options });
+    return { root, closed };
+  };
+  const panels = {
+    'editing a worklog': () => open({ worklog }),
+    'logging work from a card': () => open({ mode: 'create', worklog: issue, initialForm: toNewWorklogForm({ dateKey: '2026-10-21' }) }),
+    'logging work from a day': () => open({ mode: 'create', worklog: null, initialForm: toNewWorklogForm({ dateKey: '2026-10-21' }) })
+  };
+
+  for (const [name, openPanel] of Object.entries(panels)) {
+    it(`closes with Cancel, the close button, and Escape when ${name}`, () => {
+      for (const close of [
+        (root) => root.querySelector('[data-action="cancel"]').click(),
+        (root) => root.querySelector('[data-action="close"]').click(),
+        (root) => root.querySelector('.editor-form').dispatchEvent({ type: 'keydown', key: 'Escape' })
+      ]) {
+        const { root, closed } = openPanel();
+        close(root);
+        assert.deepEqual(closed, ['closed']);
+        assert.equal(root.classList.contains('hidden'), true);
+        assert.equal(document.documentElement.classList.contains('has-worklog-editor'), false);
+      }
+    });
+  }
+
+  it('closes after discarding unsaved changes', () => {
+    const { root, closed } = panels['editing a worklog']();
+    const hours = root.querySelector('#worklogEditHours');
+    hours.value = '5';
+    hours.dispatchEvent({ type: 'input' });
+
+    root.querySelector('[data-action="cancel"]').click();
+    assert.deepEqual(closed, []);
+    root.querySelector('[data-action="discard"]').click();
+    assert.deepEqual(closed, ['closed']);
   });
 });

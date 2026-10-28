@@ -753,6 +753,46 @@ body {
   color: var(--success);
 }
 
+/* Day total with the add worklog button beside it */
+.day-panel-side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Circular add worklog button in the selected day's heading */
+.day-add-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 50%;
+  color: var(--text-subtle);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.day-add-btn:hover {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.day-add-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.day-add-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
 .worklog-list {
   display: flex;
   flex-direction: column;
@@ -1174,6 +1214,77 @@ body {
   line-height: 1.4;
   color: var(--text-main);
   overflow-wrap: anywhere;
+}
+
+/* Issue picker (Log work from a day's add button) */
+.issue-picker-field {
+  position: relative;
+}
+
+.issue-picker-input {
+  text-transform: uppercase;
+}
+
+.issue-picker-input::placeholder {
+  text-transform: none;
+}
+
+.issue-picker-options {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+  list-style: none;
+  padding: 4px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.issue-picker-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.issue-picker-option:hover,
+.issue-picker-option.is-active {
+  background-color: var(--bg-hover);
+}
+
+.issue-picker-option.is-active {
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+
+.issue-picker-option-key {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.issue-picker-option-summary {
+  font-size: 12px;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-picker-status.is-error {
+  color: var(--danger);
+}
+
+.issue-picker-selected:not(:empty) {
+  margin-top: 10px;
 }
 
 .editor-note {

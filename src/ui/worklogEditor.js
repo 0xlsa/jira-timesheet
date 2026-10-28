@@ -1,6 +1,6 @@
 /**
- * Worklog panel, used to edit an existing worklog ('edit' mode) or log new work on an
- * issue ('create' mode).
+ * Worklog panel, used to edit an existing worklog ('edit' mode) or log new work ('create'
+ * mode), either on a given issue or on one the user picks in the panel.
  *
  * - createWorklogEditorSession(): editing state (form values, validation, unsaved-changes and
  *   delete confirmations, busy state). No DOM; saving and deleting are injected callbacks.
@@ -10,6 +10,7 @@
 
 import { h, svg } from './dom.js';
 import { renderIssueStatusBadge } from './weekView.js';
+import { renderIssuePicker, attachIssuePicker } from './issuePicker.js';
 import {
   MAX_DURATION_HOURS,
   toEditForm,
@@ -28,23 +29,36 @@ const DURATION_PRESETS = [
 ];
 
 /**
+ * Returns true when logging new work needs the user to pick the issue (none was given).
+ * @param {object | null | undefined} worklog
+ * @param {'edit' | 'create'} mode
+ * @returns {boolean}
+ */
+function needsIssuePick(worklog, mode) {
+  return mode === 'create' && !worklog?.issueKey;
+}
+
+/**
  * Creates the editing state for one worklog, or for new work on an issue.
  *
- * @param {object} worklog - Edit: source worklog (raw `started` and `comment` as Jira returned them).
- *   Create: the issue (`issueId`, `issueKey`, `issueSummary`, `issueStatus`).
+ * @param {object | null} worklog - Edit: source worklog (raw `started` and `comment` as Jira returned them).
+ *   Create: the issue (`issueId`, `issueKey`, `issueSummary`, `issueStatus`), or null to pick one in the panel.
  * @param {object} options
- * @param {(values: object) => Promise<void>} options.onSave - Edit: saves changed fields. Create: logs
- *   the new worklog from buildNewWorklog(). Rejects with a user-facing Error.
+ * @param {(values: object, issue: object) => Promise<void>} options.onSave - Edit: saves changed fields.
+ *   Create: logs the new worklog from buildNewWorklog() on `issue`. Rejects with a user-facing Error.
  * @param {() => Promise<void>} [options.onDelete] - Deletes the worklog (edit only); rejects with a user-facing Error
  * @param {'edit' | 'create'} [options.mode='edit']
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  */
 export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = 'edit', initialForm: newForm }) {
   const isCreate = mode === 'create';
+  const pickIssue = needsIssuePick(worklog, mode);
   const initialForm = isCreate ? { ...newForm } : toEditForm(worklog);
   const state = {
     form: { ...initialForm },
     errors: {},
+    // The issue to log work on; chosen in the panel when none was given
+    issue: pickIssue ? null : worklog,
     // 'saving' | 'deleting' while a Jira request is in flight
     busy: null,
     // 'discard' (unsaved changes on close) | 'delete' (confirm deletion)
@@ -55,11 +69,23 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
   return {
     worklog,
     mode,
+    pickIssue,
     initialForm,
     state,
 
     get isDirty() {
-      return isEditFormDirty(initialForm, state.form);
+      return isEditFormDirty(initialForm, state.form) || (pickIssue && Boolean(state.issue));
+    },
+
+    /**
+     * Log work without a given issue only: sets (or clears, with null) the issue to log work on.
+     * @param {object | null} issue - `issueId`, `issueKey`, `issueSummary`, `issueStatus`
+     */
+    setIssue(issue) {
+      if (!pickIssue || state.busy) return;
+      state.issue = issue || null;
+      delete state.errors.issue;
+      if (state.confirm === 'discard') state.confirm = null;
     },
 
     /**
@@ -118,9 +144,10 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
       if (state.busy) return { status: 'busy' };
 
       state.confirm = null;
-      const { isValid, errors } = validateEditForm(state.form);
+      const { errors } = validateEditForm(state.form);
+      if (pickIssue && !state.issue) errors.issue = 'Choose the issue to log work on.';
       state.errors = errors;
-      if (!isValid) return { status: 'invalid' };
+      if (Object.keys(errors).length > 0) return { status: 'invalid' };
 
       const values = isCreate ? buildNewWorklog(state.form) : buildWorklogChanges(initialForm, state.form);
       if (!isCreate && Object.keys(values).length === 0) return { status: 'unchanged' };
@@ -128,7 +155,7 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
       state.busy = 'saving';
       state.submitError = '';
       try {
-        await onSave(values);
+        await onSave(values, state.issue);
         return { status: 'saved' };
       } catch (err) {
         state.submitError = err?.message || (isCreate ? 'The work could not be logged.' : 'The worklog could not be saved.');
@@ -167,9 +194,25 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
 }
 
 /**
+ * Builds the read-only issue summary: key (linked to Jira), status, and summary.
+ * @param {{ issueKey: string, issueSummary?: string, issueStatus?: object }} issue
+ * @param {string} baseUrl - Jira instance URL for the issue link
+ * @returns {HTMLElement}
+ */
+export function renderEditorIssue(issue, baseUrl) {
+  const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(issue.issueKey)}` : '#';
+  return h('div', { class: 'editor-issue' },
+    h('div', { class: 'editor-issue-row' },
+      h('a', { href: issueUrl, target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey || ''} in Jira` },
+        issue.issueKey || 'ISSUE'),
+      renderIssueStatusBadge(issue.issueStatus)),
+    h('p', { class: 'editor-issue-summary' }, issue.issueSummary || 'No summary available'));
+}
+
+/**
  * Builds the panel for a worklog, or for logging new work on an issue.
  *
- * @param {object} worklog - Source worklog (edit) or the issue (create)
+ * @param {object | null} worklog - Source worklog (edit), or the issue (create; null to pick it in the panel)
  * @param {object} form - Initial form values
  * @param {string} baseUrl - Jira instance URL for the issue link
  * @param {object} [options]
@@ -178,7 +221,7 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
  */
 export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = {}) {
   const isCreate = mode === 'create';
-  const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(worklog.issueKey)}` : '#';
+  const pickIssue = needsIssuePick(worklog, mode);
   const icon = (attributes, ...shapes) => svg('svg', {
     ...attributes, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true'
   }, ...shapes);
@@ -199,21 +242,20 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
           svg('line', { x1: '6', y1: '6', x2: '18', y2: '18' })))),
 
     h('div', { class: 'editor-body' },
-      h('div', { class: 'editor-issue' },
-        h('div', { class: 'editor-issue-row' },
-          h('a', { href: issueUrl, target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${worklog.issueKey || ''} in Jira` },
-            worklog.issueKey || 'ISSUE'),
-          renderIssueStatusBadge(worklog.issueStatus)),
-        h('p', { class: 'editor-issue-summary' }, worklog.issueSummary || 'No summary available')),
+      !pickIssue && renderEditorIssue(worklog, baseUrl),
 
       h('div', { class: 'editor-note' },
         icon({ class: 'editor-note-icon' },
           svg('circle', { cx: '12', cy: '12', r: '10' }),
           svg('line', { x1: '12', y1: '16', x2: '12', y2: '12' }),
           svg('line', { x1: '12', y1: '8', x2: '12.01', y2: '8' })),
-        h('span', {}, isCreate ? 'Enter the date, start time, duration, and work description.' : 'Edit the date, time, duration, and work description.')),
+        h('span', {}, pickIssue
+          ? 'Find the issue by its key, then enter the date, start time, duration, and work description.'
+          : isCreate ? 'Enter the date, start time, duration, and work description.' : 'Edit the date, time, duration, and work description.')),
 
       h('fieldset', { class: 'editor-fields' },
+        pickIssue && renderIssuePicker(),
+
         h('div', { class: 'form-group' },
           h('label', { for: 'worklogEditDate', class: 'form-label' }, 'Date'),
           h('input', { type: 'date', id: 'worklogEditDate', name: 'date', value: form.date, required: true, 'aria-describedby': 'worklogEditDateError' }),
@@ -239,10 +281,8 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
         h('div', { class: 'form-group' },
           h('label', { for: 'worklogEditComment', class: 'form-label' }, 'Work description (comment)'),
           // A textarea's text is its initial value, like the text between <textarea> tags.
-          h('textarea', { id: 'worklogEditComment', name: 'comment', rows: '5', 'aria-describedby': 'worklogEditCommentHint' }, form.comment),
-          h('div', { id: 'worklogEditCommentHint', class: 'field-hint' },
-            `${isCreate ? 'Optional. ' : ''}Describe the work you did. This is saved on the worklog only; the issue title doesn't change.`),
-          isRichComment(worklog.comment) && h('div', { class: 'field-hint editor-rich-note' },
+          h('textarea', { id: 'worklogEditComment', name: 'comment', rows: '5' }, form.comment),
+          isRichComment(worklog?.comment) && h('div', { class: 'field-hint editor-rich-note' },
             "This comment has formatting from Jira. If you edit it here, it's saved as plain text.")))),
 
     h('div', { class: 'editor-footer' },
@@ -281,23 +321,25 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
  *
  * @param {HTMLElement} root
  * @param {object} options
- * @param {object} options.worklog - Source worklog (edit) or the issue (create)
+ * @param {object | null} options.worklog - Source worklog (edit), or the issue (create; null to pick it in the panel)
  * @param {string} options.baseUrl
- * @param {(values: object) => Promise<void>} options.onSave
+ * @param {(values: object, issue: object) => Promise<void>} options.onSave
  * @param {() => Promise<void>} [options.onDelete] - Edit only
  * @param {(reason: 'saved' | 'deleted' | 'closed') => void} options.onClose - Called once the panel has closed
  * @param {'edit' | 'create'} [options.mode='edit']
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  * @param {(dateKey: string) => void} [options.onDateChange] - Create: called when the user enters a complete date
+ * @param {(query: string, options: { maxResults: number, signal: AbortSignal }) => Promise<Array<object>>} [options.searchIssues]
+ *   Create without an issue: finds issues for the issue field (see createIssueSuggester())
  * @returns {{ worklogId: string | null, mode: 'edit' | 'create', readonly isDirty: boolean, requestClose: () => boolean,
  *   focus: () => void, setDefaultDate: (dateKey: string) => void }}
  *   `worklogId` is null when logging new work. `setDefaultDate` only applies when logging new work.
  */
-export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm, onDateChange }) {
+export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm, onDateChange, searchIssues }) {
   const session = createWorklogEditorSession(worklog, { onSave, onDelete, mode, initialForm });
   const isCreate = mode === 'create';
   const saveLabel = isCreate ? 'Log work' : 'Save changes';
-  const firstField = isCreate ? '#worklogEditHours' : '#worklogEditDate';
+  const firstField = session.pickIssue ? '#worklogIssueSearch' : isCreate ? '#worklogEditHours' : '#worklogEditDate';
 
   root.replaceChildren(renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode }));
   root.classList.remove('hidden');
@@ -309,6 +351,16 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   const inputs = [...root.querySelectorAll('input[name], textarea[name]')];
   const button = (action) => root.querySelector(`[data-action="${action}"]`);
   let isOpen = true;
+
+  // null (not false) without a picker, so `issuePicker?.destroy()` is skipped on close.
+  const issuePicker = !session.pickIssue ? null : attachIssuePicker(root.querySelector('[data-issue-picker]'), {
+    search: searchIssues ?? (async () => []),
+    renderSelected: (issue) => renderEditorIssue(issue, baseUrl),
+    onSelect: (issue) => {
+      session.setIssue(issue);
+      sync();
+    }
+  });
 
   function sync() {
     const { state } = session;
@@ -323,6 +375,10 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
       const invalid = Boolean(state.errors[errorKey]);
       input.classList.toggle('is-invalid', invalid);
       input.setAttribute('aria-invalid', invalid ? 'true' : 'false');
+    }
+    if (issuePicker) {
+      issuePicker.input.classList.toggle('is-invalid', Boolean(state.errors.issue));
+      issuePicker.input.setAttribute('aria-invalid', state.errors.issue ? 'true' : 'false');
     }
 
     const submitError = root.querySelector('.editor-submit-error');
@@ -366,6 +422,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   function close(reason) {
     if (!isOpen) return;
     isOpen = false;
+    issuePicker?.destroy();
     root.classList.add('hidden');
     root.replaceChildren();
     root.removeAttribute('aria-busy');

@@ -2,6 +2,7 @@ import { JiraUrlValidator } from '../validation/JiraUrlValidator.js';
 import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
 import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
+import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -123,14 +124,15 @@ export class JiraClient {
    * @param {string} path
    * @param {object} [options]
    * @param {boolean} [options.keepOriginalUnlessOk=false] - Only use the v2 response if it succeeds
+   * @param {AbortSignal} [options.signal] - Cancels the request
    * @returns {Promise<{ response: Response, path: string }>}
    */
-  async #requestWithV2Fallback(path, { keepOriginalUnlessOk = false } = {}) {
-    const response = await this.#request(path);
+  async #requestWithV2Fallback(path, { keepOriginalUnlessOk = false, signal } = {}) {
+    const response = await this.#request(path, { signal });
 
     if (response.status === 404 && path.startsWith('/rest/api/3/')) {
       const fallbackPath = path.replace('/rest/api/3/', '/rest/api/2/');
-      const fallbackResponse = await this.#request(fallbackPath);
+      const fallbackResponse = await this.#request(fallbackPath, { signal });
       if (!keepOriginalUnlessOk || fallbackResponse.ok) {
         return { response: fallbackResponse, path: fallbackPath };
       }
@@ -176,7 +178,8 @@ export class JiraClient {
    * Executes an authenticated HTTP request to the Jira API.
    *
    * @param {string} path
-   * @param {RequestInit} [options]
+   * @param {RequestInit} [options] - `signal` cancels the request; it then rejects with the
+   *   AbortError rather than a timeout error
    * @returns {Promise<Response>}
    */
   async #request(path, options = {}) {
@@ -184,6 +187,7 @@ export class JiraClient {
       throw new Error('Fetch API is not available.');
     }
 
+    const { signal: callerSignal, ...requestOptions } = options;
     const url = this.#resolveApiUrl(path);
     const authHeaders = await this.#authProvider.getAuthHeaders();
 
@@ -192,15 +196,18 @@ export class JiraClient {
       // Standard Atlassian header to bypass CSRF/XSRF checks on REST endpoints
       'X-Atlassian-Token': 'no-check',
       ...authHeaders,
-      ...(options.headers || {})
+      ...(requestOptions.headers || {})
     };
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.#timeoutMs);
+    const abortFromCaller = () => controller.abort();
+    if (callerSignal?.aborted) controller.abort();
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
 
     try {
       const response = await this.#fetchFn(url, {
-        ...options,
+        ...requestOptions,
         headers,
         // Authenticate with the token only. Browser session cookies for the Jira host
         // (sent by Firefox for extension requests) can override the token and make Jira
@@ -210,7 +217,7 @@ export class JiraClient {
       });
       return response;
     } catch (err) {
-      if (err.name === 'AbortError') {
+      if (err.name === 'AbortError' && !callerSignal?.aborted) {
         const timeoutError = new Error(`Request timed out after ${this.#timeoutMs / 1000} seconds.`);
         timeoutError.code = 'TIMEOUT';
         throw timeoutError;
@@ -218,6 +225,7 @@ export class JiraClient {
       throw err;
     } finally {
       clearTimeout(timeoutId);
+      callerSignal?.removeEventListener('abort', abortFromCaller);
     }
   }
 
@@ -518,6 +526,9 @@ export class JiraClient {
    * @param {string} [options.nextPageToken] - Jira Cloud pagination token
    * @param {number} [options.maxResults=50]
    * @param {string[]} [options.fields=['summary', 'worklog']]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @param {'strict' | 'warn'} [options.validateQuery] - Data Center / Server only: `warn` reports
+   *   unknown values (such as issue keys that don't exist) as warnings instead of failing the search
    * @returns {Promise<{
    *   issues: Array<object>,
    *   startAt?: number,
@@ -550,13 +561,17 @@ export class JiraClient {
       }
     } else {
       params.set('startAt', String(startAt));
+      if (options.validateQuery) {
+        params.set('validateQuery', options.validateQuery);
+      }
     }
 
     const queryParams = params.toString();
 
     // Cloud fallback: if /rest/api/3/search/jql returns 404, fallback to /rest/api/2/search/jql
     const { response, path: endpoint } = await this.#requestWithV2Fallback(
-      isCloud ? `/rest/api/3/search/jql?${queryParams}` : `/rest/api/2/search?${queryParams}`
+      isCloud ? `/rest/api/3/search/jql?${queryParams}` : `/rest/api/2/search?${queryParams}`,
+      { signal: options.signal }
     );
 
     if (!response.ok) {
@@ -564,10 +579,101 @@ export class JiraClient {
       const errorMsg = err.serverMessage
         ? `${err.error} (${err.serverMessage})`
         : (err.error || `Jira search request failed with status ${response.status}`);
-      throw new Error(errorMsg);
+      const error = new Error(errorMsg);
+      error.status = response.status;
+      throw error;
     }
 
     return await this.#parseJson(response, endpoint);
+  }
+
+  /**
+   * Suggests issues for a partial issue key typed by the user, such as `ABC-3`: ABC-3 itself
+   * first, then ABC-30, ABC-31, and so on. Only issues whose key is the typed key, or the typed
+   * key followed by more digits, are returned, so `ABC-3086` never suggests ABC-308. Input that
+   * isn't a partial key with at least one digit (see parseIssueKeyQuery()) returns no issues
+   * without contacting Jira.
+   *
+   * Both editions run one bounded JQL search through searchIssues() (`/rest/api/3/search/jql`
+   * on Cloud, `/rest/api/2/search` with `validateQuery=warn` on Data Center / Server), asking
+   * only for `summary` and `status`. When the typed key isn't among the results, it's looked
+   * up directly (`GET /issue/{key}`): that finds an issue reached by an old key after a move,
+   * and, on Cloud, an issue created moments ago that the search index doesn't list yet.
+   *
+   * @param {string} query - As typed
+   * @param {object} [options]
+   * @param {number} [options.maxResults=10] - At most ISSUE_SUGGESTION_LIMIT
+   * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
+   * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }>>}
+   *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
+   */
+  async suggestIssuesByKey(query, { maxResults = ISSUE_SUGGESTION_LIMIT, signal } = {}) {
+    const parsed = parseIssueKeyQuery(query);
+    if (!parsed) return [];
+
+    const limit = Math.min(ISSUE_SUGGESTION_LIMIT, Math.max(1, Number(maxResults) || ISSUE_SUGGESTION_LIMIT));
+    const fields = ['summary', 'status'];
+    const toSuggestion = (issue) => ({
+      issueId: String(issue.id ?? ''),
+      issueKey: String(issue.key ?? ''),
+      issueSummary: issue.fields?.summary || '',
+      issueStatus: toIssueStatus(issue.fields?.status)
+    });
+
+    try {
+      let found = [];
+      try {
+        const result = await this.searchIssues(buildIssueKeySuggestionJql(parsed), {
+          maxResults: limit, fields, signal, validateQuery: 'warn'
+        });
+        found = Array.isArray(result?.issues) ? result.issues.map(toSuggestion) : [];
+      } catch (err) {
+        // 400: none of the keys exist, or the project doesn't exist or isn't visible.
+        if (err.status !== 400) throw err;
+      }
+
+      const matches = rankIssueKeyMatches(found, parsed);
+      if (matches[0]?.issueKey === parsed.key) return matches.slice(0, limit);
+
+      // The typed key itself wasn't found: ask for it directly. Jira answers with the issue
+      // that key belongs to (under its current key, if it moved), so it goes first.
+      const exact = await this.#getIssueIfVisible(parsed.key, fields, signal);
+      if (!exact) return matches.slice(0, limit);
+      const exactMatch = toSuggestion(exact);
+      return [exactMatch, ...matches.filter((issue) => issue.issueKey !== exactMatch.issueKey)].slice(0, limit);
+    } catch (err) {
+      if (err.name === 'AbortError' || err.status) throw err;
+      // Timeouts and network failures
+      const { error, errorType } = this.#handleException(err, '');
+      const wrapped = new Error(error);
+      wrapped.errorType = errorType;
+      throw wrapped;
+    }
+  }
+
+  /**
+   * Fetches one issue by key with the given fields, or null when it doesn't exist or the
+   * user can't see it (Jira answers 404 for both). There is no v2 retry on 404 here,
+   * because 404 is the expected answer for a key that doesn't exist.
+   *
+   * @param {string} issueKey
+   * @param {string[]} fields
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<object | null>}
+   */
+  async #getIssueIfVisible(issueKey, fields, signal) {
+    const path = this.#apiPath(`issue/${encodeURIComponent(issueKey)}?${new URLSearchParams({ fields: fields.join(',') })}`);
+    const response = await this.#request(path, { signal });
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      const err = await this.#handleHttpError(response, new Date().toISOString());
+      const error = new Error(err.error || `Jira issue request failed with status ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return await this.#parseJson(response, path);
   }
 
   /**

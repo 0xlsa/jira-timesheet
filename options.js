@@ -264,6 +264,7 @@ function renderDays(aggregatedData, baseUrl = '') {
       // While logging new work, the selected day is the day being logged.
       if (worklogEditor?.mode === 'create') worklogEditor.setDefaultDate(dateKey);
     },
+    onAddWorklog: aggregatedData.sourceWorklogs ? startLogWorkOnDay : undefined,
     onEditWorklog: aggregatedData.sourceWorklogs ? openEditor : undefined,
     onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
     onDeleteWorklog: aggregatedData.sourceWorklogs ? confirmDeleteWorklog : undefined,
@@ -303,6 +304,64 @@ function showToast(message) {
 }
 
 /**
+ * Returns the selected day's card, the place to return focus to.
+ * @returns {HTMLElement | null}
+ */
+function selectedDayFocusTarget() {
+  return daysContainer.querySelector('.day-card.is-selected');
+}
+
+/**
+ * Opens the Log work panel on the given day, for an issue or, with `issue` null, for an
+ * issue the user finds in the panel by its key.
+ *
+ * @param {object} options
+ * @param {object | null} options.issue - `issueId`, `issueKey`, `issueSummary`, `issueStatus`
+ * @param {string} options.dateKey - Day the date field starts on
+ * @param {() => HTMLElement | null} options.returnFocusTo - Element to focus once the panel closes
+ */
+function openLogWork({ issue, dateKey, returnFocusTo }) {
+  const client = currentClient;
+  if (!client) return;
+
+  worklogEditor = openWorklogEditor(worklogEditorRoot, {
+    mode: 'create',
+    worklog: issue,
+    baseUrl: client.baseUrl,
+    initialForm: toNewWorklogForm({ dateKey }),
+    searchIssues: (query, options) => client.suggestIssuesByKey(query, options),
+    onDateChange: (enteredDateKey) => {
+      // Select the entered day in the calendar when it's in the displayed week.
+      if (enteredDateKey === selectedDateKey || !currentAggregatedData?.weekDays.some((d) => d.dateKey === enteredDateKey)) return;
+      selectedDateKey = enteredDateKey;
+      updateSelectedDayMetric(enteredDateKey);
+      renderDays(currentAggregatedData, currentBaseUrl);
+    },
+    onSave: async (newWorklog, loggedIssue) => {
+      const created = await logWork(client, loggedIssue, newWorklog, currentAggregatedData?.user);
+      const startedOn = new Date(created.started);
+      const createdDateKey = getLocalDateKey(startedOn);
+
+      // Add it to the displayed week (no reload) and show its day; another week loads it from Jira.
+      if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === createdDateKey)) {
+        selectedDateKey = createdDateKey;
+        showWeek(replaceWorklogInWeek(currentAggregatedData, created), currentBaseUrl);
+        showToast(`Work logged on ${loggedIssue.issueKey}.`);
+      } else {
+        showToast(`Work logged on ${loggedIssue.issueKey} for ${startedOn.toLocaleDateString()}.`);
+      }
+    },
+    onClose: () => {
+      worklogEditor = null;
+      if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+      (returnFocusTo() || selectedDayFocusTarget())?.focus();
+    }
+  });
+
+  renderDays(currentAggregatedData, currentBaseUrl);
+}
+
+/**
  * Opens the Log work panel for the issue of a worklog in the displayed week (the card's
  * + button). The issue comes from the week already loaded, so opening makes no Jira requests.
  * The date defaults to the selected day and the start time to now.
@@ -312,52 +371,37 @@ function startLogWork(worklogId) {
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const source = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
-  const client = currentClient;
-  if (!source || !client) return;
+  if (!source) return;
 
-  const issue = {
-    issueId: source.issueId,
-    issueKey: source.issueKey,
-    issueSummary: source.issueSummary,
-    issueStatus: source.issueStatus
-  };
-
-  worklogEditor = openWorklogEditor(worklogEditorRoot, {
-    mode: 'create',
-    worklog: issue,
-    baseUrl: client.baseUrl,
-    initialForm: toNewWorklogForm({ dateKey: selectedDateKey }),
-    onDateChange: (dateKey) => {
-      // Select the entered day in the calendar when it's in the displayed week.
-      if (dateKey === selectedDateKey || !currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
-      selectedDateKey = dateKey;
-      updateSelectedDayMetric(dateKey);
-      renderDays(currentAggregatedData, currentBaseUrl);
+  openLogWork({
+    issue: {
+      issueId: source.issueId,
+      issueKey: source.issueKey,
+      issueSummary: source.issueSummary,
+      issueStatus: source.issueStatus
     },
-    onSave: async (newWorklog) => {
-      const created = await logWork(client, issue, newWorklog, currentAggregatedData?.user);
-      const startedOn = new Date(created.started);
-      const dateKey = getLocalDateKey(startedOn);
-
-      // Add it to the displayed week (no reload) and show its day; another week loads it from Jira.
-      if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === dateKey)) {
-        selectedDateKey = dateKey;
-        showWeek(replaceWorklogInWeek(currentAggregatedData, created), currentBaseUrl);
-        showToast(`Work logged on ${issue.issueKey}.`);
-      } else {
-        showToast(`Work logged on ${issue.issueKey} for ${startedOn.toLocaleDateString()}.`);
-      }
-    },
-    onClose: () => {
-      worklogEditor = null;
-      if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
-      // Return focus to the + button it was opened from, or the selected day.
-      (daysContainer.querySelector(`.worklog-log-btn[data-worklog-id="${CSS.escape(worklogId)}"]`) ||
-        daysContainer.querySelector('.day-card.is-selected'))?.focus();
-    }
+    dateKey: selectedDateKey,
+    // Back to the + button it was opened from
+    returnFocusTo: () => daysContainer.querySelector(`.worklog-log-btn[data-worklog-id="${CSS.escape(worklogId)}"]`)
   });
+}
 
-  renderDays(currentAggregatedData, currentBaseUrl);
+/**
+ * Opens the Log work panel on a day (the + button in the selected day's panel). The date
+ * starts on that day, and the user finds the issue in the panel by its key.
+ * @param {string} dateKey - YYYY-MM-DD
+ */
+function startLogWorkOnDay(dateKey) {
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+  if (!currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
+
+  selectedDateKey = dateKey;
+  updateSelectedDayMetric(dateKey);
+  openLogWork({
+    issue: null,
+    dateKey,
+    returnFocusTo: () => daysContainer.querySelector(`.day-add-btn[data-date-key="${dateKey}"]`)
+  });
 }
 
 /**
@@ -396,7 +440,7 @@ function confirmDeleteWorklog(worklogId) {
       isDeleteDialogOpen = false;
       // Back to the trash button, or the selected day once the worklog is gone.
       ((reason === 'cancelled' && daysContainer.querySelector(`.worklog-delete-btn[data-worklog-id="${CSS.escape(worklogId)}"]`)) ||
-        daysContainer.querySelector('.day-card.is-selected'))?.focus();
+        selectedDayFocusTarget())?.focus();
     }
   });
 }
@@ -436,9 +480,9 @@ function openEditor(worklogId) {
     onClose: () => {
       worklogEditor = null;
       if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
-      // Return focus to the edited worklog's button, or the day panel if it moved or was deleted.
+      // Return focus to the edited worklog's button, or the selected day if it moved or was deleted.
       (daysContainer.querySelector(`.worklog-edit-btn[data-worklog-id="${CSS.escape(worklogId)}"]`) ||
-        daysContainer.querySelector('.day-card.is-selected'))?.focus();
+        selectedDayFocusTarget())?.focus();
     }
   });
 

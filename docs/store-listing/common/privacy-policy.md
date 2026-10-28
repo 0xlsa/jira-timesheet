@@ -38,6 +38,7 @@ To show and change your worklogs, the extension sends requests directly from you
 
 - **With every request:** your token (and, for Jira Cloud, your account email) in the `Authorization` header, never in the URL. Requests don't include your browser's cookies for the Jira site.
 - **To show your week:** a search for issues with worklogs you authored in the selected week, which returns those issues' keys, summaries, and statuses, and your worklogs on them.
+- **When you look up an issue to log work on:** the issue key you typed (such as `ABC-12`), to find matching issues, which returns their keys, summaries, and statuses.
 - **When you log, edit, or delete work:** the worklog's date and start time, duration, and work description, or the request to delete it.
 
 Jira data received this way is used only to display your timesheet and is kept in memory while the page is open. Apart from the connection-test result described above, it isn't saved.
