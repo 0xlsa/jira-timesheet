@@ -124,7 +124,7 @@ On first install, the extension opens its page automatically so you can configur
 
 ## Configuration
 
-Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it; anything you typed but didn't save is still there when you reopen it.
+Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it; anything you typed but didn't save is still there when you reopen it. Once **Save Settings** succeeds, the drawer closes and a toast confirms that the settings were saved; if saving fails, the drawer stays open with the error and your entries.
 
 ### Jira Cloud
 

@@ -30,7 +30,7 @@ const timeOf = (payload) => new Date(payload.testedAt || Date.now()).toLocaleTim
  * @param {{ version?: string }} [payload.serverInfo] - success
  * @param {string} [payload.error] - error
  * @param {string} [payload.serverMessage] - error: Jira's own message
- * @param {string} [payload.title] - info
+ * @param {string} [payload.title] - info, and error (default "Connection Failed")
  * @param {string} [payload.message] - info
  * @param {string} [payload.testedAt] - success and error
  * @returns {Node[]}
@@ -76,7 +76,7 @@ export function renderConnectionStatus(type, payload = {}) {
         svg('circle', { cx: '12', cy: '12', r: '10' }),
         svg('line', { x1: '12', y1: '8', x2: '12', y2: '12' }),
         svg('line', { x1: '12', y1: '16', x2: '12.01', y2: '16' })
-      ), 'Connection Failed'),
+      ), payload.title || 'Connection Failed'),
       h('div', { class: 'status-body' },
         h('p', {}, payload.error || 'Unable to connect to Jira.'),
         payload.serverMessage && h('p', { style: 'margin-top: 4px; font-size: 12px; opacity: 0.9;' },

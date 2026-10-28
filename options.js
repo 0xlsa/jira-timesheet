@@ -1008,6 +1008,8 @@ async function onTestConnection() {
  */
 async function onSaveSettings(event) {
   event.preventDefault();
+  // Not while a save or connection test is running (Enter in a field submits too).
+  if (saveSettingsBtn.disabled) return;
 
   const formValidation = validateForm();
   if (!formValidation.isValid || !formValidation.values) {
@@ -1042,21 +1044,27 @@ async function onSaveSettings(event) {
 
     await removeUnusedSiteAccess([baseUrlsByType.cloud, baseUrlsByType.server]);
 
-    renderStatus('info', hasSiteAccess
-      ? {
-        title: 'Settings Saved',
-        message: 'Your Jira configuration has been successfully saved to local browser storage.'
-      }
-      : {
-        title: 'Settings Saved Without Site Access',
-        message: `Your Jira configuration has been saved. ${siteAccessDeniedMessage(baseUrl)}`
-      });
+    // Saved: close the drawer and confirm with a toast, which stays after the drawer has gone. An
+    // earlier error (such as a failed save) is cleared, so it isn't shown when the drawer reopens.
+    // Without site access, the timesheet offers Allow Access.
+    if (statusArea.classList.contains(STATUS_CLASSES.error)) {
+      statusArea.className = 'status-container hidden';
+      statusArea.replaceChildren();
+    }
+    closeSettings();
+    showToast('Settings saved', {
+      success: true,
+      subtitle: hasSiteAccess ? '' : `Allow access to ${getSiteHost(baseUrl)} to load your worklogs`,
+      durationMs: 5000
+    });
 
     // Refresh worklog view with updated settings
     loadAndRenderWorklogs({ force: true });
   } catch (err) {
+    // The drawer stays open with everything as entered, so saving can be retried.
     renderStatus('error', {
-      error: `Failed to save settings: ${err.message || 'Storage error'}`
+      title: 'Settings Not Saved',
+      error: `Your settings could not be saved: ${err.message || 'Storage error'}. Your entries are kept; try again.`
     });
   } finally {
     setBusy(false);

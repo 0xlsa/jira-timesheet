@@ -153,6 +153,10 @@ describe('Safe rendering - Jira text is shown as text, never parsed as HTML', ()
     assert.equal(paragraphs[0].textContent, HOSTILE);
     assert.equal(paragraphs[1].textContent, `Server detail: ${HOSTILE}`);
     assert.equal(paragraphs[1].querySelector('strong').textContent, 'Server detail:');
+    assert.equal(error[0].textContent, 'Connection Failed');
+    const titled = renderConnectionStatus('error', { title: HOSTILE, error: HOSTILE });
+    assert.equal(titled.some(hasInjectedElements), false);
+    assert.equal(titled[0].textContent, HOSTILE);
 
     const info = renderConnectionStatus('info', { title: HOSTILE, message: HOSTILE });
     assert.equal(info.some(hasInjectedElements), false);
