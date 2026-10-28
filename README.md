@@ -280,7 +280,7 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 
 ## Architecture and project structure
 
-The entry points (`options.js` and `background.js`) compose small ES modules and pass dependencies in explicitly, so the logic runs in Node tests without a browser. The options page calls Jira directly through `JiraClient`. The background script opens the page from the toolbar icon and on first install. It also handles `TEST_CONNECTION`, `GET_SETTINGS`, and `FETCH_WORKLOGS` messages, which the current page doesn't use.
+The entry points (`options.js` and `background.js`) compose small ES modules and pass dependencies in explicitly, so the logic runs in Node tests without a browser. The options page calls Jira directly through `JiraClient`. The background script (`src/background/launch.js`) opens the page from the toolbar icon, from the icon's right-click **Settings** item (with the Connection Settings drawer open), and on first install; when the timesheet is already open in a tab, it brings that tab forward instead of opening another. It also handles `TEST_CONNECTION`, `GET_SETTINGS`, and `FETCH_WORKLOGS` messages, which the current page doesn't use.
 
 ```mermaid
 graph TD
@@ -344,6 +344,8 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── JiraAuthProvider.js        # Auth provider contract
 │   │   ├── JiraCloudTokenProvider.js  # Basic auth (email + API token)
 │   │   └── JiraPatProvider.js         # Bearer auth (PAT)
+│   ├── background/
+│   │   └── launch.js                  # Opens the timesheet: toolbar icon, its Settings item, first install
 │   ├── compat/
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/

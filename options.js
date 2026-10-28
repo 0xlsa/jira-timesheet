@@ -30,7 +30,8 @@ import {
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
-import { createPlatform } from './src/compat/browser-api.js';
+import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
+import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
 import { renderWeek } from './src/ui/weekView.js';
@@ -1097,9 +1098,13 @@ async function loadSavedSettings() {
       renderStatus('success', settings.lastTestResult);
     }
 
-    // Open Connection Settings when nothing is configured yet.
+    // Open Connection Settings when the page was opened for them (the toolbar icon's Settings menu
+    // item) or nothing is configured yet. The hash is dropped at once, so a reload or a later
+    // visit shows just the timesheet.
     const hasConfig = Boolean(settings.jiraBaseUrl && settings.token);
-    if (!hasConfig && window.location.hash !== '#weekly') {
+    const openedForSettings = window.location.hash === SETTINGS_HASH;
+    if (openedForSettings) history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (openedForSettings || (!hasConfig && window.location.hash !== '#weekly')) {
       openSettings();
     }
 
@@ -1413,6 +1418,20 @@ for (const shortcut of ISSUE_PICKER_SHORTCUTS) {
 }
 
 shortcuts.listen(document);
+
+// The toolbar icon and its Settings menu item bring this page forward instead of opening another
+// one (src/background/launch.js): answer with this tab, opening Connection Settings when asked.
+if (isExtensionContext() && ext.runtime?.onMessage) {
+  ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || message.action !== SHOW_TIMESHEET) return false;
+    if (message.settings && !isDeleteDialogOpen) openSettings();
+    Promise.resolve(ext.tabs?.getCurrent?.()).then(
+      (tab) => sendResponse(tab ? { tabId: tab.id, windowId: tab.windowId } : {}),
+      () => sendResponse({})
+    );
+    return true;
+  });
+}
 
 // Warn before leaving the page with unsaved worklog edits
 window.addEventListener('beforeunload', (event) => {
