@@ -123,6 +123,18 @@ export function formatWeekRange(monday, sunday) {
 }
 
 /**
+ * Formats a worklog's date in local time as "DD Mon YYYY · Weekday", e.g. "28 Oct 2026 · Wednesday".
+ *
+ * @param {Date} date
+ * @returns {string} Empty for an invalid date
+ */
+export function formatWorklogDate(date) {
+  if (!(date instanceof Date) || isNaN(date.getTime())) return '';
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${day} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()} · ${DAY_NAMES[date.getDay()]}`;
+}
+
+/**
  * Formats a duration in seconds into human-readable hours and minutes.
  * Examples:
  *   3600 -> "1h"

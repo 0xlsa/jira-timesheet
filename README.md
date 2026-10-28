@@ -124,7 +124,7 @@ On first install, the extension opens its page automatically so you can configur
 
 ## Configuration
 
-Open the **Connection Settings** tab.
+Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it; anything you typed but didn't save is still there when you reopen it.
 
 ### Jira Cloud
 
@@ -150,8 +150,8 @@ The instance URL must use HTTPS and can't contain a username or password, a quer
 
 The extension has no access to any website when you install it. The first time you click **Test Connection** or **Save Settings** for a Jira site, your browser asks whether to allow Timesheet for Jira to access that one site (for example `https://jira.your-company.com/*`). The browser doesn't ask again for a site you've already allowed.
 
-- If you decline, settings are still saved, and the **Weekly Worklogs** tab shows an **Allow Access** button instead of loading worklogs.
-- If you remove the extension's access to the site later (Chrome: the extension's **Site access** settings; Firefox: the **Permissions** tab in the Add-ons Manager), the **Weekly Worklogs** tab offers **Allow Access** again.
+- If you decline, settings are still saved, and the weekly timesheet shows an **Allow Access** button instead of loading worklogs.
+- If you remove the extension's access to the site later (Chrome: the extension's **Site access** settings; Firefox: the **Permissions** tab in the Add-ons Manager), the weekly timesheet offers **Allow Access** again.
 - When you save a different instance URL, access to Jira sites that are no longer in your settings is removed. The Jira Cloud and Data Center / Server sites are both kept, so switching edition doesn't ask again.
 - Access is per host, on any port: Firefox doesn't support ports in permission patterns, so `https://jira.internal:8443` is requested as `https://jira.internal/*`.
 
@@ -159,7 +159,7 @@ The extension has no access to any website when you install it. The first time y
 
 ### Viewing your week
 
-The **Weekly Worklogs** tab loads the current week. Use the arrows to move between weeks, **This Week** to return, and **Sync** to reload from Jira. Click a weekday card to list that day's worklogs. Selecting a day doesn't change any totals.
+The weekly timesheet loads the current week. Use the arrows to move between weeks, **This Week** to return, and **Sync** to reload from Jira. Click a weekday card to list that day's worklogs. Selecting a day doesn't change any totals.
 
 The timesheet shows worklogs that you authored. It finds them with the JQL query `worklogAuthor = currentUser() AND worklogDate >= … AND worklogDate <= …`, then keeps only worklogs whose start falls in the week in your browser's time zone.
 
@@ -190,7 +190,7 @@ The issue search finds issues by key only, not by summary. For `ABC-3` it asks J
 
 ### Panel layout and keyboard
 
-On wide windows the panel sits beside the timesheet. On medium windows it covers the right side of the timesheet, and below 720 px it fills the window. **Escape** closes the panel (asking first if there are unsaved changes). Save buttons are disabled while a request is in progress, so a form can't be submitted twice.
+The panel slides in over the right side of the timesheet, like the Connection Settings drawer, without moving it; below 720 px it fills the window. **Escape** closes the panel (asking first if there are unsaved changes). Save buttons are disabled while a request is in progress, so a form can't be submitted twice.
 
 ### Errors
 

@@ -11,6 +11,7 @@
 import { h, svg } from './dom.js';
 import { renderIssueStatusBadge } from './weekView.js';
 import { renderIssuePicker, attachIssuePicker } from './issuePicker.js';
+import { showPanel, hidePanel } from './panel.js';
 import {
   MAX_DURATION_HOURS,
   toEditForm,
@@ -325,7 +326,8 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
  * @param {string} options.baseUrl
  * @param {(values: object, issue: object) => Promise<void>} options.onSave
  * @param {() => Promise<void>} [options.onDelete] - Edit only
- * @param {(reason: 'saved' | 'deleted' | 'closed') => void} options.onClose - Called once the panel has closed
+ * @param {(reason: 'saved' | 'deleted' | 'closed') => void} options.onClose - Called as soon as the panel closes
+ *   (it's inert at once and finishes sliding out afterwards)
  * @param {'edit' | 'create'} [options.mode='edit']
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  * @param {(dateKey: string) => void} [options.onDateChange] - Create: called when the user enters a complete date
@@ -341,10 +343,8 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   const saveLabel = isCreate ? 'Log work' : 'Save changes';
   const firstField = session.pickIssue ? '#worklogIssueSearch' : isCreate ? '#worklogEditHours' : '#worklogEditDate';
 
-  root.replaceChildren(renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode }));
-  root.classList.remove('hidden');
+  showPanel(root, renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode }));
   root.setAttribute('aria-labelledby', 'worklogEditorTitle');
-  document.documentElement.classList.add('has-worklog-editor');
 
   const form = root.querySelector('.editor-form');
   const fields = root.querySelector('.editor-fields');
@@ -423,10 +423,8 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     if (!isOpen) return;
     isOpen = false;
     issuePicker?.destroy();
-    root.classList.add('hidden');
-    root.replaceChildren();
+    hidePanel(root);
     root.removeAttribute('aria-busy');
-    document.documentElement.classList.remove('has-worklog-editor');
     onClose(reason);
   }
 

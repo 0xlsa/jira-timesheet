@@ -18,6 +18,7 @@ import {
   getLocalDateKey,
   getWeekRange,
   formatWeekRange,
+  formatWorklogDate,
   buildEmptyWeek
 } from './src/worklog/worklogUtils.js';
 import {
@@ -30,10 +31,11 @@ import {
 } from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
 import { createPlatform } from './src/compat/browser-api.js';
-import { h } from './src/ui/dom.js';
+import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
 import { renderWeek } from './src/ui/weekView.js';
 import { openWorklogEditor } from './src/ui/worklogEditor.js';
+import { showPanel, hidePanel } from './src/ui/panel.js';
 import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
@@ -45,11 +47,10 @@ const settingsStore = createSettingsStore(platform.storage);
 // DOM Element References
 // ============================================================================
 
-// Navigation Tabs
-const tabWeekly = document.getElementById('tabWeekly');
-const tabSettings = document.getElementById('tabSettings');
-const weeklySection = document.getElementById('weeklySection');
-const settingsSection = document.getElementById('settingsSection');
+// Connection Settings drawer, opened from the header's cog
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsDrawerRoot = document.getElementById('settingsDrawer');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 
 // Weekly View Navigation Controls
 const prevWeekBtn = document.getElementById('prevWeekBtn');
@@ -127,6 +128,9 @@ let currentBaseUrl = '';
 let worklogEditor = null;
 // True while the delete worklog confirmation is open.
 let isDeleteDialogOpen = false;
+// While the Connection Settings drawer is open: where focus returns, and whether it covers the
+// worklog panel. Null when it's closed.
+let settingsDrawerState = null;
 let toastTimer = null;
 
 // Show / hide for the API token field; starts masked and is never persisted.
@@ -179,37 +183,55 @@ themeToggleBtn.addEventListener('click', () => {
 initTheme();
 
 // ============================================================================
-// Tab Navigation
+// Connection Settings Drawer
 // ============================================================================
 
 /**
- * Switches the active tab view between Weekly Worklogs and Settings.
- * @param {'weekly' | 'settings'} tabId
+ * Slides an open worklog panel out of the way, without closing it, so nothing typed in it is
+ * lost while a drawer is open in its place.
+ * @returns {boolean} True when there was a panel to cover; pass it to uncoverWorklogEditor()
  */
-function switchTab(tabId) {
-  // The editor belongs to the weekly view; leaving it asks about unsaved changes first.
-  if (tabId !== 'weekly' && worklogEditor && !worklogEditor.requestClose()) return;
+function coverWorklogEditor() {
+  if (!worklogEditor) return false;
+  worklogEditorRoot.classList.add('is-closed');
+  worklogEditorRoot.setAttribute('inert', '');
+  return true;
+}
 
+/**
+ * Brings back a worklog panel that coverWorklogEditor() covered, if it's still open.
+ * @param {boolean} covered
+ */
+function uncoverWorklogEditor(covered) {
+  if (!covered || !worklogEditor) return;
+  worklogEditorRoot.classList.remove('is-closed');
+  worklogEditorRoot.removeAttribute('inert');
+}
+
+/**
+ * Opens the Connection Settings drawer. The form stays as it was, including anything typed
+ * and not saved.
+ */
+function openSettings() {
+  if (settingsDrawerState) return;
+  settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
+  showPanel(settingsDrawerRoot);
+  settingsBtn.setAttribute('aria-expanded', 'true');
+  jiraBaseUrlInput.focus();
+}
+
+/** Closes the Connection Settings drawer, keeping the form as it is for next time. */
+function closeSettings() {
+  if (!settingsDrawerState) return;
+  const { returnFocus, coversEditor } = settingsDrawerState;
+  settingsDrawerState = null;
   // A revealed token never outlives a visit to Settings.
   tokenVisibility.mask();
-
-  if (tabId === 'weekly') {
-    tabWeekly.classList.add('active');
-    tabWeekly.setAttribute('aria-selected', 'true');
-    tabSettings.classList.remove('active');
-    tabSettings.setAttribute('aria-selected', 'false');
-
-    weeklySection.classList.remove('hidden');
-    settingsSection.classList.add('hidden');
-  } else {
-    tabSettings.classList.add('active');
-    tabSettings.setAttribute('aria-selected', 'true');
-    tabWeekly.classList.remove('active');
-    tabWeekly.setAttribute('aria-selected', 'false');
-
-    settingsSection.classList.remove('hidden');
-    weeklySection.classList.add('hidden');
-  }
+  hidePanel(settingsDrawerRoot, { keepContents: true });
+  settingsBtn.setAttribute('aria-expanded', 'false');
+  uncoverWorklogEditor(coversEditor);
+  // Back to where the user was, if it's still there.
+  if (returnFocus?.isConnected && returnFocus !== document.body) returnFocus.focus();
 }
 
 // ============================================================================
@@ -296,11 +318,38 @@ function showWeek(aggregated, baseUrl) {
 /**
  * Shows a short confirmation message at the bottom of the page.
  * @param {string} message
+ * @param {object} [options]
+ * @param {boolean} [options.success=false] - Success style: a check icon and a close button
+ * @param {string} [options.subtitle] - Success style: a second, muted line under the message
+ * @param {number} [options.durationMs=4000] - Time before it's dismissed automatically
  */
-function showToast(message) {
+function showToast(message, { success = false, subtitle = '', durationMs = 4000 } = {}) {
   clearTimeout(toastTimer);
-  appToast.textContent = message;
-  toastTimer = setTimeout(() => { appToast.textContent = ''; }, 4000);
+  appToast.classList.toggle('app-toast--success', success);
+  appToast.replaceChildren(...(success
+    ? [
+      svg('svg', { class: 'app-toast-icon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
+        svg('circle', { cx: '12', cy: '12', r: '10' }),
+        svg('polyline', { points: '7.5 12.5 10.5 15.5 16.5 9' })),
+      h('span', { class: 'app-toast-text' },
+        h('span', { class: 'app-toast-message' }, message),
+        // Keeps the two lines apart when read aloud ("Saved ABC-1, 28 Oct…", not "ABC-128 Oct…").
+        subtitle && h('span', { class: 'sr-only' }, ', '),
+        subtitle && h('span', { class: 'app-toast-subtitle' }, subtitle)),
+      h('button', { type: 'button', class: 'app-toast-close', 'aria-label': 'Dismiss notification', title: 'Dismiss' },
+        svg('svg', { class: 'icon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'aria-hidden': 'true' },
+          svg('line', { x1: '18', y1: '6', x2: '6', y2: '18' }),
+          svg('line', { x1: '6', y1: '6', x2: '18', y2: '18' })))
+    ]
+    : [message]));
+  toastTimer = setTimeout(hideToast, durationMs);
+}
+
+/** Removes the toast, after its time or from its close button. */
+function hideToast() {
+  clearTimeout(toastTimer);
+  appToast.replaceChildren();
+  appToast.classList.remove('app-toast--success');
 }
 
 /**
@@ -346,10 +395,9 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
       if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === createdDateKey)) {
         selectedDateKey = createdDateKey;
         showWeek(replaceWorklogInWeek(currentAggregatedData, created), currentBaseUrl);
-        showToast(`Work logged on ${loggedIssue.issueKey}.`);
-      } else {
-        showToast(`Work logged on ${loggedIssue.issueKey} for ${startedOn.toLocaleDateString()}.`);
       }
+      // The issue key and the worklog's own (logged) date, as Jira stored them.
+      showToast(`Saved ${loggedIssue.issueKey}`, { success: true, subtitle: formatWorklogDate(startedOn), durationMs: 5000 });
     },
     onClose: () => {
       worklogEditor = null;
@@ -368,6 +416,7 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
  * @param {string} worklogId - A worklog on the issue to log work against
  */
 function startLogWork(worklogId) {
+  closeSettings();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const source = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
@@ -392,6 +441,7 @@ function startLogWork(worklogId) {
  * @param {string} dateKey - YYYY-MM-DD
  */
 function startLogWorkOnDay(dateKey) {
+  closeSettings();
   if (worklogEditor && !worklogEditor.requestClose()) return;
   if (!currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
 
@@ -425,6 +475,7 @@ async function deleteWorklogAndRefresh(client, worklog) {
  * @param {string} worklogId
  */
 function confirmDeleteWorklog(worklogId) {
+  closeSettings();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -451,6 +502,7 @@ function confirmDeleteWorklog(worklogId) {
  * @param {string} worklogId
  */
 function openEditor(worklogId) {
+  closeSettings();
   if (worklogEditor) {
     if (worklogEditor.worklogId === worklogId) {
       worklogEditor.focus();
@@ -1017,12 +1069,10 @@ async function loadSavedSettings() {
       renderStatus('success', settings.lastTestResult);
     }
 
-    // If no settings exist yet, default to settings tab, otherwise show weekly view
+    // Open Connection Settings when nothing is configured yet.
     const hasConfig = Boolean(settings.jiraBaseUrl && settings.token);
     if (!hasConfig && window.location.hash !== '#weekly') {
-      switchTab('settings');
-    } else {
-      switchTab('weekly');
+      openSettings();
     }
 
     // Load worklogs for initial view
@@ -1037,10 +1087,17 @@ async function loadSavedSettings() {
 // Event Listeners
 // ============================================================================
 
-// Tab Switching
-tabWeekly.addEventListener('click', () => switchTab('weekly'));
-tabSettings.addEventListener('click', () => switchTab('settings'));
-goToSettingsBtn.addEventListener('click', () => switchTab('settings'));
+// View Switching
+// The cog opens or closes the Connection Settings drawer; Escape and its close button close it.
+settingsBtn.addEventListener('click', () => (settingsDrawerState ? closeSettings() : openSettings()));
+closeSettingsBtn.addEventListener('click', closeSettings);
+settingsDrawerRoot.addEventListener('keydown', (event) => {
+  if (!settingsDrawerState || event.key !== 'Escape') return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeSettings();
+});
+goToSettingsBtn.addEventListener('click', openSettings);
 
 // Week Navigation
 prevWeekBtn.addEventListener('click', () => {
@@ -1140,6 +1197,11 @@ jiraTokenInput.addEventListener('input', () => {
 
 testConnectionBtn.addEventListener('click', onTestConnection);
 form.addEventListener('submit', onSaveSettings);
+
+// The toast's close button (rebuilt with each toast, so the listener is on the toast itself)
+appToast.addEventListener('click', (event) => {
+  if (event.target.closest('.app-toast-close')) hideToast();
+});
 
 // Warn before leaving the page with unsaved worklog edits
 window.addEventListener('beforeunload', (event) => {

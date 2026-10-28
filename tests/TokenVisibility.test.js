@@ -86,9 +86,9 @@ describe('Token visibility - options page wiring', () => {
     assert.match(html, /aria-label="Show API token"/);
   });
 
-  it('masks the token when switching tabs and when the page is hidden', () => {
-    const switchTab = script.slice(script.indexOf('function switchTab('), script.indexOf('// Worklog UI Rendering'));
-    assert.match(switchTab, /tokenVisibility\.mask\(\)/);
+  it('masks the token when Connection Settings closes and when the page is hidden', () => {
+    const closeSettings = script.slice(script.indexOf('function closeSettings('), script.indexOf('// Worklog UI Rendering'));
+    assert.match(closeSettings, /tokenVisibility\.mask\(\)/);
     assert.match(script, /addEventListener\('visibilitychange'[\s\S]{0,200}tokenVisibility\.mask\(\)/);
     assert.match(script, /addEventListener\('pagehide', \(\) => tokenVisibility\.mask\(\)\)/);
   });
