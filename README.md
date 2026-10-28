@@ -18,33 +18,23 @@
 
 ## Screenshots
 
-### Weekly timesheet
+The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. It has light and dark themes.
 
-See your Jira worklogs for the week, with each day's total and the week's total.
+![Timesheet for Jira: weekly overview, light theme](docs/screenshots/weekly-overview-light.png)
 
-![Timesheet for Jira: weekly overview](docs/screenshots/chrome/weekly-overview-light.png)
+![Timesheet for Jira: weekly overview, dark theme](docs/screenshots/weekly-overview-dark.png)
 
-### Worklog details
+Log work on a day by finding the issue by its key:
 
-Review each worklog for the selected day: the issue and its status, your work description, the start time, and the duration.
+![Timesheet for Jira: logging work](docs/screenshots/worklog-log-work.png)
 
-![Timesheet for Jira: worklog details for a day](docs/screenshots/chrome/worklog-details-light.png)
+Connect to Jira Cloud with your Atlassian account email and an API token, or to Jira Data Center / Server with a personal access token:
 
-### Editing a worklog
+![Timesheet for Jira: connection settings for Jira Cloud](docs/screenshots/connection-settings-cloud.png)
 
-Change an existing worklog's date, start time, duration, or work description without leaving the timesheet.
+![Timesheet for Jira: connection settings for Jira Data Center / Server](docs/screenshots/connection-settings-data-center.png)
 
-![Timesheet for Jira: editing a worklog](docs/screenshots/chrome/worklog-edit-light.png)
-
-### Connection settings
-
-Connect to Jira Cloud with your Atlassian account email and an API token, or to Jira Data Center / Server with a personal access token. Test the connection before you save.
-
-![Timesheet for Jira: connection settings for Jira Cloud](docs/screenshots/chrome/connection-settings-cloud-light.png)
-
-![Timesheet for Jira: connection settings for Jira Data Center / Server](docs/screenshots/chrome/connection-settings-data-center-light.png)
-
-These screenshots were taken in Chrome; the extension looks and works the same in Firefox. It has light and dark themes. Dark-theme screenshots, Firefox screenshots, and the Log work and delete screens are in [`docs/screenshots/`](docs/screenshots/).
+The screenshots were taken in Chrome; the extension looks and works the same in Firefox.
 
 ## Features
 
@@ -379,7 +369,8 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 ├── tests/                        # Node test suite (see above)
 ├── docs/
 │   ├── store-listing/             # Store listing drafts; common/privacy-policy.md is the privacy policy
-│   └── screenshots/               # Screenshots used in this README and the listings
+│   ├── store-assets/chrome/       # Chrome Web Store promo tiles
+│   └── screenshots/               # Screenshots used in this README and the store listings
 ├── package.json                  # Metadata and the test script
 ├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License

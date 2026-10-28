@@ -71,17 +71,15 @@ Firefox for desktop (Windows, macOS, Linux). Not tested on Firefox for Android; 
 
 ### Screenshots
 
-Recommended 1280×800 (1.6:1); no count limit. Proposed Firefox set, in this order:
+Recommended 1280×800 (1.6:1); no count limit. Proposed set, in this order:
 
-1. `docs/screenshots/firefox/weekly-overview-light.png`: the weekly timesheet
-2. `docs/screenshots/firefox/worklog-details-dark.png`: a day's worklogs, in the dark theme
-3. `docs/screenshots/firefox/worklog-log-work-light.png`: logging work
-4. `docs/screenshots/firefox/worklog-edit-dark.png`: editing a worklog
-5. `docs/screenshots/firefox/worklog-delete-confirm-light.png`: delete confirmation
-6. `docs/screenshots/firefox/connection-settings-cloud-dark.png`: connection settings for Jira Cloud, in the dark theme
-7. `docs/screenshots/firefox/connection-settings-data-center-light.png`: connection settings for Jira Data Center / Server
+1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet
+2. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+3. `docs/screenshots/worklog-log-work.png`: logging work
+4. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
+5. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
 
-All 14 Firefox screenshots exist (7 screens × dark and light), 1280×800 PNG. They show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`, except the connection settings screenshots, whose fields are blank.
+All 5 screenshots exist, 1280×800 PNG, taken in Chrome (the extension looks the same in Firefox). The weekly timesheet and logging work screenshots show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The connection settings screenshots have blank fields.
 
 ## Support information
 

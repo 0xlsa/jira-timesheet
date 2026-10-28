@@ -61,18 +61,18 @@ English (United States)
 | --- | --- | --- | --- |
 | Store icon | 128×128 PNG | `icons/icon128.png` | Exists (also inside the extension package) |
 | Screenshots | At least 1, at most 5; 1280×800 or 640×400 | See below | Exist, 1280×800 RGB PNG |
-| Small promo tile | 440×280 PNG or JPEG; optional, but listings without one are shown after those with one | None | `[TO BE DECIDED: create one?]` |
-| Marquee promo tile | 1400×560; optional, needed only to be featured | None | Optional |
+| Small promo tile | 440×280 PNG or JPEG; optional, but listings without one are shown after those with one | `docs/store-assets/chrome/timesheet-for-jira-promo-tile-small.png` | Exists |
+| Marquee promo tile | 1400×560; optional, needed only to be featured | `docs/store-assets/chrome/timesheet-for-jira-marquee-promo-tile.png` | Exists |
 
-**Proposed screenshots** (Chrome set, in this order; 5 is the maximum):
+**Proposed screenshots** (in this order; 5 is the maximum):
 
-1. `docs/screenshots/chrome/weekly-overview-light.png`: the weekly timesheet
-2. `docs/screenshots/chrome/worklog-details-dark.png`: a day's worklogs, in the dark theme
-3. `docs/screenshots/chrome/worklog-log-work-light.png`: logging work
-4. `docs/screenshots/chrome/worklog-edit-dark.png`: editing a worklog
-5. `docs/screenshots/chrome/worklog-delete-confirm-light.png`: delete confirmation
+1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet
+2. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+3. `docs/screenshots/worklog-log-work.png`: logging work
+4. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
+5. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
 
-All 14 Chrome screenshots exist (7 screens × dark and light); swap themes or screens as preferred. The connection settings screenshots (`connection-settings-cloud-*.png` and `connection-settings-data-center-*.png`) are not in the proposed set and have blank fields. The others show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots.
+All 5 screenshots exist, 1280×800 PNG, taken in Chrome (the extension looks the same in Firefox). The weekly timesheet and logging work screenshots show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The connection settings screenshots have blank fields.
 
 ### Additional fields
 
