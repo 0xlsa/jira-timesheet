@@ -204,6 +204,10 @@ class FakeElement extends FakeNode {
     (this.listeners[type] ??= []).push(listener);
   }
 
+  removeEventListener(type, listener) {
+    this.listeners[type] = (this.listeners[type] ?? []).filter((l) => l !== listener);
+  }
+
   /**
    * Dispatches `event` on this element and bubbles it up, like a real click.
    * @returns {boolean} False when a listener called preventDefault()

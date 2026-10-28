@@ -22,6 +22,13 @@ import {
   isRichComment
 } from '../worklog/worklogEdit.js';
 
+// Keys the panel handles itself (Escape below, Enter as the form's submit), for the
+// keyboard shortcuts drawer (see src/ui/shortcuts.js).
+export const WORKLOG_FORM_SHORTCUTS = [
+  { id: 'worklog-form.save', description: 'Save the worklog (from a field other than the description)', category: 'Worklog form', keys: [['Enter']] },
+  { id: 'worklog-form.close', description: 'Close the panel, or dismiss a confirmation', category: 'Worklog form', keys: [['Esc']] }
+];
+
 // Quick durations offered when logging new work.
 const DURATION_PRESETS = [
   { label: '15m', hours: '0', minutes: '15' },

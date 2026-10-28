@@ -190,7 +190,7 @@ The issue search finds issues by key only, not by summary. For `ABC-3` it asks J
 
 ### Panel layout and keyboard
 
-The panel slides in over the right side of the timesheet, like the Connection Settings drawer, without moving it; below 720 px it fills the window. **Escape** closes the panel (asking first if there are unsaved changes). Save buttons are disabled while a request is in progress, so a form can't be submitted twice.
+The panel slides in over the right side of the timesheet, like the Connection Settings and keyboard shortcuts drawers, without moving it; below 720 px it fills the window. **Escape** closes the panel (asking first if there are unsaved changes). Save buttons are disabled while a request is in progress, so a form can't be submitted twice.
 
 ### Errors
 
@@ -379,6 +379,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 
 ## Known limitations
 
+- **Day shortcuts on macOS.** Previous Day and Next Day are Ctrl + ← / → on Windows and Linux, where no browser uses them, and ⌘ + ← / → on macOS. On a Mac, Chrome, Edge, and Firefox normally use ⌘ + ← / → for Back and Forward; on the timesheet page the day shortcuts take those over (in text fields the keys still move the caret). The week and sync shortcuts (Ctrl/⌘ + Shift + ← → ↑ ↓) aren't browser shortcuts on any platform. Whether every browser lets a page take over ⌘ + ← / → hasn't been tested on a Mac.
 - **Issue search is by key only.** The Log work panel finds issues by key (such as `ABC-12`), not by words in their summary, and only after a digit of the number is typed. Each search covers the typed key and keys one digit longer; type more digits to reach longer keys.
 - **Firefox and Jira's XSRF check.** Jira rejects a `POST` that has a browser User-Agent unless its `Origin` is the Jira site itself, and Firefox's extension requests don't pass that check, so logging work failed in Firefox with a 403. Creating, editing, and deleting worklogs therefore send `User-Agent: Timesheet-for-Jira`, Atlassian's documented workaround (Firefox honors it; Chrome ignores it and doesn't need it). Search uses GET for the same reason. If a proxy or a future Jira change still rejects a request, the panel shows Jira's reason, for example "XSRF check failed".
 - **Remaining estimate.** When you log, edit, or delete work, Jira adjusts the issue's remaining estimate automatically (Jira's default), as it does in Jira itself.

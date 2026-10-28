@@ -43,6 +43,12 @@
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         </button>
+        <!-- Opens the keyboard shortcuts drawer, like pressing ? -->
+        <button type="button" id="shortcutsHelpBtn" class="editor-icon-btn header-icon-btn" aria-label="Keyboard shortcuts"
+          aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutsDrawer" aria-expanded="false"
+          data-tooltip="Keyboard shortcuts (?)">
+          <span class="header-help-glyph" aria-hidden="true">?</span>
+        </button>
         <!-- Opens the Connection Settings drawer -->
         <button type="button" id="settingsBtn" class="editor-icon-btn header-icon-btn" aria-label="Connection Settings"
           aria-controls="settingsDrawer" aria-haspopup="dialog" aria-expanded="false" data-tooltip="Connection Settings">
@@ -207,7 +213,7 @@
   <!-- Edit Worklog panel: beside the timesheet on wide windows, full view on narrow ones -->
   <aside id="worklogEditor" class="worklog-editor hidden" role="dialog" aria-modal="false"></aside>
 
-  <!-- Connection Settings drawer: opens from the header's cog -->
+  <!-- Connection Settings drawer: opens from the header's cog, like the keyboard shortcuts drawer -->
   <aside id="settingsDrawer" class="settings-drawer hidden" role="dialog" aria-modal="false" aria-labelledby="settingsTitle">
     <div class="settings-drawer-body">
       <div class="settings-drawer-header">
@@ -374,6 +380,9 @@
       </div>
     </div>
   </aside>
+
+  <!-- Keyboard shortcuts drawer (src/ui/shortcutsDrawer.js); opens with ? -->
+  <aside id="shortcutsDrawer" class="shortcuts-drawer hidden" role="dialog" aria-modal="false"></aside>
 
   <!-- Delete worklog confirmation (src/ui/deleteWorklogDialog.js) -->
   <dialog id="deleteWorklogDialog" class="confirm-dialog"></dialog>

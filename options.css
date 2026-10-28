@@ -182,7 +182,7 @@ body {
   padding: 4px 2px;
 }
 
-/* Header controls: the theme toggle and Connection Settings, side by side */
+/* Header controls: the theme toggle, keyboard shortcuts, and Connection Settings, side by side */
 .header-actions {
   display: flex;
   flex-shrink: 0;
@@ -190,8 +190,9 @@ body {
   gap: 8px;
 }
 
-/* The cog while its drawer is open (its aria-expanded follows the drawer) */
-.header-icon-btn[aria-controls="settingsDrawer"][aria-expanded="true"] {
+/* The cog and the ? button while their drawer is open (their aria-expanded follows the drawer) */
+.header-icon-btn[aria-controls="settingsDrawer"][aria-expanded="true"],
+.header-icon-btn[aria-controls="shortcutsDrawer"][aria-expanded="true"] {
   color: var(--primary);
   background-color: var(--primary-light);
 }
@@ -207,6 +208,14 @@ body {
 .header-icon-btn .icon {
   width: 18px;
   height: 18px;
+}
+
+/* The keyboard shortcuts button's "?": in the button's colour, like the cog's icon, and about as
+   tall and light as the cog (15 px, medium weight, or regular where the font has no medium). */
+.header-help-glyph {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .header-icon-btn:focus-visible {
@@ -1115,8 +1124,10 @@ body {
    and the full width of narrow windows.
    ========================================================================== */
 
-/* Right-hand side panels: the worklog panel, and the Connection Settings drawer (above it). */
+/* Right-hand side panels: the worklog panel, and the keyboard shortcuts and Connection Settings
+   drawers (above it). */
 .worklog-editor,
+.shortcuts-drawer,
 .settings-drawer {
   position: fixed;
   top: 0;
@@ -1135,6 +1146,7 @@ body {
 /* Closing: slide out to the right and fade out, a little faster (accelerating). The panel is
    hidden once this ends (PANEL_CLOSE_MS in src/ui/panel.js). */
 .worklog-editor.is-closed,
+.shortcuts-drawer.is-closed,
 .settings-drawer.is-closed {
   transform: translateX(100%);
   opacity: 0;
@@ -1146,6 +1158,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .worklog-editor,
   .worklog-editor.is-closed,
+  .shortcuts-drawer,
+  .shortcuts-drawer.is-closed,
   .settings-drawer,
   .settings-drawer.is-closed {
     transition: none;
@@ -1154,6 +1168,7 @@ body {
 
 @media (max-width: 720px) {
   .worklog-editor,
+  .shortcuts-drawer,
   .settings-drawer {
     width: 100%;
     border-left: none;
@@ -1664,14 +1679,17 @@ body {
 }
 
 /* ==========================================================================
-   CONNECTION SETTINGS DRAWER
-   Opens from the header's cog, in the same place as the worklog panel.
+   KEYBOARD SHORTCUTS DRAWER
+   Opens with ?, in the same place as the worklog panel (src/ui/shortcutsDrawer.js).
    ========================================================================== */
 
+/* The Connection Settings drawer shares this drawer's layout (only one is open at a time). */
+.shortcuts-drawer,
 .settings-drawer {
   z-index: 45;
 }
 
+.shortcuts-drawer-body,
 .settings-drawer-body {
   display: flex;
   flex-direction: column;
@@ -1680,12 +1698,14 @@ body {
   padding: 18px 20px 0;
 }
 
+.shortcuts-header,
 .settings-drawer-header {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+.shortcuts-title,
 .settings-drawer-title {
   flex: 1;
   font-size: 18px;
@@ -1694,6 +1714,85 @@ body {
   letter-spacing: -0.2px;
 }
 
+/* Keycaps: the ? hint in the header and every key in the list */
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 -1px 0 var(--border-color);
+  white-space: nowrap;
+}
+
+.shortcuts-hint {
+  color: var(--text-subtle);
+}
+
+/* Search field: icon on the left, clear button on the right */
+.shortcuts-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.shortcuts-search-icon {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.shortcuts-search .shortcuts-search-input {
+  padding: 9px 36px 9px 34px;
+  border-radius: var(--radius-md);
+}
+
+.shortcuts-search-clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition);
+}
+
+.shortcuts-search-clear:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.shortcuts-search-clear:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.shortcuts-search-clear .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Shortcut list: categories with description on the left and keys on the right */
+.shortcuts-list,
 .settings-drawer-scroll {
   flex: 1;
   overflow-y: auto;
@@ -1701,6 +1800,71 @@ body {
   padding: 4px 20px 20px;
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) transparent;
+}
+
+.shortcuts-list:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.shortcuts-group + .shortcuts-group {
+  margin-top: 22px;
+}
+
+.shortcuts-group-title {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.shortcuts-rows {
+  list-style: none;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.shortcut-row:last-child {
+  border-bottom: none;
+}
+
+.shortcut-description {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.shortcut-keys {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.shortcut-combo {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.shortcut-keys-or {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.shortcuts-empty {
+  padding: 24px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-muted);
 }
 
 /* ==========================================================================

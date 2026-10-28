@@ -34,7 +34,10 @@ import { createPlatform } from './src/compat/browser-api.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
 import { renderWeek } from './src/ui/weekView.js';
-import { openWorklogEditor } from './src/ui/worklogEditor.js';
+import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
+import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
+import { createShortcutRegistry } from './src/ui/shortcuts.js';
+import { openShortcutsDrawer } from './src/ui/shortcutsDrawer.js';
 import { showPanel, hidePanel } from './src/ui/panel.js';
 import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
@@ -84,6 +87,8 @@ const grantSiteAccessBtn = document.getElementById('grantSiteAccessBtn');
 const emptyWeekBanner = document.getElementById('emptyWeekBanner');
 const daysContainer = document.getElementById('daysContainer');
 const worklogEditorRoot = document.getElementById('worklogEditor');
+const shortcutsDrawerRoot = document.getElementById('shortcutsDrawer');
+const shortcutsHelpBtn = document.getElementById('shortcutsHelpBtn');
 const deleteWorklogDialog = document.getElementById('deleteWorklogDialog');
 const appToast = document.getElementById('appToast');
 
@@ -128,9 +133,13 @@ let currentBaseUrl = '';
 let worklogEditor = null;
 // True while the delete worklog confirmation is open.
 let isDeleteDialogOpen = false;
+// Open keyboard shortcuts drawer (see src/ui/shortcutsDrawer.js), or null.
+let shortcutsDrawer = null;
 // While the Connection Settings drawer is open: where focus returns, and whether it covers the
 // worklog panel. Null when it's closed.
 let settingsDrawerState = null;
+// Every keyboard shortcut, for running them and for the shortcuts drawer (registered below).
+const shortcuts = createShortcutRegistry();
 let toastTimer = null;
 
 // Show / hide for the API token field; starts masked and is never persisted.
@@ -183,7 +192,7 @@ themeToggleBtn.addEventListener('click', () => {
 initTheme();
 
 // ============================================================================
-// Connection Settings Drawer
+// Side Drawers (Connection Settings and keyboard shortcuts)
 // ============================================================================
 
 /**
@@ -209,11 +218,26 @@ function uncoverWorklogEditor(covered) {
 }
 
 /**
+ * Closes the panel on the right through its usual close action, the one on top first: the keyboard
+ * shortcuts or Connection Settings drawer, else the worklog panel (which asks first when there are
+ * unsaved changes).
+ * @returns {boolean} False when nothing is open, so Escape keeps its default
+ */
+function closeOpenPanel() {
+  if (shortcutsDrawer) shortcutsDrawer.close();
+  else if (settingsDrawerState) closeSettings();
+  else if (worklogEditor) worklogEditor.requestClose();
+  else return false;
+  return true;
+}
+
+/**
  * Opens the Connection Settings drawer. The form stays as it was, including anything typed
- * and not saved.
+ * and not saved. The keyboard shortcuts drawer closes, since only one drawer is open at a time.
  */
 function openSettings() {
   if (settingsDrawerState) return;
+  shortcutsDrawer?.close();
   settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
   showPanel(settingsDrawerRoot);
   settingsBtn.setAttribute('aria-expanded', 'true');
@@ -416,6 +440,7 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
  * @param {string} worklogId - A worklog on the issue to log work against
  */
 function startLogWork(worklogId) {
+  shortcutsDrawer?.close();
   closeSettings();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -441,6 +466,7 @@ function startLogWork(worklogId) {
  * @param {string} dateKey - YYYY-MM-DD
  */
 function startLogWorkOnDay(dateKey) {
+  shortcutsDrawer?.close();
   closeSettings();
   if (worklogEditor && !worklogEditor.requestClose()) return;
   if (!currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
@@ -475,6 +501,7 @@ async function deleteWorklogAndRefresh(client, worklog) {
  * @param {string} worklogId
  */
 function confirmDeleteWorklog(worklogId) {
+  shortcutsDrawer?.close();
   closeSettings();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
@@ -502,6 +529,7 @@ function confirmDeleteWorklog(worklogId) {
  * @param {string} worklogId
  */
 function openEditor(worklogId) {
+  shortcutsDrawer?.close();
   closeSettings();
   if (worklogEditor) {
     if (worklogEditor.worklogId === worklogId) {
@@ -1202,6 +1230,189 @@ form.addEventListener('submit', onSaveSettings);
 appToast.addEventListener('click', (event) => {
   if (event.target.closest('.app-toast-close')) hideToast();
 });
+
+// ============================================================================
+// Keyboard Shortcuts
+// ============================================================================
+
+/**
+ * Opens the keyboard shortcuts drawer, listing the shortcuts available where the user is.
+ * An open worklog panel slides out of the way without closing, so nothing typed in it is
+ * lost, and comes back when the drawer closes.
+ */
+function openShortcuts() {
+  closeSettings();
+  const returnFocus = document.activeElement;
+  const available = shortcuts.list();
+  const coversEditor = coverWorklogEditor();
+
+  shortcutsHelpBtn.setAttribute('aria-expanded', 'true');
+  shortcutsDrawer = openShortcutsDrawer(shortcutsDrawerRoot, {
+    shortcuts: available,
+    onClose: () => {
+      shortcutsDrawer = null;
+      shortcutsHelpBtn.setAttribute('aria-expanded', 'false');
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, if it's still there.
+      if (returnFocus?.isConnected && returnFocus !== document.body) returnFocus.focus();
+    }
+  });
+}
+
+/** Opens the shortcuts drawer, or closes it when it's open: the ? key and the header's help button. */
+function toggleShortcuts() {
+  if (shortcutsDrawer) shortcutsDrawer.close();
+  else openShortcuts();
+}
+
+shortcuts.register({
+  id: 'shortcuts.toggle',
+  key: '?',
+  keys: [['?']],
+  description: 'Show keyboard shortcuts',
+  category: 'General',
+  when: () => !isDeleteDialogOpen,
+  handler: toggleShortcuts
+});
+
+shortcutsHelpBtn.addEventListener('click', toggleShortcuts);
+
+// Esc closes the open panel wherever focus is: after clicking a worklog, focus is on the page, so
+// the panels' own Escape listeners (which handle Esc while typing in their fields) never see it.
+shortcuts.register({
+  id: 'shortcuts.close',
+  key: 'Escape',
+  keys: [['Esc']],
+  description: 'Close panel',
+  category: 'General',
+  when: () => !isDeleteDialogOpen,
+  handler: closeOpenPanel
+});
+
+// ⌘ , on macOS, Ctrl , elsewhere: opens the Connection Settings drawer, like the cog. Already open,
+// it stays as it is (nothing typed is lost); the cog's second click is what closes it.
+shortcuts.register({
+  id: 'settings.open',
+  key: ',',
+  mod: true,
+  description: 'Open connection settings',
+  category: 'General',
+  when: () => !isDeleteDialogOpen,
+  handler: openSettings
+});
+
+// Days, weeks, and sync: Ctrl + ← / → (previous or next day), Ctrl + Shift + ← / → (previous or next
+// week), Ctrl + Shift + ↑ (this week), and Ctrl + Shift + ↓ (sync) on Windows and Linux; ⌘ instead
+// of Ctrl on macOS. Each does what its control does, through the control itself (disabled while
+// worklogs load, so repeated presses don't stack requests). Not while a drawer or dialog covers the
+// page, and not while typing in a field (where these keys move the caret or select text). On Windows
+// and Linux no browser binds them (Back and Forward are Alt + ← / →). On macOS, ⌘ + ← / → are Back
+// and Forward in Chrome, Edge, and Firefox: on this page the day shortcuts take those over.
+const weekNavigationAvailable = () => !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState;
+
+// Previous or next day selects that weekday card by clicking it (so the selection, the day's
+// worklogs, and the totals update as on a click). Past Monday or Sunday, the previous or next week
+// loads with its Sunday or Monday selected, through the week arrow buttons. Nothing happens while a
+// week is loading.
+/**
+ * Selects the day before (-1) or after (+1) the selected one, crossing into the adjacent week.
+ * @param {-1 | 1} step
+ */
+function selectAdjacentDay(step) {
+  const days = currentAggregatedData?.weekDays;
+  if (!days?.length || isBusyFetching) return;
+  const index = Math.max(0, days.findIndex((day) => day.dateKey === selectedDateKey));
+  const target = days[index + step];
+  if (target) {
+    daysContainer.querySelector(`.day-card[data-date-key="${target.dateKey}"]`)?.click();
+    return;
+  }
+  const edge = new Date((step < 0 ? days[0] : days[days.length - 1]).date);
+  edge.setDate(edge.getDate() + step);
+  selectedDateKey = getLocalDateKey(edge);
+  (step < 0 ? prevWeekBtn : nextWeekBtn).click();
+}
+shortcuts.register({
+  id: 'day.previous',
+  key: 'ArrowLeft',
+  mod: true,
+  description: 'Previous Day',
+  category: 'Day Navigation',
+  when: weekNavigationAvailable,
+  handler: () => selectAdjacentDay(-1)
+});
+shortcuts.register({
+  id: 'day.next',
+  key: 'ArrowRight',
+  mod: true,
+  description: 'Next Day',
+  category: 'Day Navigation',
+  when: weekNavigationAvailable,
+  handler: () => selectAdjacentDay(1)
+});
+shortcuts.register({
+  id: 'week.previous',
+  key: 'ArrowLeft',
+  mod: true,
+  shift: true,
+  description: 'Previous Week',
+  category: 'Week Navigation',
+  when: weekNavigationAvailable,
+  handler: () => prevWeekBtn.click()
+});
+shortcuts.register({
+  id: 'week.next',
+  key: 'ArrowRight',
+  mod: true,
+  shift: true,
+  description: 'Next Week',
+  category: 'Week Navigation',
+  when: weekNavigationAvailable,
+  handler: () => nextWeekBtn.click()
+});
+shortcuts.register({
+  id: 'week.this-week',
+  key: 'ArrowUp',
+  mod: true,
+  shift: true,
+  description: 'Go to This Week',
+  category: 'Week Navigation',
+  when: weekNavigationAvailable,
+  handler: () => thisWeekBtn.click()
+});
+// `+` does what the + beside the selected day's total does. Only with no panel, drawer, or
+// dialog open; the button is missing until the week has loaded.
+shortcuts.register({
+  id: 'worklogs.log-work',
+  key: '+',
+  keys: [['+']],
+  description: 'Log work',
+  category: 'Worklogs',
+  when: () => !settingsDrawerState && !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer &&
+    Boolean(daysContainer.querySelector('.day-add-btn')),
+  handler: () => daysContainer.querySelector('.day-add-btn').click()
+});
+
+// Sync Worklogs: not while a worklog is being edited or logged.
+shortcuts.register({
+  id: 'worklogs.sync',
+  key: 'ArrowDown',
+  mod: true,
+  shift: true,
+  description: 'Sync Worklogs',
+  category: 'Worklogs',
+  when: () => !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState,
+  handler: () => refreshWorklogsBtn.click()
+});
+
+for (const shortcut of WORKLOG_FORM_SHORTCUTS) {
+  shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditor) });
+}
+for (const shortcut of ISSUE_PICKER_SHORTCUTS) {
+  shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditorRoot.querySelector('#worklogIssueSearch')) });
+}
+
+shortcuts.listen(document);
 
 // Warn before leaving the page with unsaved worklog edits
 window.addEventListener('beforeunload', (event) => {
