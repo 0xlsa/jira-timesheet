@@ -30,6 +30,7 @@ import {
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
+import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
@@ -151,10 +152,13 @@ const tokenVisibility = createTokenVisibilityToggle({
   hideIcon: eyeOffIcon
 });
 
-// Settings form values kept per Jira edition, so Cloud and Data Center / Server
-// instance URLs and tokens never overwrite each other when switching editions.
-const baseUrlsByType = { cloud: '', server: '' };
-const tokensByType = { cloud: '', server: '' };
+// The last saved settings (the active configuration), as loaded from the settings store; null
+// until they have loaded. The Connection Settings form is refilled from them each time it opens.
+let savedSettings = null;
+// The form's unsaved values (src/settings/settingsDraft.js), including the instance URL and token
+// of each Jira edition, so Cloud and Data Center / Server values never overwrite each other when
+// switching editions. Only a successful save writes them to the store.
+let settingsDraft = createSettingsDraft(normalizeSettings({}));
 
 // Connection test bookkeeping. Bumping the id invalidates any in-flight test, so a
 // late result cannot mark changed settings as connected. `hasUntestedChanges`
@@ -233,11 +237,14 @@ function closeOpenPanel() {
 }
 
 /**
- * Opens the Connection Settings drawer. The form stays as it was, including anything typed
- * and not saved. The keyboard shortcuts drawer closes, since only one drawer is open at a time.
+ * Opens the Connection Settings drawer, with the form showing the saved settings (anything
+ * changed but not saved on an earlier visit is discarded). The keyboard shortcuts drawer closes,
+ * since only one drawer is open at a time.
  */
 function openSettings() {
   if (settingsDrawerState) return;
+  // Unsaved changes from an earlier visit are discarded: the form shows the saved settings.
+  if (savedSettings) fillSettingsForm(savedSettings);
   shortcutsDrawer?.close();
   settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
   showPanel(settingsDrawerRoot);
@@ -245,7 +252,7 @@ function openSettings() {
   jiraBaseUrlInput.focus();
 }
 
-/** Closes the Connection Settings drawer, keeping the form as it is for next time. */
+/** Closes the Connection Settings drawer. Unsaved changes are discarded when it next opens. */
 function closeSettings() {
   if (!settingsDrawerState) return;
   const { returnFocus, coversEditor } = settingsDrawerState;
@@ -838,12 +845,13 @@ function setDeploymentType(type) {
  * @param {'cloud' | 'server'} type
  */
 function switchDeploymentType(type) {
-  const previousType = type === 'cloud' ? 'server' : 'cloud';
-  baseUrlsByType[previousType] = jiraBaseUrlInput.value.trim();
-  tokensByType[previousType] = jiraTokenInput.value.trim();
+  const { baseUrl, token } = switchDraftEdition(settingsDraft, type, {
+    baseUrl: jiraBaseUrlInput.value.trim(),
+    token: jiraTokenInput.value.trim()
+  });
   setDeploymentType(type);
-  jiraBaseUrlInput.value = baseUrlsByType[type];
-  jiraTokenInput.value = tokensByType[type];
+  jiraBaseUrlInput.value = baseUrl;
+  jiraTokenInput.value = token;
   updateOpenInstanceBtn();
   invalidateConnectionStatus();
 }
@@ -1031,6 +1039,7 @@ async function onSaveSettings(event) {
   try {
     const hasSiteAccess = await siteAccess;
 
+    const { baseUrlsByType, tokensByType } = settingsDraft;
     baseUrlsByType[deploymentType] = baseUrl;
     tokensByType[deploymentType] = token;
 
@@ -1042,15 +1051,14 @@ async function onSaveSettings(event) {
       await settingsStore.clearTestResult();
     }
 
+    // The saved settings are now the active configuration, and what the form shows when it
+    // next opens.
+    savedSettings = await settingsStore.load();
+
     await removeUnusedSiteAccess([baseUrlsByType.cloud, baseUrlsByType.server]);
 
-    // Saved: close the drawer and confirm with a toast, which stays after the drawer has gone. An
-    // earlier error (such as a failed save) is cleared, so it isn't shown when the drawer reopens.
+    // Saved: close the drawer and confirm with a toast, which stays after the drawer has gone.
     // Without site access, the timesheet offers Allow Access.
-    if (statusArea.classList.contains(STATUS_CLASSES.error)) {
-      statusArea.className = 'status-container hidden';
-      statusArea.replaceChildren();
-    }
     closeSettings();
     showToast('Settings saved', {
       success: true,
@@ -1086,25 +1094,37 @@ function setBusy(isBusy) {
 }
 
 /**
+ * Fills the Connection Settings form from saved settings, discarding any unsaved changes: the
+ * edition, each edition's instance URL and token, the email, and the saved connection test
+ * result. A connection test still running is ignored when it finishes.
+ * @param {ReturnType<typeof normalizeSettings>} settings
+ */
+function fillSettingsForm(settings) {
+  settingsDraft = createSettingsDraft(settings);
+  const { deploymentType } = settingsDraft;
+
+  setDeploymentType(deploymentType);
+  jiraBaseUrlInput.value = settingsDraft.baseUrlsByType[deploymentType];
+  updateOpenInstanceBtn();
+  jiraEmailInput.value = settingsDraft.email;
+  jiraTokenInput.value = settingsDraft.tokensByType[deploymentType];
+
+  invalidateConnectionStatus();
+  hasUntestedChanges = false;
+  if (settings.lastTestResult && settings.lastTestResult.success) {
+    renderStatus('success', settings.lastTestResult);
+  }
+}
+
+/**
  * Loads saved settings from the browser extension storage when the page opens.
  * Works with both chrome.storage.local (Chrome MV3) and browser.storage.local (Firefox MV3).
  */
 async function loadSavedSettings() {
   try {
     const settings = await settingsStore.load();
-
-    Object.assign(baseUrlsByType, settings.baseUrlsByType);
-    Object.assign(tokensByType, settings.tokensByType);
-
-    setDeploymentType(settings.deploymentType);
-    jiraBaseUrlInput.value = baseUrlsByType[settings.deploymentType];
-    updateOpenInstanceBtn();
-    jiraEmailInput.value = settings.email;
-    jiraTokenInput.value = tokensByType[settings.deploymentType];
-
-    if (settings.lastTestResult && settings.lastTestResult.success) {
-      renderStatus('success', settings.lastTestResult);
-    }
+    savedSettings = settings;
+    fillSettingsForm(settings);
 
     // Open Connection Settings when the page was opened for them (the toolbar icon's Settings menu
     // item) or nothing is configured yet. The hash is dropped at once, so a reload or a later

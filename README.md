@@ -124,7 +124,7 @@ On first install, the extension opens its page automatically so you can configur
 
 ## Configuration
 
-Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it; anything you typed but didn't save is still there when you reopen it. Once **Save Settings** succeeds, the drawer closes and a toast confirms that the settings were saved; if saving fails, the drawer stays open with the error and your entries.
+Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it. The drawer always opens with your saved settings: changes you didn't save, including a different Jira edition, are discarded when you close it. Once **Save Settings** succeeds, the drawer closes and a toast confirms that the settings were saved; if saving fails, the drawer stays open with the error and your entries.
 
 ### Jira Cloud
 
@@ -275,6 +275,7 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `WeeklyWorklogService.test.js` | Week ranges across a daylight-saving change, loading a week, and recalculating day and week totals after creating, editing, or deleting a worklog |
 | `WeeklyWorklogIntegration.test.js` | Total invariants, chronological order within days, week navigation boundaries, and day selection not changing totals |
 | `SettingsStore.test.js` | Per-edition URLs and tokens, settings saved by older versions, the "configured" rule, the Cloud email, and the last connection test result |
+| `SettingsDraft.test.js` | The Connection Settings form's unsaved values: a copy of the saved settings, switching editions without losing either edition's values, and saving or discarding them |
 | `CompositionAndPlatform.test.js` | The Jira client factory, worklog author matching, and the platform adapter (extension APIs and the non-extension fallback) |
 | `BackgroundMessages.test.js` | The background script's `TEST_CONNECTION` and `FETCH_WORKLOGS` message handlers |
 
@@ -353,6 +354,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── issueKeySearch.js          # Partial issue keys: JQL and matching
 │   │   └── createJiraClient.js        # Builds a client from connection settings
 │   ├── settings/
+│   │   ├── settingsDraft.js           # Unsaved Connection Settings form values
 │   │   └── settingsStore.js           # Settings and credential persistence
 │   ├── ui/
 │   │   ├── dom.js                     # Builds elements without parsing HTML
