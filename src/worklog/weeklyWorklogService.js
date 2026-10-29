@@ -22,6 +22,26 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
 }
 
 /**
+ * Fetches the issues assigned to the current user in one of the My Active Issues statuses.
+ * Independent of loadWeek(): one failing doesn't affect the other.
+ *
+ * @param {{ getWorkingStatuses: Function, getWorkingIssues: Function }} client - JiraClient (or a test double)
+ * @param {object} [options]
+ * @param {object} [options.workingStatuses] - Statuses found earlier on the same Jira site
+ *   (getWorkingStatuses()); looked up when not given
+ * @param {AbortSignal} [options.signal] - Cancels the requests
+ * @returns {Promise<{ workingStatuses: object, issues: Array<object> | null }>} `issues` is null when the
+ *   site has none of the statuses; `workingStatuses.reason` then says why
+ */
+export async function loadWorkingIssues(client, { workingStatuses, signal } = {}) {
+  const statuses = workingStatuses ?? await client.getWorkingStatuses({ signal });
+  if (!statuses.names) return { workingStatuses: statuses, issues: null };
+
+  const issues = await client.getWorkingIssues(statuses, { signal });
+  return { workingStatuses: statuses, issues };
+}
+
+/**
  * Re-aggregates a loaded week from a new list of source worklogs, keeping its user and days.
  *
  * @param {object} week - From loadWeek()

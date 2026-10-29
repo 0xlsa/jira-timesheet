@@ -783,7 +783,9 @@ body {
   gap: 12px;
 }
 
-/* Circular add worklog button in the selected day's heading */
+/* Circular add worklog button in the selected day's heading, and the log work button of each
+   My Active Issues row */
+.working-issue-log-btn,
 .day-add-btn {
   flex-shrink: 0;
   display: inline-flex;
@@ -800,17 +802,20 @@ body {
   transition: color var(--transition), background-color var(--transition), border-color var(--transition);
 }
 
+.working-issue-log-btn:hover,
 .day-add-btn:hover {
   color: var(--primary);
   background-color: var(--primary-light);
   border-color: var(--primary-border);
 }
 
+.working-issue-log-btn:focus-visible,
 .day-add-btn:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
 
+.working-issue-log-btn .icon,
 .day-add-btn .icon {
   width: 16px;
   height: 16px;
@@ -1060,6 +1065,185 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.45;
+}
+
+/* My Active Issues: collapsible list of the issues assigned to the user in a working status,
+   between the weekday cards and the selected-day panel. Kept compact so the timesheet stays in front. */
+.working-issues {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.working-issues-heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.working-issues-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 18px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-lg);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.working-issues-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.working-issues-chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+  transition: transform var(--transition);
+}
+
+.working-issues.is-collapsed .working-issues-chevron {
+  transform: rotate(-90deg);
+}
+
+.working-issues-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.working-issues-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.working-issues-subtitle {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.working-issues.is-error .working-issues-subtitle {
+  color: var(--danger);
+}
+
+.working-issues.is-unavailable .working-issues-subtitle {
+  color: var(--warning);
+}
+
+.working-issues-indicator {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.working-issues-count {
+  min-width: 26px;
+  padding: 2px 8px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.working-issues-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.working-issues-body {
+  padding: 0 18px 12px;
+}
+
+.working-issues-body.is-empty {
+  display: none;
+}
+
+.working-issues-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Columns: issue key | summary | status | log work button */
+.working-issue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 132px auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.working-issue:last-child {
+  border-bottom: 0;
+}
+
+.working-issue-summary {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.working-issues-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.working-issues-message .btn {
+  flex-shrink: 0;
+}
+
+/* Narrow: issue key, summary, and log work button on the first line, status on the second */
+@media (max-width: 600px) {
+  .working-issue {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  .working-issue-status {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .working-issues-message {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-issues-chevron {
+    transition: none;
+  }
 }
 
 .empty-day-placeholder {

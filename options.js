@@ -35,7 +35,7 @@ import { createPlatform, ext, isExtensionContext } from './src/compat/browser-ap
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -44,6 +44,7 @@ import { showPanel, hidePanel } from './src/ui/panel.js';
 import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
+import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -130,6 +131,12 @@ let isBusyFetching = false;
 // Jira client and instance URL of the displayed week; set when worklogs load.
 let currentClient = null;
 let currentBaseUrl = '';
+
+// My Active Issues section (see src/ui/weekView.js): what it shows (null hides it, when there is no
+// Jira to ask) and whether it's expanded: collapsed until the user expands it, then as they last
+// left it. The loader (src/worklog/workingIssuesLoader.js) is created with the section's renderer below.
+let workingIssuesState = null;
+let isWorkingIssuesExpanded = localStorage.getItem('jts-working-issues-expanded') === 'true';
 
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
@@ -322,9 +329,54 @@ function renderDays(aggregatedData, baseUrl = '') {
     onEditWorklog: aggregatedData.sourceWorklogs ? openEditor : undefined,
     onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
     onDeleteWorklog: aggregatedData.sourceWorklogs ? confirmDeleteWorklog : undefined,
-    editingWorklogId: worklogEditor?.worklogId
+    editingWorklogId: worklogEditor?.worklogId,
+    workingIssues: workingIssuesOptions()
   });
 }
+
+// ============================================================================
+// My Active Issues
+// ============================================================================
+
+/**
+ * Options for the My Active Issues section, or undefined to leave it out.
+ * @returns {object | undefined}
+ */
+function workingIssuesOptions() {
+  if (!workingIssuesState) return undefined;
+  return {
+    state: workingIssuesState,
+    expanded: isWorkingIssuesExpanded,
+    onToggle: (expanded) => {
+      isWorkingIssuesExpanded = expanded;
+      localStorage.setItem('jts-working-issues-expanded', String(expanded));
+    },
+    onRetry: () => {
+      if (currentClient) workingIssues.refresh(currentClient);
+    },
+    // Like the worklog cards' + buttons: once the week has loaded.
+    onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined
+  };
+}
+
+/**
+ * Shows a new My Active Issues state, updating the section in place when it's on the page.
+ * @param {object | null} state
+ */
+function setWorkingIssuesState(state) {
+  workingIssuesState = state;
+  const section = daysContainer.querySelector('#workingIssues');
+  if (state && section) {
+    renderWorkingIssues(section, { ...workingIssuesOptions(), baseUrl: currentBaseUrl });
+  } else if (!state) {
+    section?.remove();
+  }
+}
+
+// Loads the My Active Issues section's contents on its own: the worklogs load and show whatever
+// happens there. Refreshed with every week load (changing weeks, Sync); a newer load cancels an
+// older one.
+const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
 
 /**
  * Shows a loaded week: totals, the selected-day card, the empty-week banner, and the days.
@@ -465,6 +517,29 @@ function startLogWork(worklogId) {
     dateKey: selectedDateKey,
     // Back to the + button it was opened from
     returnFocusTo: () => daysContainer.querySelector(`.worklog-log-btn[data-worklog-id="${CSS.escape(worklogId)}"]`)
+  });
+}
+
+/**
+ * Opens the Log work panel for an issue in My Active Issues (the row's + button). Like a worklog
+ * card's + button, the date defaults to the selected day and the start time to now.
+ * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }} issue
+ */
+function startLogWorkOnIssue(issue) {
+  shortcutsDrawer?.close();
+  closeSettings();
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  openLogWork({
+    issue: {
+      issueId: issue.issueId,
+      issueKey: issue.issueKey,
+      issueSummary: issue.issueSummary,
+      issueStatus: issue.issueStatus
+    },
+    dateKey: selectedDateKey,
+    // Back to the + button it was opened from
+    returnFocusTo: () => daysContainer.querySelector(`.working-issue-log-btn[data-issue-key="${CSS.escape(issue.issueKey)}"]`)
   });
 }
 
@@ -654,7 +729,7 @@ function showSiteAccessNeeded(baseUrl) {
  * Fetches worklogs from Jira for the current week and updates all views.
  *
  * @param {object} [options]
- * @param {boolean} [options.force=false]
+ * @param {boolean} [options.force=false] - Also look up the My Active Issues statuses again (Sync, Retry, new settings)
  */
 async function loadAndRenderWorklogs(options = {}) {
   if (isBusyFetching) return;
@@ -675,6 +750,7 @@ async function loadAndRenderWorklogs(options = {}) {
   siteAccessAlert.classList.add('hidden');
 
   if (!isConfigured(settings)) {
+    workingIssues.clear();
     unconfiguredAlert.classList.remove('hidden');
     worklogErrorAlert.classList.add('hidden');
     emptyWeekBanner.classList.add('hidden');
@@ -707,6 +783,7 @@ async function loadAndRenderWorklogs(options = {}) {
     token: settings.token
   });
   if (!client) {
+    workingIssues.clear();
     showWorklogError('Invalid Jira Configuration', error);
     return;
   }
@@ -728,9 +805,13 @@ async function loadAndRenderWorklogs(options = {}) {
     // Without access to the Jira site every request fails, so ask for it instead. Access is
     // missing if it was never granted for this site, or the user removed it in the browser.
     if (!(await platform.hostAccess.has(JiraUrlValidator.validate(client.baseUrl).originPattern))) {
+      workingIssues.clear();
       showSiteAccessNeeded(client.baseUrl);
       return;
     }
+
+    // Not awaited: the worklogs don't wait for the issues, nor fail with them.
+    workingIssues.refresh(client, { refreshStatuses: Boolean(options.force) });
 
     const aggregated = await loadWeek(client, { monday, sunday });
 

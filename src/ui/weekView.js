@@ -18,6 +18,13 @@ const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
 // The add button's accessible label ("26 October").
 const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' });
 
+// Subtitle of the My Active Issues section, by state.
+const WORKING_ISSUES_SUBTITLES = {
+  loading: 'Retrieving issues from Jira…',
+  error: "Couldn't retrieve issues from Jira",
+  unavailable: 'No matching status on this Jira site'
+};
+
 // Jira status category keys with a dedicated badge color; anything else (custom or `undefined`) is neutral.
 const STATUS_CATEGORY_CLASSES = {
   new: 'status-category-new',
@@ -34,6 +41,16 @@ const metaIcon = (...shapes) => svg('svg', { class: 'meta-icon', ...ICON_STROKE 
 const buttonIcon = (...shapes) => svg('svg', {
   class: 'icon', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true'
 }, ...shapes);
+
+/**
+ * Returns the address of an issue in Jira, or '#' without an instance URL.
+ * @param {string} baseUrl
+ * @param {string} issueKey
+ * @returns {string}
+ */
+function issueBrowseUrl(baseUrl, issueKey) {
+  return baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(issueKey)}` : '#';
+}
 
 /**
  * Builds the status label (colored dot + name) shown under the issue key, or null when the status is unknown.
@@ -61,7 +78,7 @@ export function renderIssueStatusBadge(status) {
  * @returns {DocumentFragment}
  */
 export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = false, deletable = false } = {}) {
-  const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(wl.issueKey)}` : '#';
+  const issueUrl = issueBrowseUrl(baseUrl, wl.issueKey);
   const issueKey = wl.issueKey || '';
   const worklogId = String(wl.id);
 
@@ -106,8 +123,124 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
 }
 
 /**
- * Renders the 7 weekday cards and the selected day's worklog panel into `container`.
- * Daily totals and weekly totals are never modified by changing the selection.
+ * Builds one row of the My Active Issues list: issue key (a link to Jira), summary, status, and
+ * the log work (plus) button.
+ * @param {object} issue - From JiraClient.getWorkingIssues()
+ * @param {string} baseUrl
+ * @param {boolean} canLogWork - Show the log work button
+ * @returns {HTMLElement}
+ */
+function renderWorkingIssue(issue, baseUrl, canLogWork) {
+  return h('li', { class: 'working-issue' },
+    h('a', { href: issueBrowseUrl(baseUrl, issue.issueKey), target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey} in Jira` },
+      issue.issueKey),
+    h('span', { class: 'working-issue-summary', title: issue.issueSummary || '' }, issue.issueSummary),
+    h('span', { class: 'working-issue-status' }, renderIssueStatusBadge(issue.issueStatus)),
+    canLogWork && h('button', { type: 'button', class: 'working-issue-log-btn', 'data-issue-key': issue.issueKey, 'aria-label': `Log work on ${issue.issueKey}`, title: 'Log work' },
+      buttonIcon(
+        svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+        svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))));
+}
+
+/**
+ * Renders the My Active Issues section: a header button that expands and collapses it (count and
+ * subtitle included), and below it the issues, or why there are none to show. The first call
+ * builds the header; later calls on the same section update it in place, so the header button
+ * keeps focus when the issues arrive.
+ *
+ * @param {HTMLElement} section
+ * @param {object} options
+ * @param {{ status: 'loading' | 'ready' | 'error' | 'unavailable', issues?: Array<object>, message?: string,
+ *   statusNames?: string[] }} options.state - `issues` when ready (those assigned to the user in one of
+ *   `statusNames`, which the subtitle names), `message` for an error or for statuses the site doesn't have
+ * @param {boolean} options.expanded
+ * @param {string} [options.baseUrl] - Jira instance URL used for issue links
+ * @param {(expanded: boolean) => void} [options.onToggle] - Called after the header expands or collapses the section
+ * @param {() => void} [options.onRetry] - Called when the error's Retry button is clicked; no Retry button without it
+ * @param {(issue: object) => void} [options.onLogWork] - Called with an issue when its log work button is clicked;
+ *   no log work buttons without it
+ */
+export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork }) {
+  let toggle = section.querySelector('.working-issues-toggle');
+  if (!toggle) {
+    toggle = h('button', { type: 'button', class: 'working-issues-toggle', 'aria-controls': 'workingIssuesBody' },
+      svg('svg', { class: 'working-issues-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
+        svg('polyline', { points: '6 9 12 15 18 9' })),
+      h('span', { class: 'working-issues-titles' },
+        h('span', { class: 'working-issues-title' }, 'My Active Issues'),
+        h('span', { class: 'working-issues-subtitle' })),
+      h('span', { class: 'working-issues-indicator' }));
+    toggle.addEventListener('click', () => {
+      const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
+      setWorkingIssuesExpanded(section, isExpanded);
+      onToggle?.(isExpanded);
+    });
+    section.replaceChildren(
+      h('h3', { class: 'working-issues-heading' }, toggle),
+      h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }));
+  }
+
+  const issues = state.status === 'ready' ? state.issues || [] : [];
+  section.className = `working-issues is-${state.status}`;
+
+  // Names the statuses searched ("In Progress"), so the list says what it's filtered by.
+  const statusLabel = state.statusNames?.length ? state.statusNames.join(' or ') : 'working';
+  toggle.querySelector('.working-issues-subtitle').textContent = state.status === 'ready'
+    ? (issues.length > 0
+      ? `${issues.length} ${statusLabel}, assigned to you`
+      : `No ${statusLabel} issues assigned to you`)
+    : WORKING_ISSUES_SUBTITLES[state.status] || '';
+  toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
+    state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' }),
+    state.status === 'ready' && h('span', { class: 'working-issues-count', title: `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} assigned to you` }, String(issues.length))));
+
+  const retryButton = state.status === 'error' && onRetry
+    ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm working-issues-retry' }, 'Retry')
+    : null;
+  retryButton?.addEventListener('click', () => {
+    // The button goes away with the error; keep focus in the section.
+    toggle.focus();
+    onRetry();
+  });
+
+  const list = issues.length > 0 && h('ul', { class: 'working-issues-list' },
+    issues.map((issue) => renderWorkingIssue(issue, baseUrl, Boolean(onLogWork))));
+  if (list && onLogWork) {
+    list.addEventListener('click', (event) => {
+      const logBtn = event.target.closest('.working-issue-log-btn');
+      if (!logBtn) return;
+      // The click is the button's alone, not the row's or the section's.
+      event.stopPropagation();
+      const issue = issues.find((i) => i.issueKey === logBtn.dataset.issueKey);
+      if (issue) onLogWork(issue);
+    });
+  }
+
+  const body = section.querySelector('.working-issues-body');
+  body.replaceChildren(fragment(
+    list,
+    (state.status === 'error' || state.status === 'unavailable') && h('div', { class: 'working-issues-message', role: 'status' },
+      h('p', {}, state.message || WORKING_ISSUES_SUBTITLES[state.status]),
+      retryButton)));
+  // Nothing to show below the header (loading, or no issues).
+  body.classList.toggle('is-empty', body.childNodes.length === 0);
+
+  setWorkingIssuesExpanded(section, expanded);
+}
+
+/**
+ * @param {HTMLElement} section
+ * @param {boolean} expanded
+ */
+function setWorkingIssuesExpanded(section, expanded) {
+  section.querySelector('.working-issues-toggle').setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  section.classList.toggle('is-collapsed', !expanded);
+  section.querySelector('.working-issues-body').classList.toggle('hidden', !expanded);
+}
+
+/**
+ * Renders the 7 weekday cards, the My Active Issues section, and the selected day's worklog panel
+ * into `container`. Daily totals and weekly totals are never modified by changing the selection.
  *
  * @param {HTMLElement} container
  * @param {{ weekDays: Array<object> }} week - Aggregated week from aggregateWorklogsByWeek()
@@ -121,8 +254,10 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
  * @param {(worklogId: string) => void} [options.onLogWork] - Called when a worklog's log work button is clicked; no log work buttons without it
  * @param {(worklogId: string) => void} [options.onDeleteWorklog] - Called when a worklog's delete button is clicked; no delete buttons without it
  * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
+ * @param {object} [options.workingIssues] - Options for renderWorkingIssues() (without `baseUrl`); no
+ *   My Active Issues section without it. The section has the ID `workingIssues`.
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -166,7 +301,14 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
   container.appendChild(strip);
 
-  // 2. Selected-day worklogs panel
+  // 2. My Active Issues: issues assigned to the user in a working status
+  if (workingIssues) {
+    const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Active Issues' });
+    renderWorkingIssues(section, { ...workingIssues, baseUrl });
+    container.appendChild(section);
+  }
+
+  // 3. Selected-day worklogs panel
   const panel = document.createElement('section');
   panel.id = 'selectedDayPanel';
   panel.className = 'day-panel';

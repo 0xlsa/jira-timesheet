@@ -3,6 +3,7 @@ import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
 import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
+import { selectWorkingStatuses, buildWorkingIssuesJql } from './workingStatuses.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -968,9 +969,10 @@ export class JiraClient {
    *
    * @param {string} jql
    * @param {string[]} fields
+   * @param {AbortSignal} [signal] - Cancels the requests
    * @returns {Promise<Array<object>>}
    */
-  async #searchAllIssues(jql, fields) {
+  async #searchAllIssues(jql, fields, signal) {
     const isCloud = this.deploymentType === 'cloud';
     const issues = [];
     let startAt = 0;
@@ -983,7 +985,8 @@ export class JiraClient {
         startAt,
         nextPageToken,
         maxResults,
-        fields
+        fields,
+        signal
       });
 
       if (!searchResult || !Array.isArray(searchResult.issues) || searchResult.issues.length === 0) {
@@ -1003,6 +1006,77 @@ export class JiraClient {
     } while (hasMore);
 
     return issues;
+  }
+
+  /**
+   * Finds which of the My Active Issues statuses (WORKING_STATUS_NAMES) exist on this Jira site,
+   * from its status list (`GET /status`; see selectWorkingStatuses()).
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request; the promise then rejects with an AbortError
+   * @returns {Promise<ReturnType<typeof selectWorkingStatuses>>}
+   *   Rejects with a user-facing Error (with `status` for HTTP errors) when the status list can't be read
+   */
+  async getWorkingStatuses({ signal } = {}) {
+    try {
+      const { response, path } = await this.#requestWithV2Fallback(this.#apiPath('status'), { signal });
+
+      if (!response.ok) {
+        const err = await this.#handleHttpError(response, new Date().toISOString());
+        const error = new Error(err.error || `Jira status list request failed with status ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return selectWorkingStatuses(await this.#parseJson(response, path));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Retrieves every issue assigned to the authenticated user in one of the given statuses,
+   * across all result pages. The assignee and status conditions are in the JQL; the status is
+   * checked again on Jira's answer.
+   *
+   * @param {{ names: string[] }} workingStatuses - From getWorkingStatuses()
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
+   * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }>>}
+   *   Most recently updated first. Rejects with a user-facing Error (with `status` for HTTP errors)
+   *   when Jira can't be searched
+   */
+  async getWorkingIssues({ names }, { signal } = {}) {
+    const wanted = new Set(names.map((name) => name.toLowerCase()));
+    try {
+      const issues = await this.#searchAllIssues(buildWorkingIssuesJql(names), ['summary', 'status'], signal);
+
+      return issues
+        .map((issue) => ({
+          issueId: String(issue.id ?? ''),
+          issueKey: String(issue.key ?? ''),
+          issueSummary: issue.fields?.summary || '',
+          issueStatus: toIssueStatus(issue.fields?.status)
+        }))
+        .filter((issue) => issue.issueKey && wanted.has(issue.issueStatus?.name.toLowerCase()));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Gives timeouts and network failures a user-facing message and an `errorType` code. HTTP
+   * errors (with `status`) and cancellations are returned unchanged.
+   *
+   * @param {Error} err
+   * @returns {Error}
+   */
+  #toUserFacingError(err) {
+    if (err.name === 'AbortError' || err.status) return err;
+    const { error, errorType } = this.#handleException(err, '');
+    const wrapped = new Error(error);
+    wrapped.errorType = errorType;
+    return wrapped;
   }
 
   /**
