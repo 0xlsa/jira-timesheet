@@ -500,7 +500,7 @@ describe('Shortcuts - Ctrl/⌘ + arrows (days) and Ctrl/⌘ + Shift + arrows (we
     ['day.next', 'ArrowRight', false, 'Next Day', 'Day Navigation'],
     ['week.previous', 'ArrowLeft', true, 'Previous Week', 'Week Navigation'],
     ['week.next', 'ArrowRight', true, 'Next Week', 'Week Navigation'],
-    ['week.this-week', 'ArrowUp', true, 'Go to This Week', 'Week Navigation'],
+    ['week.this-week', 'ArrowUp', true, 'Go to Today', 'Week Navigation'],
     ['worklogs.sync', 'ArrowDown', true, 'Sync Worklogs', 'Worklogs']
   ];
   const page = (runs, platform) => {
@@ -518,12 +518,12 @@ describe('Shortcuts - Ctrl/⌘ + arrows (days) and Ctrl/⌘ + Shift + arrows (we
       .map((g) => [g.category, g.shortcuts.map((s) => `${s.description} [${s.keys.flat().join(' ')}]`)]);
     assert.deepEqual(shown('other'), [
       ['Day Navigation', ['Previous Day [Ctrl ←]', 'Next Day [Ctrl →]']],
-      ['Week Navigation', ['Previous Week [Ctrl Shift ←]', 'Next Week [Ctrl Shift →]', 'Go to This Week [Ctrl Shift ↑]']],
+      ['Week Navigation', ['Previous Week [Ctrl Shift ←]', 'Next Week [Ctrl Shift →]', 'Go to Today [Ctrl Shift ↑]']],
       ['Worklogs', ['Sync Worklogs [Ctrl Shift ↓]']]
     ]);
     assert.deepEqual(shown('mac'), [
       ['Day Navigation', ['Previous Day [⌘ ←]', 'Next Day [⌘ →]']],
-      ['Week Navigation', ['Previous Week [⌘ Shift ←]', 'Next Week [⌘ Shift →]', 'Go to This Week [⌘ Shift ↑]']],
+      ['Week Navigation', ['Previous Week [⌘ Shift ←]', 'Next Week [⌘ Shift →]', 'Go to Today [⌘ Shift ↑]']],
       ['Worklogs', ['Sync Worklogs [⌘ Shift ↓]']]
     ]);
   });
@@ -617,7 +617,9 @@ describe('Shortcuts - Ctrl/⌘ + arrows (days) and Ctrl/⌘ + Shift + arrows (we
 
   it('is found in the drawer search by category and key names', () => {
     const ids = (q) => groupShortcuts(page([], 'other').list(), q).flatMap((g) => g.shortcuts.map((s) => s.id));
-    assert.deepEqual(ids('day'), ['day.previous', 'day.next']);
+    // "Day" also finds Go to Today.
+    assert.deepEqual(ids('day'), ['day.previous', 'day.next', 'week.this-week']);
+    assert.deepEqual(ids('today'), ['week.this-week']);
     assert.deepEqual(ids('week navigation'), ['week.previous', 'week.next', 'week.this-week']);
     assert.deepEqual(ids('ctrl shift left arrow'), ['week.previous']);
     assert.deepEqual(ids('shift up arrow'), ['week.this-week']);

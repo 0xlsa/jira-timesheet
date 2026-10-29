@@ -1335,7 +1335,7 @@ shortcuts.register({
 });
 
 // Days, weeks, and sync: Ctrl + ← / → (previous or next day), Ctrl + Shift + ← / → (previous or next
-// week), Ctrl + Shift + ↑ (this week), and Ctrl + Shift + ↓ (sync) on Windows and Linux; ⌘ instead
+// week), Ctrl + Shift + ↑ (today), and Ctrl + Shift + ↓ (sync) on Windows and Linux; ⌘ instead
 // of Ctrl on macOS. Each does what its control does, through the control itself (disabled while
 // worklogs load, so repeated presses don't stack requests). Not while a drawer or dialog covers the
 // page, and not while typing in a field (where these keys move the caret or select text). On Windows
@@ -1408,7 +1408,7 @@ shortcuts.register({
   key: 'ArrowUp',
   mod: true,
   shift: true,
-  description: 'Go to This Week',
+  description: 'Go to Today',
   category: 'Week Navigation',
   when: weekNavigationAvailable,
   handler: () => thisWeekBtn.click()
