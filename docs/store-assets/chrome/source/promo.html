@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Timesheet for Jira promotional tiles</title>
+<!--
+  Source of the three Chrome Web Store promotional tiles. Open with ?tile=marquee (1400 x 560),
+  ?tile=large (1571 x 1001), or ?tile=small (440 x 280) at that window size; render.sh does this
+  with headless Chrome. The product UI is app-overview@2x.png, a screenshot of the extension (see
+  README.md); nothing in it is redrawn here. The feature list is written once, in FEATURES below,
+  so the tiles that show it always say the same thing.
+-->
+<style>
+  /* Colors from options.css (light theme); Roboto, as the extension renders its system font stack. */
+  :root {
+    --navy: #1a1f2e;          /* --text-main */
+    --subtle: #5a6376;        /* --text-subtle */
+    --page: #f4f6f9;          /* --bg-page */
+    --border: #e1e6ee;        /* --border-color */
+    --blue: #2f81f7;          /* --primary */
+    --green: #16a34a;         /* --success */
+    --purple: #a855f7;        /* .badge-server */
+    --amber: #f59e0b;         /* theme toggle */
+    --font: Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+
+  body {
+    position: relative;
+    font-family: var(--font);
+    color: var(--navy);
+    background: linear-gradient(135deg, #ffffff 0%, var(--page) 45%, #e6effd 100%);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .tile { display: none; position: absolute; inset: 0; overflow: hidden; }
+  body[data-tile="marquee"] .tile-marquee,
+  body[data-tile="large"] .tile-large,
+  body[data-tile="small"] .tile-small { display: block; }
+
+  /* Soft blue shapes behind the screenshot */
+  .blob { position: absolute; border-radius: 50%; }
+  .blob-main { background: linear-gradient(160deg, rgba(47, 129, 247, 0.30), rgba(47, 129, 247, 0.12)); }
+  .blob-soft { background: rgba(47, 129, 247, 0.08); }
+
+  /* Product identity */
+  .brand { display: flex; align-items: center; }
+  .brand img { display: block; }
+  .brand-name { font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+
+  .headline { font-weight: 800; letter-spacing: -0.03em; line-height: 1.04; }
+  .headline .accent { color: var(--blue); display: block; }
+
+  /* Feature list (filled from FEATURES): a tinted circle with the icon, a title, and one short line */
+  .features { display: grid; }
+  .feature { display: flex; align-items: center; }
+  .feature-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+  }
+  .feature-icon svg { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+  .feature-title { font-weight: 700; letter-spacing: -0.01em; line-height: 1.15; white-space: nowrap; }
+  .feature-text { color: var(--subtle); line-height: 1.3; white-space: nowrap; }
+  .tone-blue { color: var(--blue); background: rgba(47, 129, 247, 0.11); }
+  .tone-green { color: var(--green); background: rgba(22, 163, 74, 0.11); }
+  .tone-purple { color: var(--purple); background: rgba(168, 85, 247, 0.12); }
+  .tone-amber { color: var(--amber); background: rgba(245, 158, 11, 0.14); }
+
+  /* The screenshot, framed like a window: rounded, light border, restrained shadow. The image keeps
+     its proportions; each tile sets its width (the scale) and offset (which part shows). */
+  .shot {
+    position: absolute;
+    overflow: hidden;
+    background: var(--page);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05), 0 18px 48px rgba(15, 23, 42, 0.12);
+  }
+  .shot img { display: block; position: absolute; left: 0; top: 0; height: auto; }
+
+  /* ---------------------------------------------------------------- Marquee 1400 x 560 */
+  .tile-marquee .blob-main { width: 820px; height: 820px; left: 700px; top: -80px; }
+  .tile-marquee .blob-soft { width: 300px; height: 300px; left: -140px; top: 400px; }
+  .tile-marquee .brand { position: absolute; left: 56px; top: 60px; gap: 20px; }
+  .tile-marquee .brand img { width: 80px; height: 80px; }
+  .tile-marquee .brand-name { font-size: 44px; }
+  .tile-marquee .headline { position: absolute; left: 56px; top: 172px; font-size: 52px; }
+  .tile-marquee .features { position: absolute; left: 56px; top: 326px; grid-template-columns: 276px 276px; gap: 28px 16px; }
+  .tile-marquee .feature { gap: 14px; }
+  .tile-marquee .feature-icon { width: 52px; height: 52px; }
+  .tile-marquee .feature-icon svg { width: 24px; height: 24px; stroke-width: 2; }
+  .tile-marquee .feature-title { font-size: 19px; }
+  .tile-marquee .feature-text { font-size: 15px; margin-top: 4px; }
+  /* The app's full width at 0.85 x its size, header to the first worklog; it bleeds off the bottom
+     between the first and second worklogs. */
+  .tile-marquee .shot { left: 636px; top: 56px; width: 728px; height: 504px; border-radius: 18px; }
+  .tile-marquee .shot img { width: 728px; transform: translateY(-10px); }
+
+  /* ---------------------------------------------------------------- Large 1571 x 1001 */
+  .tile-large .blob-main { width: 1100px; height: 1100px; left: 760px; top: -60px; }
+  .tile-large .blob-soft { width: 420px; height: 420px; left: -160px; top: 720px; }
+  /* Logo on the left; the name and the headline beside it, as in the earlier tile */
+  .tile-large .brand { position: absolute; left: 80px; top: 60px; gap: 32px; align-items: flex-start; }
+  .tile-large .brand img { width: 128px; height: 128px; }
+  .tile-large .brand-name { font-size: 64px; margin-top: 4px; }
+  .tile-large .headline { position: absolute; left: 240px; top: 152px; font-size: 52px; }
+  .tile-large .features { position: absolute; left: 80px; top: 360px; grid-template-columns: 520px; gap: 52px; }
+  .tile-large .feature { gap: 24px; }
+  .tile-large .feature-icon { width: 84px; height: 84px; }
+  .tile-large .feature-icon svg { width: 38px; height: 38px; stroke-width: 2; }
+  .tile-large .feature-title { font-size: 30px; }
+  .tile-large .feature-text { font-size: 22px; margin-top: 6px; }
+  /* The app at its own size, header to the second worklog (bleeds off the bottom) */
+  .tile-large .shot { left: 660px; top: 294px; width: 852px; height: 760px; border-radius: 22px; }
+  .tile-large .shot img { width: 852px; transform: translateY(-12px); }
+
+  /* ---------------------------------------------------------------- Small 440 x 280 */
+  /* Its own composition: name and a one-line headline above the most recognizable part of the
+     app, shown whole: the summary cards, the week bar, and all seven weekday cards. No feature
+     list, which would be unreadable at this size. */
+  .tile-small .blob-main { width: 360px; height: 360px; left: 220px; top: -150px; opacity: 0.7; }
+  .tile-small .brand { position: absolute; left: 20px; top: 18px; gap: 12px; }
+  .tile-small .brand img { width: 44px; height: 44px; }
+  .tile-small .brand-name { font-size: 25px; }
+  .tile-small .headline { position: absolute; left: 20px; top: 74px; font-size: 19px; letter-spacing: -0.02em; white-space: nowrap; }
+  .tile-small .headline .accent { display: inline; }
+  /* The app's full width at 0.47 x its size, from the summary cards to the weekday cards */
+  .tile-small .shot { left: 20px; top: 106px; width: 400px; height: 156px; border-radius: 10px; }
+  .tile-small .shot img { width: 400px; transform: translateY(-38px); }
+</style>
+</head>
+<body>
+  <!-- Feather-style stroke icons, as used in the extension's UI -->
+  <svg width="0" height="0" style="position: absolute">
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" /><line x1="8" y1="14" x2="8.01" y2="14" /><line x1="12" y1="14" x2="12.01" y2="14" /><line x1="16" y1="14" x2="16.01" y2="14" /><line x1="8" y1="18" x2="8.01" y2="18" /><line x1="12" y1="18" x2="12.01" y2="18" /></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" /></symbol>
+  </svg>
+
+  <!-- Marquee -->
+  <section class="tile tile-marquee">
+    <div class="blob blob-main"></div><div class="blob blob-soft"></div>
+    <div class="brand"><img src="../../../../icons/icon128.png" alt=""><span class="brand-name">Timesheet for Jira</span></div>
+    <h1 class="headline">Your Weekly Timesheet,<span class="accent">at a Glance.</span></h1>
+    <div class="features"></div>
+    <div class="shot"><img src="app-overview@2x.png" alt=""></div>
+  </section>
+
+  <!-- Large -->
+  <section class="tile tile-large">
+    <div class="blob blob-main"></div><div class="blob blob-soft"></div>
+    <div class="brand"><img src="../../../../icons/icon128.png" alt=""><span class="brand-name">Timesheet for Jira</span></div>
+    <h1 class="headline">Your Weekly Timesheet,<span class="accent">at a Glance.</span></h1>
+    <div class="features"></div>
+    <div class="shot"><img src="app-overview@2x.png" alt=""></div>
+  </section>
+
+  <!-- Small -->
+  <section class="tile tile-small">
+    <div class="blob blob-main"></div>
+    <div class="brand"><img src="../../../../icons/icon128.png" alt=""><span class="brand-name">Timesheet for Jira</span></div>
+    <h1 class="headline">Your Weekly Timesheet, <span class="accent">at a Glance.</span></h1>
+    <div class="shot"><img src="app-overview@2x.png" alt=""></div>
+  </section>
+
+  <script>
+    // The product's principal features, worded once for every tile that lists them. Each must
+    // describe something the extension does.
+    const FEATURES = [
+      { icon: 'calendar', tone: 'blue', title: 'Weekly overview', text: 'Worklogs by day and week' },
+      { icon: 'edit', tone: 'green', title: 'Log, edit, and delete', text: 'Keep your worklogs up to date' },
+      { icon: 'sync', tone: 'purple', title: 'Sync with Jira', text: 'Changes go straight to Jira' },
+      { icon: 'cloud', tone: 'amber', title: 'Cloud and Data Center', text: 'Also works with Jira Server' }
+    ];
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const element = (tag, className, text) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text) node.textContent = text;
+      return node;
+    };
+
+    for (const list of document.querySelectorAll('.features')) {
+      for (const { icon, tone, title, text } of FEATURES) {
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        const use = document.createElementNS(SVG_NS, 'use');
+        use.setAttribute('href', `#i-${icon}`);
+        svg.append(use);
+
+        const badge = element('span', `feature-icon tone-${tone}`);
+        badge.append(svg);
+        const words = element('div');
+        words.append(element('div', 'feature-title', title), element('div', 'feature-text', text));
+        const item = element('div', 'feature');
+        item.append(badge, words);
+        list.append(item);
+      }
+    }
+
+    document.body.dataset.tile = new URLSearchParams(location.search).get('tile') || 'marquee';
+  </script>
+</body>
+</html>
