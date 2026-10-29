@@ -95,10 +95,12 @@
   .tile-marquee .feature-icon svg { width: 24px; height: 24px; stroke-width: 2; }
   .tile-marquee .feature-title { font-size: 19px; }
   .tile-marquee .feature-text { font-size: 15px; margin-top: 4px; }
-  /* The app's full width at 0.85 x its size, header to the first worklog; it bleeds off the bottom
-     between the first and second worklogs. */
+  /* The app's full width at 0.85 x its size, from the summary cards to the first worklog; it bleeds
+     off the bottom through the first worklog. The app's own header is left out: the tile's name and
+     logo already say it, and showing it would push the worklogs out of the frame (My Active Issues
+     sits between the weekday cards and the day's worklogs). */
   .tile-marquee .shot { left: 636px; top: 56px; width: 728px; height: 504px; border-radius: 18px; }
-  .tile-marquee .shot img { width: 728px; transform: translateY(-10px); }
+  .tile-marquee .shot img { width: 728px; transform: translateY(-72px); }
 
   /* ---------------------------------------------------------------- Large 1571 x 1001 */
   .tile-large .blob-main { width: 1100px; height: 1100px; left: 760px; top: -60px; }
