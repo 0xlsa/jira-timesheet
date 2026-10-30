@@ -21,31 +21,43 @@ export function isWorklogByUser(worklog, user) {
     return true;
   }
 
-  const author = worklog.author;
+  return isSameUser(worklog.author, user);
+}
+
+/**
+ * Checks whether a Jira user object (a worklog author, an issue assignee) is the given user, by
+ * the strongest identifier both sides have, as isWorklogByUser() does.
+ *
+ * @param {object | null | undefined} person
+ * @param {{ accountId?: string, name?: string, key?: string, displayName?: string, emailAddress?: string }} user
+ * @returns {boolean}
+ */
+export function isSameUser(person, user) {
+  if (!person || !user) return false;
 
   // Cloud: Match by accountId
-  if (user.accountId && author.accountId) {
-    return author.accountId === user.accountId;
+  if (user.accountId && person.accountId) {
+    return person.accountId === user.accountId;
   }
 
   // Server/DC: Match by username
-  if (user.name && author.name) {
-    return author.name.toLowerCase() === user.name.toLowerCase();
+  if (user.name && person.name) {
+    return person.name.toLowerCase() === user.name.toLowerCase();
   }
 
   // Server/DC: Match by user key
-  if (user.key && author.key) {
-    return author.key === user.key;
+  if (user.key && person.key) {
+    return person.key === user.key;
   }
 
   // Display Name match fallback
-  if (user.displayName && author.displayName) {
-    return author.displayName.trim().toLowerCase() === user.displayName.trim().toLowerCase();
+  if (user.displayName && person.displayName) {
+    return person.displayName.trim().toLowerCase() === user.displayName.trim().toLowerCase();
   }
 
   // Email match fallback
-  if (user.emailAddress && author.emailAddress) {
-    return author.emailAddress.trim().toLowerCase() === user.emailAddress.trim().toLowerCase();
+  if (user.emailAddress && person.emailAddress) {
+    return person.emailAddress.trim().toLowerCase() === user.emailAddress.trim().toLowerCase();
   }
 
   return false;
@@ -83,6 +95,8 @@ export class JiraClient {
   #fetchFn;
   #timeoutMs;
   #currentUser = null;
+  // The identity request in flight, shared by concurrent getCurrentUser() calls.
+  #currentUserRequest = null;
 
   /**
    * @param {string} baseUrl - Validated Jira base URL (e.g. https://company.atlassian.net)
@@ -503,15 +517,21 @@ export class JiraClient {
       return this.#currentUser;
     }
 
-    const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
+    // The week's worklogs and My Active Issues load at the same time: one request serves both.
+    this.#currentUserRequest ??= (async () => {
+      const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
 
-    if (!response.ok) {
-      const err = await this.#handleHttpError(response, new Date().toISOString());
-      throw new Error(err.error || 'Failed to retrieve authenticated Jira user profile.');
-    }
+      if (!response.ok) {
+        const err = await this.#handleHttpError(response, new Date().toISOString());
+        throw new Error(err.error || 'Failed to retrieve authenticated Jira user profile.');
+      }
 
-    this.#currentUser = this.#toUser(await this.#parseJson(response, path));
-    return this.#currentUser;
+      this.#currentUser = this.#toUser(await this.#parseJson(response, path));
+      return this.#currentUser;
+    })().finally(() => {
+      this.#currentUserRequest = null;
+    });
+    return this.#currentUserRequest;
   }
 
   /**
@@ -1016,10 +1036,11 @@ export class JiraClient {
 
   /**
    * Retrieves the issues assigned to the authenticated user that are in progress (status
-   * category "In Progress"), or that have a worklog, by anyone, on a day of the given range in
-   * local time, as the weekly view groups worklogs. One paginated search finds both. Whether an
-   * issue has a worklog in the range is checked as getWorklogsForDateRange() does, for every
-   * issue, so an in-progress issue with work logged in the range has both flags.
+   * category "In Progress"), and the issues the user logged work on, on a day of the given range
+   * in local time, whoever they're assigned to and whatever their status. One paginated search
+   * finds both. Which worklogs count is checked as getWorklogsForDateRange() does (the user's,
+   * by local start date), for every issue, so an in-progress issue with the user's work logged in
+   * the range has both flags.
    *
    * @param {Date | string} startDate - First day of the range (e.g. Monday)
    * @param {Date | string} endDate - Last day of the range, inclusive (e.g. Sunday)
@@ -1033,8 +1054,11 @@ export class JiraClient {
   async getActiveIssues(startDate, endDate, { signal } = {}) {
     const range = this.#worklogSearchRange(startDate, endDate);
     try {
-      const issues = await this.#searchAllIssues(
-        buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate), ['summary', 'status', 'worklog'], signal);
+      const [currentUser, issues] = await Promise.all([
+        this.getCurrentUser(),
+        this.#searchAllIssues(
+          buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate), ['summary', 'status', 'assignee', 'worklog'], signal)
+      ]);
 
       // A page boundary can move while paging, so an issue may come back twice: keep it once.
       const seen = new Set();
@@ -1052,10 +1076,13 @@ export class JiraClient {
           issueKey,
           issueSummary: issue.fields?.summary || '',
           issueStatus,
-          inProgress: isInProgress(issueStatus),
-          // Found through the buffered worklog dates, or in progress: either way, only a worklog in
-          // the range itself counts.
-          loggedThisWeek: await this.#hasWorklogInRange(issue, range, signal)
+          // Only while it's the user's: an issue found through the user's worklogs may be in
+          // progress for someone else. Without the field, the search's assignee clause decides.
+          inProgress: isInProgress(issueStatus) &&
+            (issue.fields?.assignee === undefined || isSameUser(issue.fields.assignee, currentUser)),
+          // Found through the buffered worklog dates, or in progress: either way, only the user's
+          // worklog in the range itself counts.
+          loggedThisWeek: await this.#hasWorklogInRange(issue, range, currentUser, signal)
         };
         if (active.inProgress) inProgress.push(active);
         else if (active.loggedThisWeek) loggedOnly.push(active);
@@ -1097,19 +1124,22 @@ export class JiraClient {
   }
 
   /**
-   * Checks whether any of an issue's worklogs starts on a day of the range, in local time. The
-   * worklogs the search included are checked first; the issue's full list is fetched only when
-   * those don't settle it (none in the range, and the issue has more).
+   * Checks whether any of an issue's worklogs by the user starts on a day of the range, in local
+   * time. The worklogs the search included are checked first; the issue's full list is fetched
+   * only when those don't settle it (none in the range, and the issue has more).
    *
    * @param {object} issue - From a search with the `worklog` field
    * @param {{ startKey: string, endKey: string }} range - From #worklogSearchRange()
+   * @param {object} user - From getCurrentUser()
    * @param {AbortSignal} [signal]
    * @returns {Promise<boolean>}
    */
-  async #hasWorklogInRange(issue, range, signal) {
+  async #hasWorklogInRange(issue, range, user, signal) {
+    const inRange = (worklogs) =>
+      hasWorklogInWeek(worklogs.filter((wl) => isWorklogByUser(wl, user)), range.startKey, range.endKey);
     const included = issue.fields?.worklog?.worklogs;
-    if (Array.isArray(included) && hasWorklogInWeek(included, range.startKey, range.endKey)) return true;
-    return hasWorklogInWeek(await this.#issueWorklogs(issue, signal), range.startKey, range.endKey);
+    if (Array.isArray(included) && inRange(included)) return true;
+    return inRange(await this.#issueWorklogs(issue, signal));
   }
 
   /**

@@ -21,7 +21,7 @@ const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', mont
 // Subtitle of the My Active Issues section, by state.
 const WORKING_ISSUES_SUBTITLES = {
   loading: 'Retrieving issues from Jira…',
-  ready: 'In progress and recently logged issues',
+  ready: 'In progress and recently logged',
   error: "Couldn't retrieve issues from Jira"
 };
 
@@ -194,7 +194,11 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
   section.className = `working-issues is-${state.status}`;
 
-  toggle.querySelector('.working-issues-subtitle').textContent = WORKING_ISSUES_SUBTITLES[state.status] || '';
+  // When ready, the subtitle leads with the same count as the badge ("9 issues · In progress and …").
+  const subtitle = WORKING_ISSUES_SUBTITLES[state.status] || '';
+  toggle.querySelector('.working-issues-subtitle').textContent = state.status === 'ready'
+    ? `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} · ${subtitle}`
+    : subtitle;
   toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
     state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' }),
     state.status === 'ready' && h('span', { class: 'working-issues-count', title: `${issues.length} active ${issues.length === 1 ? 'issue' : 'issues'}` }, String(issues.length))));
