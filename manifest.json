@@ -3,6 +3,11 @@
   "name": "Timesheet for Jira",
   "version": "1.0.0",
   "description": "Your Weekly Timesheet, at a Glance.",
+  "homepage_url": "https://github.com/0xlsa/jira-timesheet",
+  "developer": {
+    "name": "0xlsa",
+    "url": "https://github.com/0xlsa"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "timesheet-for-jira@0xlsa",

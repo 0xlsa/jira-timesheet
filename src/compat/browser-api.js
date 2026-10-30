@@ -153,7 +153,7 @@ function createHostAccess(permissions) {
  *
  * @param {object | null} [api] - Extension API object (`browser` / `chrome`)
  * @param {Window} [win] - Window used for the non-extension fallback
- * @returns {{ storage: object, watchStorage: Function, hostAccess: object, openTab: (url: string) => void }}
+ * @returns {{ storage: object, watchStorage: Function, hostAccess: object, getManifest: () => object | null, openTab: (url: string) => void }}
  */
 export function createPlatform(api = isExtensionContext() ? ext : null, win = globalThis) {
   const storage = api?.storage?.local ?? createMemoryStorageArea();
@@ -181,6 +181,17 @@ export function createPlatform(api = isExtensionContext() ? ext : null, win = gl
     },
 
     hostAccess: createHostAccess(api?.permissions),
+
+    /**
+     * The browser's copy of manifest.json (the one in the build, so its version is the
+     * installed version), or null outside an extension.
+     *
+     * @returns {object | null}
+     */
+    getManifest() {
+      return api?.runtime?.getManifest?.() ?? null;
+    },
+
     openTab(url) {
       if (api?.tabs?.create) {
         api.tabs.create({ url });

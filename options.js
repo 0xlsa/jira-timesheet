@@ -49,6 +49,7 @@ import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js'
 import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus } from './src/timer/timeTrackingStore.js';
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
+import { loadAboutInfo, renderAboutSection } from './src/ui/aboutSection.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -1837,4 +1838,5 @@ document.addEventListener('DOMContentLoaded', () => {
   timer.setActive(document.visibilityState === 'visible');
   timer.init();
   loadSavedSettings();
+  loadAboutInfo().then((info) => renderAboutSection(document.getElementById('aboutSection'), { manifest: platform.getManifest(), info }));
 });

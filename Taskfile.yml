@@ -44,13 +44,13 @@ tasks:
     desc: Build the Chrome extension into dist/chrome/
     silent: true
     cmds:
-      # The manifest is shared with Firefox. Chrome ignores the Firefox-only keys but lists
-      # them as warnings on chrome://extensions, so the Chrome build leaves them out.
+      # The manifest is shared with Firefox. Chrome ignores the Firefox-only keys (including
+      # developer) but lists them as warnings on chrome://extensions, so the Chrome build leaves them out.
       - task: build:browser
         vars:
           BROWSER: chrome
           LABEL: Chrome
-          MANIFEST_FILTER: del(.browser_specific_settings) | del(.background.scripts)
+          MANIFEST_FILTER: del(.browser_specific_settings) | del(.developer) | del(.background.scripts)
 
   verify:chrome:
     desc: Check the Chrome build in dist/chrome/ before packaging
@@ -65,6 +65,7 @@ tasks:
         fail() { echo "manifest.json: $1" >&2; exit 1; }
         [ "$(jq -r '.description | length' "$manifest")" -le 132 ] || fail "description is longer than 132 characters"
         [ -n "$(jq -r '.background.service_worker // empty' "$manifest")" ] || fail "missing background.service_worker"
+        [ "$(jq 'has("developer")' "$manifest")" = false ] || fail "developer is Firefox-only and must not be in the Chrome build"
       - echo "Chrome build in {{.DIR}}/ passed all checks"
 
   package:chrome:
