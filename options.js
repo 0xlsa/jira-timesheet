@@ -35,16 +35,20 @@ import { createPlatform, ext, isExtensionContext } from './src/compat/browser-ap
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
 import { openShortcutsDrawer } from './src/ui/shortcutsDrawer.js';
 import { showPanel, hidePanel } from './src/ui/panel.js';
-import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
+import { openDeleteWorklogDialog, describeWorklogForDeletion } from './src/ui/deleteWorklogDialog.js';
+import { DISCARD_PENDING_WORDING, formatPendingDuration, siteBaseUrl } from './src/ui/pendingWorklogs.js';
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
+import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, findPending, submissionStatus } from './src/timer/timeTrackingStore.js';
+import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
+import { createTimerController } from './src/timer/timerController.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -137,6 +141,8 @@ let currentBaseUrl = '';
 // left it. The loader (src/worklog/workingIssuesLoader.js) is created with the section's renderer below.
 let workingIssuesState = null;
 let isWorkingIssuesExpanded = localStorage.getItem('jts-working-issues-expanded') === 'true';
+// The section's tab when expanded, kept like the expanded state: 'active' or 'pending'.
+let workingIssuesTab = localStorage.getItem('jts-working-issues-tab') === 'pending' ? 'pending' : 'active';
 
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
@@ -353,7 +359,9 @@ function workingIssuesOptions() {
     },
     onRetry: refreshActiveIssues,
     // Like the worklog cards' + buttons: once the week has loaded.
-    onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined
+    onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined,
+    timer: timerOptions(),
+    pending: pendingOptions()
   };
 }
 
@@ -369,6 +377,270 @@ function setWorkingIssuesState(state) {
   } else if (!state) {
     section?.remove();
   }
+}
+
+// ============================================================================
+// Timer
+// ============================================================================
+
+// The timer's state comes from storage (src/timer/timeTrackingStore.js), shared by every open
+// Timesheet for Jira tab; this page only shows it and asks the store for changes.
+const timer = createTimerController({
+  createStore: () => createTimeTrackingStore(platform.storage, { lock: createTimeTrackingLock() }),
+  watchStorage: (listener) => platform.watchStorage(listener),
+  // Start, Stop, the header indicator, and the Log work panel's timer button follow the new state;
+  // another tab's change arrives here too.
+  onChange: () => {
+    setWorkingIssuesState(workingIssuesState);
+    worklogEditor?.refreshTimer();
+  },
+  // Only the elapsed times change each second, in place.
+  onTick: () => {
+    const section = daysContainer.querySelector('#workingIssues');
+    if (section) updateWorkingIssuesTimer(section, Date.now());
+  },
+  onError: (message) => showToast(message, { durationMs: 8000 })
+});
+
+/**
+ * Timer options for My Active Issues, or undefined (no timer controls) before the timer has loaded
+ * or while no Jira site is connected.
+ * @returns {object | undefined}
+ */
+function timerOptions() {
+  const state = timer.getState();
+  if (state.status === 'loading' || !currentClient) return undefined;
+
+  const site = siteId(currentClient.deploymentType, currentClient.baseUrl);
+  return {
+    site,
+    running: state.tracking?.running ?? null,
+    now: Date.now(),
+    busy: state.busy,
+    unavailable: state.status === 'unavailable' ? state.message : '',
+    onStart: (issue) => timer.start(timedIssue(issue)),
+    onStop: () => timer.stop(),
+    onPause: () => timer.pause(),
+    onResume: () => timer.resume()
+  };
+}
+
+/**
+ * The timer's issue for a Jira issue on the connected site: the same site ID and identifiers
+ * wherever a timer starts (an Active Issues row or the Log work panel).
+ * @param {{ issueId?: string, issueKey: string, issueSummary?: string }} issue
+ */
+function timedIssue(issue) {
+  return {
+    site: siteId(currentClient.deploymentType, currentClient.baseUrl),
+    issueId: issue.issueId,
+    issueKey: issue.issueKey,
+    issueSummary: issue.issueSummary
+  };
+}
+
+/**
+ * Pending tab options for My Active Issues (which then shows its Active Issues and Pending tabs),
+ * or undefined while the timer's state isn't known.
+ * @returns {object | undefined}
+ */
+function pendingOptions() {
+  const state = timer.getState();
+  if (!state.tracking || !currentClient) return undefined;
+  return {
+    entries: state.tracking.pending,
+    site: siteId(currentClient.deploymentType, currentClient.baseUrl),
+    tab: workingIssuesTab,
+    onTabChange: (tab) => {
+      workingIssuesTab = tab;
+      localStorage.setItem('jts-working-issues-tab', tab);
+    },
+    now: Date.now(),
+    onEdit: startEditPending,
+    onDiscard: confirmDiscardPending,
+    onSubmit: submitPending
+  };
+}
+
+/**
+ * Submits a pending worklog to Jira (its row's Submit button), through the connected site's client.
+ * It leaves Pending only once Jira has the worklog, which then joins the displayed week like work
+ * logged by hand. A refusal keeps it as not submitted; no answer keeps it as possibly in Jira, and
+ * submitting it again checks Jira before sending anything (src/worklog/pendingSubmission.js).
+ * @param {string} id
+ */
+async function submitPending(id) {
+  const entry = findPendingWorklog(id);
+  const client = currentClient;
+  if (!entry || !client) return;
+
+  let result;
+  try {
+    result = await submitPendingWorklog({
+      timer,
+      client,
+      id,
+      site: siteId(client.deploymentType, client.baseUrl),
+      // What the user saw when choosing to submit: a change made meanwhile in another tab is refused.
+      expected: { startedAt: entry.startedAt, timeSpentSeconds: entry.timeSpentSeconds, comment: entry.comment },
+      author: currentAggregatedData?.user
+    });
+  } catch (err) {
+    // Refused before anything was sent: says why (too short, another site, already being submitted).
+    showToast(err.message, { durationMs: 8000 });
+    return;
+  }
+
+  if (result.status === 'failed' || result.status === 'uncertain') {
+    showToast(result.message, { durationMs: 10000 });
+    return;
+  }
+
+  // In Jira: show it in the displayed week (no reload), as after logging work by hand.
+  const startedOn = new Date(result.worklog.started);
+  if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === getLocalDateKey(startedOn))) {
+    showWeek(replaceWorklogInWeek(currentAggregatedData, result.worklog), currentBaseUrl);
+  }
+  refreshActiveIssues();
+  showToast(result.status === 'already-in-jira' ? `${entry.issueKey} was already in Jira` : `Submitted ${entry.issueKey}`, {
+    success: true,
+    subtitle: result.message || formatWorklogDate(startedOn),
+    durationMs: result.message ? 10000 : 5000
+  });
+}
+
+/**
+ * The Log work panel's timer button (beside the issue's key): its state for an issue, and Start and
+ * Stop through the timer, as an Active Issues row's buttons. Neither logs work in Jira.
+ * @returns {object}
+ */
+function logWorkTimerOptions() {
+  return {
+    stateOf(issue) {
+      const state = timer.getState();
+      if (!state.tracking || state.status === 'unavailable' || !currentClient) return null;
+      const timed = timedIssue(issue);
+      const running = Boolean(state.tracking.running) && isSameIssue(state.tracking.running, timed);
+      // Starting it would be refused (the store checks too, and says why on a click).
+      const blocked = !running && findPending(state.tracking, timed)
+        ? `${issue.issueKey} has a pending worklog. Submit or discard it before starting another timer.`
+        : '';
+      return { running, blocked };
+    },
+    async onStart(issue) {
+      if (!currentClient) return false;
+      const started = await timer.start(timedIssue(issue));
+      if (started) showToast(`Timer started on ${issue.issueKey}`, { success: true, subtitle: 'Stop it in My Active Issues' });
+      return started;
+    },
+    async onStop() {
+      const stopped = await timer.stop();
+      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Pending' });
+      return stopped;
+    }
+  };
+}
+
+/**
+ * The pending worklog with this ID, as last read from storage.
+ * @param {string} id
+ * @returns {object | undefined}
+ */
+function findPendingWorklog(id) {
+  return timer.getState().tracking?.pending.find((entry) => entry.id === id);
+}
+
+/** Focuses a pending worklog's button, or the Pending tab once the worklog is gone. */
+function focusPendingWorklog(id, buttonClass) {
+  (daysContainer.querySelector(`.${buttonClass}[data-pending-id="${CSS.escape(id)}"]`) ||
+    daysContainer.querySelector('#workingIssuesTab-pending') || selectedDayFocusTarget())?.focus();
+}
+
+/**
+ * Opens a pending worklog in the worklog panel, to change its date, start time, duration, or
+ * comment in this browser. Nothing is sent to Jira: saving changes only the pending worklog, and
+ * only if no other tab changed it meanwhile.
+ * @param {string} id
+ */
+function startEditPending(id) {
+  shortcutsDrawer?.close();
+  closeSettings();
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  const entry = findPendingWorklog(id);
+  if (!entry) return;
+  // Not while it's being submitted, nor once Jira may have it: an edit could then add it twice.
+  const status = submissionStatus(entry);
+  if (status === 'submitting' || status === 'uncertain') {
+    showToast(status === 'submitting'
+      ? `${entry.issueKey}'s worklog is being submitted, so it can't be edited now.`
+      : `Jira may already have ${entry.issueKey}'s worklog, so it can't be edited. Submit it again to check Jira, or discard it.`,
+    { durationMs: 8000 });
+    return;
+  }
+  // What the edit starts from: saving is refused if another tab changed these meanwhile.
+  const expected = { startedAt: entry.startedAt, timeSpentSeconds: entry.timeSpentSeconds, comment: entry.comment };
+
+  worklogEditor = openWorklogEditor(worklogEditorRoot, {
+    mode: 'pending',
+    worklog: {
+      id: entry.id,
+      issueId: entry.issueId,
+      issueKey: entry.issueKey,
+      issueSummary: entry.issueSummary,
+      started: new Date(entry.startedAt).toISOString(),
+      timeSpentSeconds: entry.timeSpentSeconds,
+      comment: entry.comment
+    },
+    baseUrl: siteBaseUrl(entry.site),
+    onSave: async (changes) => {
+      await timer.updatePending(id, {
+        startedAt: changes.started?.getTime(),
+        timeSpentSeconds: changes.timeSpentSeconds,
+        comment: changes.comment
+      }, expected);
+      showToast(`Saved pending worklog for ${entry.issueKey}`, { success: true, subtitle: 'Kept in this browser until you submit it' });
+    },
+    onClose: () => {
+      worklogEditor = null;
+      if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+      focusPendingWorklog(id, 'pending-edit-btn');
+    }
+  });
+
+  if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+}
+
+/**
+ * Asks to confirm discarding a pending worklog (its trash button), naming its issue and duration.
+ * Discarding removes only that pending worklog, from this browser; nothing is deleted in Jira.
+ * @param {string} id
+ */
+function confirmDiscardPending(id) {
+  shortcutsDrawer?.close();
+  closeSettings();
+  if (isDeleteDialogOpen) return;
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  const entry = findPendingWorklog(id);
+  if (!entry) return;
+
+  isDeleteDialogOpen = true;
+  openDeleteWorklogDialog(deleteWorklogDialog, {
+    details: {
+      ...describeWorklogForDeletion({ ...entry, started: new Date(entry.startedAt) }),
+      duration: formatPendingDuration(entry.timeSpentSeconds)
+    },
+    wording: DISCARD_PENDING_WORDING,
+    onDelete: async () => {
+      await timer.discardPending(id);
+      showToast('Pending worklog discarded.');
+    },
+    onClose: () => {
+      isDeleteDialogOpen = false;
+      focusPendingWorklog(id, 'pending-discard-btn');
+    }
+  });
 }
 
 // Loads the My Active Issues section's contents on its own: the worklogs load and show whatever
@@ -470,6 +742,9 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
     worklog: issue,
     baseUrl: client.baseUrl,
     initialForm: toNewWorklogForm({ dateKey }),
+    // Shown beside the issue's key once there's an issue and the timer's state is known; choosing an
+    // issue never starts a timer.
+    timer: logWorkTimerOptions(),
     searchIssues: (query, options) => client.suggestIssuesByKey(query, options),
     onDateChange: (enteredDateKey) => {
       // Select the entered day in the calendar when it's in the displayed week.
@@ -1305,6 +1580,8 @@ radioServer.addEventListener('change', () => switchDeploymentType('server'));
 // the token while the user is still working with it.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') tokenVisibility.mask();
+  // The timer keeps running from its stored start; only the on-screen clock pauses while hidden.
+  timer.setActive(document.visibilityState === 'visible');
 });
 window.addEventListener('pagehide', () => tokenVisibility.mask());
 
@@ -1561,5 +1838,9 @@ window.addEventListener('beforeunload', (event) => {
   }
 });
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', loadSavedSettings);
+// Initialize on page load. The timer loads on its own, from storage, whatever happens with Jira.
+document.addEventListener('DOMContentLoaded', () => {
+  timer.setActive(document.visibilityState === 'visible');
+  timer.init();
+  loadSavedSettings();
+});

@@ -541,13 +541,13 @@ describe('My Active Issues - across weeks', () => {
     issue('KAN-5', 'To Do', { worklogs: [worklog('2026-11-13')] })
   ];
 
-  /** The panel's rows and badge for a ready state, as the user sees them. */
+  /** The panel's rows and issue count (from the subtitle) for a ready state, as the user sees them. */
   const panel = (state) => {
     const section = document.createElement('section');
     renderWorkingIssues(section, { state, expanded: true });
     return {
       keys: section.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent),
-      badge: section.querySelector('.working-issues-count').textContent
+      count: section.querySelector('.working-issues-subtitle').textContent.split(' ')[0]
     };
   };
   const weekOf = async (week, issues = sampleIssues()) =>
@@ -606,7 +606,7 @@ describe('My Active Issues - across weeks', () => {
       await loader.refresh(client, week);
       const state = states.at(-1);
       assert.equal(state.status, 'ready');
-      assert.deepEqual(panel(state), { keys, badge: String(keys.length) });
+      assert.deepEqual(panel(state), { keys, count: String(keys.length) });
     }
     // One search per week navigated to, each by that week's days.
     const searched = jira.requests.map((r) => /worklogDate >= "([\d-]+)"/.exec(r.url.searchParams.get('jql') || '')?.[1]).filter(Boolean);
@@ -627,11 +627,11 @@ describe('My Active Issues - across weeks', () => {
     const nextWeek = getWeekRange(new Date(2026, 10, 2));
 
     await loader.refresh(client, WEEK);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835', 'EKB-30899'], badge: '2' });
+    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835', 'EKB-30899'], count: '2' });
     await loader.refresh(client, nextWeek);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835'], badge: '1' });
+    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835'], count: '1' });
     await loader.refresh(client, WEEK);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835', 'EKB-30899'], badge: '2' });
+    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835', 'EKB-30899'], count: '2' });
   });
 
   it('never shows an earlier week\'s issues once another week is selected, however late they arrive', async () => {
@@ -657,7 +657,7 @@ describe('My Active Issues - across weeks', () => {
 
     const ready = states.filter((s) => s?.status === 'ready');
     assert.equal(ready.length, 1);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['KAN-1', 'KAN-2'], badge: '2' });
+    assert.deepEqual(panel(states.at(-1)), { keys: ['KAN-1', 'KAN-2'], count: '2' });
     assert.ok(!states.some((s) => s?.status === 'error'), 'the cancelled load reports nothing');
   });
 });
@@ -689,7 +689,7 @@ describe('WeekView - My Active Issues section', () => {
   ];
   const shown = (section) => ({
     subtitle: section.querySelector('.working-issues-subtitle').textContent,
-    badge: section.querySelector('.working-issues-count').textContent,
+    count: section.querySelector('.working-issues-subtitle').textContent.split(' ')[0],
     rows: section.querySelectorAll('.working-issue').length,
     keys: new Set(section.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent)).size
   });
@@ -732,12 +732,11 @@ describe('WeekView - My Active Issues section', () => {
     const section = renderSection({ status: 'loading' });
     assert.equal(section.querySelector('.working-issues-subtitle').textContent, 'Retrieving issues from Jira…');
     assert.ok(section.querySelector('.working-issues-spinner'));
-    assert.equal(section.querySelector('.working-issues-count'), null);
+    assert.equal(section.querySelector('.working-issues-subtitle').textContent.includes('issue ·'), false);
   });
 
   it('counts the issues, describes what is listed, and links them to Jira', () => {
     const section = renderSection({ status: 'ready', issues: readyIssues });
-    assert.equal(section.querySelector('.working-issues-count').textContent, '2');
     assert.equal(section.querySelector('.working-issues-subtitle').textContent, '2 issues · In progress and recently logged');
 
     const html = toHtml(section);
@@ -754,12 +753,12 @@ describe('WeekView - My Active Issues section', () => {
   // The badge counts the issues listed, each once, whatever the reasons it's listed for.
   it('shows 9 for 6 in-progress issues and 3 others logged this week, with no overlap', () => {
     assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList({ inProgress: 6, loggedOnly: 3 }) })),
-      { subtitle: '9 issues · In progress and recently logged', badge: '9', rows: 9, keys: 9 });
+      { subtitle: '9 issues · In progress and recently logged', count: '9', rows: 9, keys: 9 });
   });
 
   it('shows 7 for 6 in-progress issues and 3 logged this week, 2 of them in progress', () => {
     assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList({ inProgress: 6, loggedOnly: 1, both: 2 }) })),
-      { subtitle: '7 issues · In progress and recently logged', badge: '7', rows: 7, keys: 7 });
+      { subtitle: '7 issues · In progress and recently logged', count: '7', rows: 7, keys: 7 });
   });
 
   it('always shows as many in the badge as the issues listed', () => {
@@ -771,14 +770,14 @@ describe('WeekView - My Active Issues section', () => {
     ];
     for (const [counts, total] of cases) {
       assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList(counts) })),
-        { subtitle: `${total} ${total === 1 ? 'issue' : 'issues'} · In progress and recently logged`, badge: String(total), rows: total, keys: total });
+        { subtitle: `${total} ${total === 1 ? 'issue' : 'issues'} · In progress and recently logged`, count: String(total), rows: total, keys: total });
     }
   });
 
   it('shows an issue it is given twice once, and counts it once', () => {
     const [inProgress, logged] = [activeList({ inProgress: 1, loggedOnly: 0, both: 1 })[0], doneIssue];
     const section = renderSection({ status: 'ready', issues: [inProgress, logged, { ...inProgress }, { ...logged, issueId: '' }] });
-    assert.deepEqual(shown(section), { subtitle: '2 issues · In progress and recently logged', badge: '2', rows: 2, keys: 2 });
+    assert.deepEqual(shown(section), { subtitle: '2 issues · In progress and recently logged', count: '2', rows: 2, keys: 2 });
   });
 
   it('counts what Jira returns: each issue once in the list and in each reason, however many worklogs it has', async () => {
@@ -794,10 +793,10 @@ describe('WeekView - My Active Issues section', () => {
     });
     const issues = await activeIssues(cloudClient(jira));
     assert.deepEqual(shown(renderSection({ status: 'ready', issues })),
-      { subtitle: '7 issues · In progress and recently logged', badge: '7', rows: 7, keys: 7 });
+      { subtitle: '7 issues · In progress and recently logged', count: '7', rows: 7, keys: 7 });
   });
 
-  it('leads the subtitle with the badge count, singular for one issue, and no tooltip', () => {
+  it('leads the subtitle with the issue count, singular for one issue, and no tooltip', () => {
     for (const [issues, expected] of [
       [activeList({ inProgress: 3, loggedOnly: 2, both: 1 }), '5 issues · In progress and recently logged'],
       [[doneIssue], '1 issue · In progress and recently logged'],
@@ -806,7 +805,6 @@ describe('WeekView - My Active Issues section', () => {
       const section = renderSection({ status: 'ready', issues });
       const subtitle = section.querySelector('.working-issues-subtitle');
       assert.equal(subtitle.textContent, expected);
-      assert.ok(subtitle.textContent.startsWith(`${section.querySelector('.working-issues-count').textContent} `));
       assert.equal(subtitle.getAttribute('title'), null);
     }
   });
@@ -826,7 +824,6 @@ describe('WeekView - My Active Issues section', () => {
   it('shows a request failure as an error with Retry, not as zero issues', () => {
     let retries = 0;
     const section = renderSection({ status: 'error', message: 'Jira returned a server error (500).' }, { onRetry: () => retries++ });
-    assert.equal(section.querySelector('.working-issues-count'), null);
     assert.equal(section.querySelector('.working-issues-subtitle').textContent, "Couldn't retrieve issues from Jira");
     assert.match(section.querySelector('.working-issues-message').textContent, /server error \(500\)/);
     assert.ok(section.classList.contains('is-error'));
@@ -834,6 +831,18 @@ describe('WeekView - My Active Issues section', () => {
     section.querySelector('.working-issues-retry').click();
     assert.equal(retries, 1);
     assert.equal(document.activeElement, section.querySelector('.working-issues-toggle'));
+  });
+
+  it('has no count badge in the header, in any state; the subtitle gives the count', () => {
+    for (const state of [{ status: 'loading' }, { status: 'ready', issues: readyIssues }, { status: 'error', message: 'x' }]) {
+      const section = renderSection(state);
+      assert.equal(section.querySelector('.working-issues-count'), null);
+      const indicator = section.querySelector('.working-issues-indicator');
+      assert.equal(indicator.childNodes.length, state.status === 'loading' ? 1 : 0, 'only the loading spinner');
+    }
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    assert.doesNotMatch(css, /\.working-issues-count\b/);
+    assert.match(css, /\.working-issues-indicator:empty \{\s*display: none;/);
   });
 
   it('expands and collapses from the header button', () => {
@@ -859,7 +868,7 @@ describe('WeekView - My Active Issues section', () => {
     const toggle = section.querySelector('.working-issues-toggle');
     renderWorkingIssues(section, { state: { status: 'ready', issues: readyIssues }, expanded: true });
     assert.equal(section.querySelector('.working-issues-toggle'), toggle);
-    assert.equal(section.querySelector('.working-issues-count').textContent, '2');
+    assert.equal(section.querySelector('.working-issues-subtitle').textContent, '2 issues · In progress and recently logged');
     assert.equal(section.querySelector('.working-issues-spinner'), null);
   });
 

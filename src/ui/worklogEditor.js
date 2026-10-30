@@ -1,6 +1,8 @@
 /**
  * Worklog panel, used to edit an existing worklog ('edit' mode) or log new work ('create'
- * mode), either on a given issue or on one the user picks in the panel.
+ * mode), either on a given issue or on one the user picks in the panel. 'pending' mode edits a
+ * pending worklog (a stopped timer session) kept in this browser: like 'edit', only changed fields
+ * are saved, but through the caller's onSave alone, with no Delete, and nothing goes to Jira.
  *
  * - createWorklogEditorSession(): editing state (form values, validation, unsaved-changes and
  *   delete confirmations, busy state). No DOM; saving and deleting are injected callbacks.
@@ -9,7 +11,7 @@
  */
 
 import { h, svg } from './dom.js';
-import { renderIssueStatusBadge } from './weekView.js';
+import { renderIssueStatusBadge, renderTimerIcon } from './weekView.js';
 import { renderIssuePicker, attachIssuePicker } from './issuePicker.js';
 import { showPanel, hidePanel } from './panel.js';
 import {
@@ -55,11 +57,12 @@ function needsIssuePick(worklog, mode) {
  * @param {(values: object, issue: object) => Promise<void>} options.onSave - Edit: saves changed fields.
  *   Create: logs the new worklog from buildNewWorklog() on `issue`. Rejects with a user-facing Error.
  * @param {() => Promise<void>} [options.onDelete] - Deletes the worklog (edit only); rejects with a user-facing Error
- * @param {'edit' | 'create'} [options.mode='edit']
+ * @param {'edit' | 'create' | 'pending'} [options.mode='edit'] - 'pending' edits like 'edit', without deleting
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  */
 export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = 'edit', initialForm: newForm }) {
   const isCreate = mode === 'create';
+  const canDelete = mode === 'edit';
   const pickIssue = needsIssuePick(worklog, mode);
   const initialForm = isCreate ? { ...newForm } : toEditForm(worklog);
   const state = {
@@ -175,7 +178,7 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
 
     /** Asks for confirmation before deleting (edit only). */
     requestDelete() {
-      if (!isCreate && !state.busy) state.confirm = 'delete';
+      if (canDelete && !state.busy) state.confirm = 'delete';
     },
 
     /**
@@ -202,14 +205,43 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
 }
 
 /**
- * Builds the read-only issue summary: key (linked to Jira), status, and summary.
+ * Sets the issue's timer button (beside its key) to the timer's state: Stop while the timer runs on
+ * the issue, otherwise Start. With no state (no timer for this issue), the button is hidden.
+ *
+ * @param {HTMLButtonElement} button
+ * @param {{ running: boolean, blocked?: string } | null} timerState - `blocked`: why a timer can't
+ *   start on the issue (its pending worklog), shown as the tooltip
+ * @param {boolean} [busy=false] - A start or stop is in progress (aria-disabled, so it keeps focus)
+ */
+function setEditorTimerButton(button, timerState, busy = false) {
+  const running = Boolean(timerState?.running);
+  button.classList.toggle('hidden', !timerState);
+  // The issue's layout leaves room for the button only while it shows.
+  button.parentNode?.classList?.toggle('has-timer', Boolean(timerState));
+  button.classList.toggle('is-running', running);
+  button.dataset.timerAction = running ? 'stop' : 'start';
+  button.setAttribute('aria-label', running ? 'Stop timer' : 'Start timer');
+  button.setAttribute('title', running ? 'Stop timer' : (timerState?.blocked || 'Start timer'));
+  if (busy) button.setAttribute('aria-disabled', 'true');
+  else button.removeAttribute('aria-disabled');
+  button.replaceChildren(renderTimerIcon(running));
+}
+
+/**
+ * Builds the read-only issue summary: key (linked to Jira), status, and summary; with `timerState`,
+ * the timer's Start or Stop button to the left of the key.
  * @param {{ issueKey: string, issueSummary?: string, issueStatus?: object }} issue
  * @param {string} baseUrl - Jira instance URL for the issue link
+ * @param {{ running: boolean, blocked?: string } | null} [timerState] - Undefined: no timer button
  * @returns {HTMLElement}
  */
-export function renderEditorIssue(issue, baseUrl) {
+export function renderEditorIssue(issue, baseUrl, timerState) {
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(issue.issueKey)}` : '#';
-  return h('div', { class: 'editor-issue' },
+  const timerButton = timerState !== undefined &&
+    h('button', { type: 'button', class: 'working-issue-timer-btn editor-timer-btn', 'data-action': 'timer' });
+  if (timerButton) setEditorTimerButton(timerButton, timerState);
+  return h('div', { class: `editor-issue${timerButton && timerState ? ' has-timer' : ''}` },
+    timerButton,
     h('div', { class: 'editor-issue-row' },
       h('a', { href: issueUrl, target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey || ''} in Jira` },
         issue.issueKey || 'ISSUE'),
@@ -224,11 +256,15 @@ export function renderEditorIssue(issue, baseUrl) {
  * @param {object} form - Initial form values
  * @param {string} baseUrl - Jira instance URL for the issue link
  * @param {object} [options]
- * @param {'edit' | 'create'} [options.mode='edit']
+ * @param {'edit' | 'create' | 'pending'} [options.mode='edit']
+ * @param {{ running: boolean, blocked?: string } | null} [options.timerState] - Create with a given issue: the
+ *   timer's state for it, for the Start or Stop button beside its key; undefined for no button
  * @returns {HTMLFormElement}
  */
-export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = {}) {
+export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', timerState } = {}) {
   const isCreate = mode === 'create';
+  const isPending = mode === 'pending';
+  const canDelete = mode === 'edit';
   const pickIssue = needsIssuePick(worklog, mode);
   const icon = (attributes, ...shapes) => svg('svg', {
     ...attributes, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'aria-hidden': 'true'
@@ -243,14 +279,14 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
 
   return h('form', { class: 'editor-form', novalidate: true },
     h('div', { class: 'editor-header' },
-      h('h2', { class: 'editor-title', id: 'worklogEditorTitle' }, isCreate ? 'Log work' : 'Edit worklog'),
+      h('h2', { class: 'editor-title', id: 'worklogEditorTitle' }, isCreate ? 'Log work' : isPending ? 'Edit pending worklog' : 'Edit worklog'),
       h('button', { type: 'button', class: 'editor-icon-btn', 'data-action': 'close', 'aria-label': 'Close editor', title: 'Close' },
         icon({ class: 'icon' },
           svg('line', { x1: '18', y1: '6', x2: '6', y2: '18' }),
           svg('line', { x1: '6', y1: '6', x2: '18', y2: '18' })))),
 
     h('div', { class: 'editor-body' },
-      !pickIssue && renderEditorIssue(worklog, baseUrl),
+      !pickIssue && renderEditorIssue(worklog, baseUrl, isCreate ? timerState : undefined),
 
       h('div', { class: 'editor-note' },
         icon({ class: 'editor-note-icon' },
@@ -259,7 +295,9 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
           svg('line', { x1: '12', y1: '8', x2: '12.01', y2: '8' })),
         h('span', {}, pickIssue
           ? 'Find the issue by its key, then enter the date, start time, duration, and work description.'
-          : isCreate ? 'Enter the date, start time, duration, and work description.' : 'Edit the date, time, duration, and work description.')),
+          : isCreate ? 'Enter the date, start time, duration, and work description.'
+            : isPending ? 'Changes are saved in this browser only. Nothing is sent to Jira until you submit this worklog.'
+              : 'Edit the date, time, duration, and work description.')),
 
       h('fieldset', { class: 'editor-fields' },
         pickIssue && renderIssuePicker(),
@@ -284,7 +322,9 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
           h('div', { class: 'editor-duration-inputs' },
             durationField('worklogEditHours', 'hours', 'Hours', form.hours, MAX_DURATION_HOURS, 'h'),
             durationField('worklogEditMinutes', 'minutes', 'Minutes', form.minutes, 59, 'm')),
-          h('div', { id: 'worklogEditDurationError', class: 'field-error', 'data-error-for': 'duration' })),
+          h('div', { id: 'worklogEditDurationError', class: 'field-error', 'data-error-for': 'duration' }),
+          isPending && worklog.timeSpentSeconds < 60 && h('div', { class: 'field-hint editor-short-note' },
+            'This session is under a minute. Jira needs at least 1 minute, so set the duration before submitting it.')),
 
         h('div', { class: 'form-group' },
           h('label', { for: 'worklogEditComment', class: 'form-label' }, 'Work description (comment)'),
@@ -298,12 +338,12 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
         h('div', { class: 'alert-content' }, h('p', { 'data-submit-error': true }))),
 
       h('div', { class: 'editor-actions', 'data-actions': 'main' },
-        !isCreate && h('button', { type: 'button', class: 'btn btn-danger-outline btn-sm', 'data-action': 'delete' }, 'Delete worklog'),
+        canDelete && h('button', { type: 'button', class: 'btn btn-danger-outline btn-sm', 'data-action': 'delete' }, 'Delete worklog'),
         h('span', { class: 'editor-actions-spacer' }),
         h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'cancel' }, 'Cancel'),
         h('button', { type: 'submit', class: 'btn btn-primary btn-sm', 'data-action': 'save' },
           h('span', { class: 'btn-spinner hidden', 'data-spinner': 'saving' }),
-          h('span', { 'data-save-label': true }, isCreate ? 'Log work' : 'Save changes'))),
+          h('span', { 'data-save-label': true }, isCreate ? 'Log work' : isPending ? 'Save' : 'Save changes'))),
 
       h('div', { class: 'editor-confirm hidden', 'data-confirm': 'discard', role: 'alertdialog', 'aria-labelledby': 'worklogEditorDiscardText' },
         h('p', { id: 'worklogEditorDiscardText' }, 'You have unsaved changes. Discard them?'),
@@ -312,7 +352,7 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
           h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'keep-editing' }, 'Keep editing'),
           h('button', { type: 'button', class: 'btn btn-danger-outline btn-sm', 'data-action': 'discard' }, 'Discard changes'))),
 
-      !isCreate && h('div', { class: 'editor-confirm hidden', 'data-confirm': 'delete', role: 'alertdialog', 'aria-labelledby': 'worklogEditorDeleteText' },
+      canDelete && h('div', { class: 'editor-confirm hidden', 'data-confirm': 'delete', role: 'alertdialog', 'aria-labelledby': 'worklogEditorDeleteText' },
         h('p', { id: 'worklogEditorDeleteText' }, "Delete this worklog from Jira? This can't be undone."),
         h('div', { class: 'editor-actions' },
           h('span', { class: 'editor-actions-spacer' }),
@@ -335,22 +375,37 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit' } = 
  * @param {() => Promise<void>} [options.onDelete] - Edit only
  * @param {(reason: 'saved' | 'deleted' | 'closed') => void} options.onClose - Called as soon as the panel closes
  *   (it's inert at once and finishes sliding out afterwards)
- * @param {'edit' | 'create'} [options.mode='edit']
+ * @param {'edit' | 'create' | 'pending'} [options.mode='edit'] - 'pending': a pending worklog kept in this
+ *   browser, saved through onSave only (no Delete)
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
+ * @param {object} [options.timer] - Create: the timer, for a Start or Stop button beside the issue's key once there
+ *   is one (choosing an issue alone never starts a timer). Neither submits the form.
+ * @param {(issue: object) => ({ running: boolean, blocked?: string } | null)} options.timer.stateOf - The timer's state
+ *   for an issue; null hides the button
+ * @param {(issue: object) => Promise<boolean>} options.timer.onStart - Resolves true once the timer runs on the issue
+ * @param {() => Promise<boolean>} options.timer.onStop - Resolves true once the timer is stopped
  * @param {(dateKey: string) => void} [options.onDateChange] - Create: called when the user enters a complete date
  * @param {(query: string, options: { maxResults: number, signal: AbortSignal }) => Promise<Array<object>>} [options.searchIssues]
  *   Create without an issue: finds issues for the issue field (see createIssueSuggester())
  * @returns {{ worklogId: string | null, mode: 'edit' | 'create', readonly isDirty: boolean, requestClose: () => boolean,
- *   focus: () => void, setDefaultDate: (dateKey: string) => void }}
+ *   focus: () => void, setDefaultDate: (dateKey: string) => void, refreshTimer: () => void }}
  *   `worklogId` is null when logging new work. `setDefaultDate` only applies when logging new work.
+ *   `refreshTimer` shows the timer's current state on the issue's timer button (after a change in any tab).
  */
-export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm, onDateChange, searchIssues }) {
+export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, onClose, mode = 'edit', initialForm, timer, onDateChange, searchIssues }) {
   const session = createWorklogEditorSession(worklog, { onSave, onDelete, mode, initialForm });
   const isCreate = mode === 'create';
-  const saveLabel = isCreate ? 'Log work' : 'Save changes';
+  const saveLabel = isCreate ? 'Log work' : mode === 'pending' ? 'Save' : 'Save changes';
   const firstField = session.pickIssue ? '#worklogIssueSearch' : isCreate ? '#worklogEditHours' : '#worklogEditDate';
+  // The issue's timer button: logging new work only, once there's an issue.
+  const hasTimer = isCreate && Boolean(timer);
+  const timerStateOf = (issue) => (issue?.issueKey ? timer.stateOf(issue) : null);
+  // True while a start or stop from the timer button is in progress.
+  let isTimerBusy = false;
 
-  showPanel(root, renderWorklogEditor(worklog, session.initialForm, baseUrl, { mode }));
+  showPanel(root, renderWorklogEditor(worklog, session.initialForm, baseUrl, {
+    mode, timerState: hasTimer && !session.pickIssue ? timerStateOf(worklog) : undefined
+  }));
   root.setAttribute('aria-labelledby', 'worklogEditorTitle');
 
   const form = root.querySelector('.editor-form');
@@ -362,7 +417,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   // null (not false) without a picker, so `issuePicker?.destroy()` is skipped on close.
   const issuePicker = !session.pickIssue ? null : attachIssuePicker(root.querySelector('[data-issue-picker]'), {
     search: searchIssues ?? (async () => []),
-    renderSelected: (issue) => renderEditorIssue(issue, baseUrl),
+    renderSelected: (issue) => renderEditorIssue(issue, baseUrl, hasTimer ? timerStateOf(issue) : undefined),
     onSelect: (issue) => {
       session.setIssue(issue);
       sync();
@@ -401,6 +456,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     for (const action of ['delete', 'keep-worklog', 'confirm-delete']) {
       if (button(action)) button(action).disabled = Boolean(state.busy);
     }
+    syncTimer();
     root.querySelector('[data-spinner="saving"]').classList.toggle('hidden', state.busy !== 'saving');
     root.querySelector('[data-spinner="deleting"]')?.classList.toggle('hidden', state.busy !== 'deleting');
     root.querySelector('[data-save-label]').textContent = state.busy === 'saving' ? 'Saving…' : saveLabel;
@@ -424,6 +480,13 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     for (const el of root.querySelectorAll('[data-confirm]')) {
       el.classList.toggle('hidden', el.dataset.confirm !== state.confirm);
     }
+  }
+
+  /** Shows the timer's current state, and any start or stop in progress, on the issue's timer button. */
+  function syncTimer() {
+    const timerButton = root.querySelector('[data-action="timer"]');
+    if (!hasTimer || !timerButton) return;
+    setEditorTimerButton(timerButton, timerStateOf(session.state.issue), isTimerBusy || Boolean(session.state.busy));
   }
 
   function close(reason) {
@@ -509,6 +572,27 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
       session.requestDelete();
       sync();
       button('keep-worklog').focus();
+    } else if (action === 'timer') {
+      // Starts or stops the timer on the issue; the form is never submitted from here.
+      const issue = session.state.issue;
+      const timerState = timerStateOf(issue);
+      if (!hasTimer || !timerState || isTimerBusy || session.state.busy) return;
+      isTimerBusy = true;
+      sync();
+      let done = false;
+      try {
+        done = timerState.running ? await timer.onStop() : await timer.onStart(issue);
+      } finally {
+        isTimerBusy = false;
+      }
+      if (!isOpen) return;
+      sync();
+      // Failed (the page has said why): the panel stays open, as it was.
+      if (!done) return;
+      // With nothing entered but the issue, nothing is lost by closing. Anything typed is never
+      // logged by the timer: closing then asks to discard it, as Cancel does.
+      if (!isEditFormDirty(session.initialForm, session.state.form)) close('closed');
+      else attemptClose();
     } else if (action === 'confirm-delete') {
       const pending = session.confirmDelete();
       sync();
@@ -550,6 +634,9 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
       session.setDefaultDate(dateKey);
       root.querySelector('#worklogEditDate').value = dateKey;
       sync();
+    },
+    refreshTimer() {
+      if (isOpen) syncTimer();
     }
   };
 }
