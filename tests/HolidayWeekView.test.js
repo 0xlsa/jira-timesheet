@@ -54,15 +54,43 @@ describe('WeekView - public holidays', () => {
     assert.equal(boxingDay.querySelector('.day-holiday').getAttribute('title'), "Boxing Day / St. Stephen's Day");
   });
 
-  it('puts the icon before the Today badge, and keeps the badge when the icons change', () => {
+  it('puts the Today badge on the day number row, apart from the icon, and keeps it when the icons change', () => {
     const container = h('div');
     const week = buildEmptyWeek(MONDAY, new Date(2026, 11, 25));
     renderWeek(container, week, { selectedDateKey: '2026-12-21', onSelectDay: () => {}, holidays: UK });
-    const end = () => card(container, '2026-12-25').querySelector('.day-card-end').children.map((el) => el.className);
-    assert.deepEqual(end(), ['day-holiday', 'badge-today']);
+    const friday = () => card(container, '2026-12-25');
+    const end = () => friday().querySelector('.day-card-end').children.map((el) => el.className);
+    const dateRow = () => friday().querySelector('.day-date-row').children.map((el) => [el.className, el.textContent]);
+    assert.deepEqual(end(), ['day-holiday']);
+    assert.deepEqual(dateRow(), [['day-date', '25'], ['badge-today', 'Today']]);
+    const badge = friday().querySelector('.badge-today');
 
     updateHolidays(container, week, new Map());
-    assert.deepEqual(end(), ['badge-today']);
+    assert.deepEqual(end(), []);
+    assert.equal(friday().querySelector('.badge-today'), badge, 'the badge is not rebuilt');
+
+    updateHolidays(container, week, UK);
+    assert.deepEqual(end(), ['day-holiday']);
+    assert.deepEqual(dateRow(), [['day-date', '25'], ['badge-today', 'Today']]);
+    assert.equal(container.querySelectorAll('.badge-today').length, 1);
+  });
+
+  it('shows the Today badge on a normal (non-holiday) day, and only the number on other days', () => {
+    const container = h('div');
+    renderWeek(container, buildEmptyWeek(MONDAY, new Date(2026, 11, 22)), { selectedDateKey: '2026-12-21', onSelectDay: () => {}, holidays: UK });
+    const row = (dateKey) => card(container, dateKey).querySelector('.day-date-row').children.map((el) => el.className);
+    assert.deepEqual(row('2026-12-22'), ['day-date', 'badge-today']);
+    assert.deepEqual(row('2026-12-23'), ['day-date']);
+    assert.equal(card(container, '2026-12-22').querySelector('.day-card-end').children.length, 0);
+  });
+
+  it('lays out the day number row with the Today badge at its right end', () => {
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    const rule = (selector) => css.match(new RegExp(`^${selector.replace(/\./g, '\\.')} \\{([^}]*)\\}`, 'm'))?.[1] ?? '';
+    assert.match(rule('.day-date-row'), /display: flex;/);
+    assert.match(rule('.day-date-row'), /justify-content: space-between;/);
+    assert.match(rule('.day-date-row'), /width: 100%;/);
+    assert.match(rule('.badge-today'), /flex-shrink: 0;/);
   });
 
   it('shows no icons without holidays, and keeps the weekday name unchanged', () => {

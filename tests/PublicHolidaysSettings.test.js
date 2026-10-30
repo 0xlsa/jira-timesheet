@@ -219,10 +219,11 @@ describe('Settings page structure', () => {
   const html = read('../options.html');
   const drawer = html.slice(html.indexOf('<aside id="settingsDrawer"'), html.indexOf('</aside>', html.indexOf('<aside id="settingsDrawer"')));
 
-  it('puts Public Holidays in the settings form, before the actions and About', () => {
+  it('puts Public Holidays in the settings form, after Jira Connection (and its actions) and before About', () => {
     const holidays = drawer.indexOf('id="publicHolidaysEnabled"');
     assert.ok(holidays > drawer.indexOf('<form id="settingsForm"'));
-    assert.ok(holidays < drawer.indexOf('id="saveSettingsBtn"'));
+    assert.ok(holidays < drawer.indexOf('</form>'), 'in the form, so Save Settings saves it');
+    assert.ok(holidays > drawer.indexOf('id="saveSettingsBtn"'));
     assert.ok(holidays < drawer.indexOf('id="aboutSection"'));
     assert.match(drawer, /<select id="publicHolidaysCountry"[^>]*>\s*<option value="">Select a country…<\/option>\s*<\/select>/);
     assert.doesNotMatch(drawer, /<option value="[A-Z]{2}"[^>]*selected/i, 'no country is preselected');

@@ -930,7 +930,7 @@ export class JiraClient {
 
     if (status === 401) {
       errorType = 'AUTH_INVALID';
-      message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Connection Settings.';
+      message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Settings.';
     } else if (status === 403 && /xsrf/i.test(serverMessage)) {
       errorType = 'XSRF';
       message = withDetail("Jira's cross-site request (XSRF) protection rejected the request, so nothing was changed.");

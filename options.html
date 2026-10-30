@@ -49,9 +49,9 @@
           data-tooltip="Keyboard shortcuts (?)">
           <span class="header-help-glyph" aria-hidden="true">?</span>
         </button>
-        <!-- Opens the Connection Settings drawer -->
-        <button type="button" id="settingsBtn" class="editor-icon-btn header-icon-btn" aria-label="Connection Settings"
-          aria-controls="settingsDrawer" aria-haspopup="dialog" aria-expanded="false" data-tooltip="Connection Settings">
+        <!-- Opens the Settings drawer -->
+        <button type="button" id="settingsBtn" class="editor-icon-btn header-icon-btn" aria-label="Settings"
+          aria-controls="settingsDrawer" aria-haspopup="dialog" aria-expanded="false" data-tooltip="Settings">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
             stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />
@@ -213,11 +213,11 @@
   <!-- Edit Worklog panel: beside the timesheet on wide windows, full view on narrow ones -->
   <aside id="worklogEditor" class="worklog-editor hidden" role="dialog" aria-modal="false"></aside>
 
-  <!-- Connection Settings drawer: opens from the header's cog, like the keyboard shortcuts drawer -->
+  <!-- Settings drawer: opens from the header's cog, like the keyboard shortcuts drawer -->
   <aside id="settingsDrawer" class="settings-drawer hidden" role="dialog" aria-modal="false" aria-labelledby="settingsTitle">
     <div class="settings-drawer-body">
       <div class="settings-drawer-header">
-        <h2 id="settingsTitle" class="settings-drawer-title">Connection Settings</h2>
+        <h2 id="settingsTitle" class="settings-drawer-title">Settings</h2>
         <button type="button" id="closeSettingsBtn" class="editor-icon-btn" aria-label="Close connection settings" title="Close">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
             aria-hidden="true">
@@ -268,100 +268,132 @@
               </div>
             </fieldset>
 
-            <!-- Jira Instance URL -->
-            <div class="form-group">
-              <label for="jiraBaseUrl" class="form-label">
-                <svg class="form-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                </svg>
-                Jira Instance URL <span class="required">*</span>
-              </label>
-              <div class="input-wrapper url-wrapper">
-                <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
-                  autocomplete="url" spellcheck="false" required>
-                <button type="button" id="openInstanceBtn" class="btn-icon" title="Open Jira instance in new tab"
-                  aria-label="Open Jira instance in new tab" disabled>
-                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            <!-- Jira Connection (src/ui/connectionSection.js): collapsible; collapsed by default once
+                 everything it needs is saved. Collapsing only hides the fields. -->
+            <section id="connectionSection" class="connection-section" aria-labelledby="connectionToggle">
+              <h3 class="connection-heading">
+                <button type="button" id="connectionToggle" class="connection-toggle" aria-expanded="true"
+                  aria-controls="connectionBody">
+                  <svg class="connection-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" />
-                    <line x1="10" y1="14" x2="21" y2="3" />
+                    <polyline points="6 9 12 15 18 9" />
                   </svg>
+                  <span>Jira Connection</span>
                 </button>
-              </div>
-              <div id="urlHint" class="field-hint">
-                Enter your Jira instance URL, including any context path. When you test or save, your browser
-                asks you to allow Timesheet for Jira to connect to this site. It doesn't get access to any other site.
-              </div>
-              <div id="urlError" class="field-error" role="alert"></div>
-            </div>
+              </h3>
+              <div id="connectionBody" class="connection-body">
+                <!-- Jira Instance URL -->
+                <div class="form-group">
+                  <label for="jiraBaseUrl" class="form-label">
+                    <svg class="form-label-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                    Jira Instance URL <span class="required">*</span>
+                  </label>
+                  <div class="input-wrapper url-wrapper">
+                    <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="https://your-domain.atlassian.net"
+                      autocomplete="url" spellcheck="false" required>
+                    <button type="button" id="openInstanceBtn" class="btn-icon" title="Open Jira instance in new tab"
+                      aria-label="Open Jira instance in new tab" disabled>
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div id="urlHint" class="field-hint">
+                    Enter your Jira instance URL, including any context path. When you test or save, your browser
+                    asks you to allow Timesheet for Jira to connect to this site. It doesn't get access to any other site.
+                  </div>
+                  <div id="urlError" class="field-error" role="alert"></div>
+                </div>
 
-            <!-- Jira Cloud Account Email (Conditional) -->
-            <div class="form-group" id="cloudEmailGroup">
-              <label for="jiraEmail" class="form-label">
-                Atlassian Account Email <span class="required">*</span>
-              </label>
-              <div class="input-wrapper">
-                <input type="email" id="jiraEmail" name="jiraEmail" placeholder="name@example.com" autocomplete="email"
-                  spellcheck="false">
-              </div>
-              <div class="field-hint">The primary email associated with your Atlassian Cloud account.</div>
-              <div id="emailError" class="field-error" role="alert"></div>
-            </div>
+                <!-- Jira Cloud Account Email (Conditional) -->
+                <div class="form-group" id="cloudEmailGroup">
+                  <label for="jiraEmail" class="form-label">
+                    Atlassian Account Email <span class="required">*</span>
+                  </label>
+                  <div class="input-wrapper">
+                    <input type="email" id="jiraEmail" name="jiraEmail" placeholder="name@example.com" autocomplete="email"
+                      spellcheck="false">
+                  </div>
+                  <div class="field-hint">The primary email associated with your Atlassian Cloud account.</div>
+                  <div id="emailError" class="field-error" role="alert"></div>
+                </div>
 
 
-            <!-- API Token / PAT -->
-            <div class="form-group">
-              <label for="jiraToken" class="form-label" id="tokenLabel">
-                Atlassian API Token <span class="required">*</span>
-              </label>
-              <div class="input-wrapper password-wrapper">
-                <input type="password" id="jiraToken" name="jiraToken" placeholder="Enter your API token" autocomplete="off"
-                  spellcheck="false" required>
-                <button type="button" id="toggleTokenVisibility" class="btn-icon" title="Show API token"
-                  aria-label="Show API token" aria-controls="jiraToken">
-                  <svg id="eyeIcon" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    aria-hidden="true">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
+                <!-- API Token / PAT -->
+                <div class="form-group">
+                  <label for="jiraToken" class="form-label" id="tokenLabel">
+                    Atlassian API Token <span class="required">*</span>
+                  </label>
+                  <div class="input-wrapper password-wrapper">
+                    <input type="password" id="jiraToken" name="jiraToken" placeholder="Enter your API token" autocomplete="off"
+                      spellcheck="false" required>
+                    <button type="button" id="toggleTokenVisibility" class="btn-icon" title="Show API token"
+                      aria-label="Show API token" aria-controls="jiraToken">
+                      <svg id="eyeIcon" class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        aria-hidden="true">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                      <svg id="eyeOffIcon" class="icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2" aria-hidden="true">
+                        <path
+                          d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                        <line x1="1" y1="1" x2="23" y2="23" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div id="tokenHelpText" class="field-hint">
+                    <span id="cloudTokenHelp">
+                      Create an API token in your
+                      <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank"
+                        rel="noopener noreferrer">Atlassian account security settings</a>.
+                    </span>
+                    <span id="serverTokenHelp" class="hidden">
+                      Generate a personal access token in your Jira profile settings.
+                    </span>
+                  </div>
+                  <div id="tokenError" class="field-error" role="alert"></div>
+                </div>
+
+                <!-- Security and Storage Notice -->
+                <div class="security-banner">
+                  <svg class="security-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
-                  <svg id="eyeOffIcon" class="icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2" aria-hidden="true">
-                    <path
-                      d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                </button>
-              </div>
-              <div id="tokenHelpText" class="field-hint">
-                <span id="cloudTokenHelp">
-                  Create an API token in your
-                  <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank"
-                    rel="noopener noreferrer">Atlassian account security settings</a>.
-                </span>
-                <span id="serverTokenHelp" class="hidden">
-                  Generate a personal access token in your Jira profile settings.
-                </span>
-              </div>
-              <div id="tokenError" class="field-error" role="alert"></div>
-            </div>
+                  <div class="security-content">
+                    <strong>Security & Privacy:</strong>
+                    </br>
+                    Your Jira credentials are stored locally in your browser.
+                    Requests go directly to your Jira instance over HTTPS.
+                    We don't use external servers or log your credentials.
+                  </div>
+                </div>
 
-            <!-- Security and Storage Notice -->
-            <div class="security-banner">
-              <svg class="security-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-              <div class="security-content">
-                <strong>Security & Privacy:</strong>
-                </br>
-                Your Jira credentials are stored locally in your browser.
-                Requests go directly to your Jira instance over HTTPS.
-                We don't use external servers or log your credentials.
+                <!-- Status & Feedback Area -->
+                <div id="statusArea" class="status-container hidden" role="region" aria-live="polite"></div>
+
+                <!-- Actions -->
+                <div class="form-actions">
+                  <button type="button" id="testConnectionBtn" class="btn btn-secondary">
+                    <span class="btn-spinner hidden" id="testSpinner"></span>
+                    <span class="btn-text">Test Connection</span>
+                  </button>
+                  <button type="submit" id="saveSettingsBtn" class="btn btn-primary">
+                    <span class="btn-text">Save Settings</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            </section>
+
+            <hr class="settings-divider">
 
             <!-- Public Holidays (src/ui/publicHolidaysSettings.js); saved with the other settings -->
             <fieldset class="form-group holidays-group">
@@ -378,28 +410,13 @@
               <div id="publicHolidaysStatus" class="field-hint hidden" role="status"></div>
               <div id="publicHolidaysError" class="field-error" role="alert"></div>
               <div id="publicHolidaysHint" class="field-hint">
-                Holidays come from <a href="https://nagerholidays.com/api" target="_blank" rel="noopener noreferrer">Nager.Date</a>.
-                When this is on, the selected country and year are sent there to download its official public holidays.
+                Official public holidays provided by <a href="https://nagerholidays.com/api" target="_blank" rel="noopener noreferrer">Nager.Date</a>.
               </div>
             </fieldset>
-
-            <!-- Status & Feedback Area -->
-            <div id="statusArea" class="status-container hidden" role="region" aria-live="polite"></div>
-
-            <!-- Actions -->
-            <div class="form-actions">
-              <button type="button" id="testConnectionBtn" class="btn btn-secondary">
-                <span class="btn-spinner hidden" id="testSpinner"></span>
-                <span class="btn-text">Test Connection</span>
-              </button>
-              <button type="submit" id="saveSettingsBtn" class="btn btn-primary">
-                <span class="btn-text">Save Settings</span>
-              </button>
-            </div>
           </form>
 
           <!-- About: name, version, and developer links (src/ui/aboutSection.js). Always the last
-               section of Settings: nothing goes after it. -->
+            section of Settings: nothing goes after it. -->
           <section id="aboutSection" class="settings-about" aria-labelledby="aboutTitle"></section>
       </div>
     </div>

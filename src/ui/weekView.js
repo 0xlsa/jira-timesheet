@@ -585,7 +585,8 @@ function setWorkingIssuesExpanded(section, expanded) {
 
 /**
  * Shows a weekday card's public holiday (or none): one icon on the right of the card's top row,
- * before the Today badge, with the holiday's name as its tooltip and in the card's tooltip.
+ * with the holiday's name as its tooltip and in the card's tooltip. (The Today badge is on the
+ * day number's row, so the two never meet.)
  *
  * @param {HTMLElement} dayCard
  * @param {{ dayName: string, formattedDate: string, isToday: boolean }} day
@@ -594,8 +595,7 @@ function setWorkingIssuesExpanded(section, expanded) {
 function showHoliday(dayCard, day, holiday) {
   dayCard.title = holiday ? `${day.dayName}, ${day.formattedDate} · ${holiday.label}` : `${day.dayName}, ${day.formattedDate}`;
   dayCard.querySelector('.day-card-end')?.replaceChildren(...[
-    holiday && h('span', { class: 'day-holiday', role: 'img', 'aria-label': `Public holiday: ${holiday.label}`, title: holiday.label }, holiday.icon),
-    day.isToday && h('span', { class: 'badge-today' }, 'Today')
+    holiday && h('span', { class: 'day-holiday', role: 'img', 'aria-label': `Public holiday: ${holiday.label}`, title: holiday.label }, holiday.icon)
   ].filter(Boolean));
 }
 
@@ -663,9 +663,12 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     dayCard.append(
       h('span', { class: 'day-card-top' },
         h('span', { class: 'day-name' }, day.shortDayName),
-        // The holiday icon and the Today badge, on the right (filled by showHoliday()).
+        // The holiday icon, on the right (filled by showHoliday()).
         h('span', { class: 'day-card-end' })),
-      h('span', { class: 'day-date' }, String(day.dayOfMonth)),
+      // The day number, with the Today badge on the right of its row.
+      h('span', { class: 'day-date-row' },
+        h('span', { class: 'day-date' }, String(day.dayOfMonth)),
+        day.isToday && h('span', { class: 'badge-today' }, 'Today')),
       h('span', { class: 'day-duration' }, day.formattedTotal),
       h('span', { class: 'day-count' }, `${day.worklogCount} ${day.worklogCount === 1 ? 'worklog' : 'worklogs'}`),
       h('span', { class: 'day-indicator', 'aria-hidden': 'true' },

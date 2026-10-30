@@ -647,12 +647,12 @@ body {
 }
 
 .day-name {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   color: var(--text-subtle);
 }
 
-/* Right of the weekday name: the public holiday icon (its name is the tooltip), then Today. */
+/* Right of the weekday name: the public holiday icon (its name is the tooltip). */
 .day-card-end {
   display: inline-flex;
   align-items: center;
@@ -667,6 +667,15 @@ body {
   margin: -2px 0;
 }
 
+/* The day number on the left, the Today badge (today only) on the right of its row. */
+.day-date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+
 .day-date {
   font-size: 20px;
   font-weight: 700;
@@ -675,6 +684,7 @@ body {
 }
 
 .badge-today {
+  flex-shrink: 0;
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -2356,6 +2366,77 @@ body {
   padding: 0;
 }
 
+/* Between the sections of the Connection Settings form: a thin line across the drawer's content
+   width. The section above provides the space over it (its 18px bottom margin). About draws the same
+   line as its own top border. An <hr>, not a fieldset border, which a legend would cut through. */
+.settings-divider {
+  height: 0;
+  margin: 0 0 18px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Jira Connection: a header button (styled as a field label, with a chevron) that expands and
+   collapses the URL, email, token, security notice, connection status, and the Test Connection and
+   Save Settings buttons. Collapsed, it's just the header row. */
+.connection-section {
+  margin-bottom: 18px;
+}
+
+.connection-heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.connection-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.connection-toggle:hover .connection-chevron {
+  color: var(--text-main);
+}
+
+.connection-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.connection-chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+  transition: transform var(--transition), color var(--transition);
+}
+
+.connection-section.is-collapsed .connection-chevron {
+  transform: rotate(-90deg);
+}
+
+.connection-body {
+  margin-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-chevron {
+    transition: none;
+  }
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2675,6 +2756,8 @@ select.is-invalid:focus {
 .holidays-group {
   border: none;
   padding: 0;
+  /* The form's last section: About's margin spaces it from the divider below. */
+  margin-bottom: 0;
 }
 
 .switch-row {
@@ -2771,10 +2854,10 @@ select:disabled {
   flex: 1 1 130px;
 }
 
-/* About: small print below the actions, set off by a subtle divider. */
+/* About: small print below the actions, set off by a subtle divider (spaced like .settings-divider). */
 .settings-about {
-  margin-top: 24px;
-  padding-top: 14px;
+  margin-top: 18px;
+  padding-top: 18px;
   border-top: 1px solid var(--border-subtle);
   font-size: 11px;
   line-height: 1.6;

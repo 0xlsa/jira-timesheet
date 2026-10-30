@@ -54,6 +54,7 @@ import { createNagerDateClient } from './src/holidays/nagerDateClient.js';
 import { createHolidayCache } from './src/holidays/holidayCache.js';
 import { createPublicHolidays } from './src/holidays/publicHolidays.js';
 import { createPublicHolidaysSettings } from './src/ui/publicHolidaysSettings.js';
+import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -127,6 +128,9 @@ const testConnectionBtn = document.getElementById('testConnectionBtn');
 const testSpinner = document.getElementById('testSpinner');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const themeToggleBtn = document.getElementById('themeToggleBtn');
+const connectionSectionEl = document.getElementById('connectionSection');
+const connectionToggle = document.getElementById('connectionToggle');
+const connectionBody = document.getElementById('connectionBody');
 
 // Public Holidays section of the Connection Settings form
 const publicHolidaysToggle = document.getElementById('publicHolidaysEnabled');
@@ -174,6 +178,14 @@ const tokenVisibility = createTokenVisibilityToggle({
   button: toggleTokenBtn,
   showIcon: eyeIcon,
   hideIcon: eyeOffIcon
+});
+
+// The Jira Connection section of the form (URL, email, token): collapsible, collapsed when it
+// opens with everything saved.
+const connectionSection = createConnectionSection({
+  section: connectionSectionEl,
+  toggle: connectionToggle,
+  body: connectionBody
 });
 
 // The last saved settings (the active configuration), as loaded from the settings store; null
@@ -294,11 +306,14 @@ function openSettings() {
   if (settingsDrawerState) return;
   // Unsaved changes from an earlier visit are discarded: the form shows the saved settings.
   if (savedSettings) fillSettingsForm(savedSettings);
+  // Connection details already saved: collapsed, out of the way. Missing: expanded, to fill in.
+  const isConnectionCollapsed = shouldCollapseConnection(savedSettings);
+  connectionSection.setExpanded(!isConnectionCollapsed);
   shortcutsDrawer?.close();
   settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
   showPanel(settingsDrawerRoot);
   settingsBtn.setAttribute('aria-expanded', 'true');
-  jiraBaseUrlInput.focus();
+  (isConnectionCollapsed ? connectionToggle : jiraBaseUrlInput).focus();
 }
 
 /** Closes the Connection Settings drawer. Unsaved changes are discarded when it next opens. */
@@ -306,8 +321,9 @@ function closeSettings() {
   if (!settingsDrawerState) return;
   const { returnFocus, coversEditor } = settingsDrawerState;
   settingsDrawerState = null;
-  // A revealed token never outlives a visit to Settings.
+  // A revealed token never outlives a visit to Settings, and neither does a test result.
   tokenVisibility.mask();
+  hideConnectionStatus();
   hidePanel(settingsDrawerRoot, { keepContents: true });
   settingsBtn.setAttribute('aria-expanded', 'false');
   uncoverWorklogEditor(coversEditor);
@@ -1252,6 +1268,8 @@ function switchDeploymentType(type) {
   jiraTokenInput.value = token;
   updateOpenInstanceBtn();
   invalidateConnectionStatus();
+  // An edition without its URL or token yet shows the fields to fill in.
+  if (!baseUrl || !token) connectionSection.setExpanded(true);
 }
 
 /**
@@ -1284,6 +1302,11 @@ function updateOpenInstanceBtn() {
 function invalidateConnectionStatus() {
   connectionTestId++;
   hasUntestedChanges = true;
+  hideConnectionStatus();
+}
+
+/** Hides and empties the connection status card. The saved test result is kept. */
+function hideConnectionStatus() {
   statusArea.className = 'status-container hidden';
   statusArea.replaceChildren();
 }
@@ -1337,6 +1360,8 @@ function validateForm() {
   }
 
   if (!isValid) {
+    // The errors are in the Jira Connection section: show them.
+    connectionSection.setExpanded(true);
     return { isValid: false, values: null };
   }
 
@@ -1498,8 +1523,9 @@ function setBusy(isBusy) {
 
 /**
  * Fills the Connection Settings form from saved settings, discarding any unsaved changes: the
- * edition, each edition's instance URL and token, the email, and the saved connection test
- * result. A connection test still running is ignored when it finishes.
+ * edition, each edition's instance URL and token, and the email. The connection status starts
+ * hidden (the saved test result isn't shown), and a connection test still running is ignored when
+ * it finishes.
  * @param {ReturnType<typeof normalizeSettings>} settings
  */
 function fillSettingsForm(settings) {
@@ -1513,11 +1539,9 @@ function fillSettingsForm(settings) {
   jiraTokenInput.value = settingsDraft.tokensByType[deploymentType];
   publicHolidaysSettings.fill(settings.publicHolidays);
 
+  // The connection status starts hidden: a test result shows only during the visit that ran it.
   invalidateConnectionStatus();
   hasUntestedChanges = false;
-  if (settings.lastTestResult && settings.lastTestResult.success) {
-    renderStatus('success', settings.lastTestResult);
-  }
 }
 
 /**
@@ -1735,7 +1759,7 @@ shortcuts.register({
   id: 'settings.open',
   key: ',',
   mod: true,
-  description: 'Open connection settings',
+  description: 'Open settings',
   category: 'General',
   when: () => !isDeleteDialogOpen,
   handler: openSettings
