@@ -132,6 +132,8 @@ const themeToggleBtn = document.getElementById('themeToggleBtn');
 const connectionSectionEl = document.getElementById('connectionSection');
 const connectionToggle = document.getElementById('connectionToggle');
 const connectionBody = document.getElementById('connectionBody');
+const connectionTitle = document.getElementById('connectionTitle');
+const connectionSetupHint = document.getElementById('connectionSetupHint');
 
 // Public Holidays section of the Connection Settings form
 const publicHolidaysToggle = document.getElementById('publicHolidaysEnabled');
@@ -188,11 +190,13 @@ const tokenVisibility = createTokenVisibilityToggle({
 });
 
 // The Jira Connection section of the form (URL, email, token): collapsible, collapsed when it
-// opens with everything saved.
+// opens with everything saved, and headed by a setup prompt until then.
 const connectionSection = createConnectionSection({
   section: connectionSectionEl,
   toggle: connectionToggle,
-  body: connectionBody
+  body: connectionBody,
+  title: connectionTitle,
+  setupHint: connectionSetupHint
 });
 
 // The last saved settings (the active configuration), as loaded from the settings store; null
@@ -352,8 +356,10 @@ function openSettings() {
   // Unsaved changes from an earlier visit are discarded: the form shows the saved settings.
   if (savedSettings) fillSettingsForm(savedSettings);
   showAssignmentFieldsSettings();
-  // Connection details already saved: collapsed, out of the way. Missing: expanded, to fill in.
+  // Connection details already saved: collapsed, out of the way. Missing: expanded, to fill in,
+  // under the setup prompt.
   const isConnectionCollapsed = shouldCollapseConnection(savedSettings);
+  connectionSection.setConfigured(isConnectionCollapsed);
   connectionSection.setExpanded(!isConnectionCollapsed);
   shortcutsDrawer?.close();
   settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
@@ -1532,9 +1538,12 @@ async function onSaveSettings(event) {
 
     await removeUnusedSiteAccess([baseUrlsByType.cloud, baseUrlsByType.server]);
 
-    // Saved: close the drawer and confirm with a toast, which stays after the drawer has gone.
-    // Without site access, the timesheet offers Allow Access.
-    closeSettings();
+    // Saved: the drawer stays open with Jira Connection collapsed (the form keeps its values), and
+    // a toast confirms it. Focus moves to the header, since Save Settings is now hidden. Without
+    // site access, the timesheet offers Allow Access.
+    connectionSection.setConfigured(shouldCollapseConnection(savedSettings));
+    connectionSection.setExpanded(false);
+    connectionToggle.focus();
     showToast('Settings saved', {
       success: true,
       subtitle: hasSiteAccess ? '' : `Allow access to ${getSiteHost(baseUrl)} to load your worklogs`,
@@ -1544,7 +1553,9 @@ async function onSaveSettings(event) {
     // Refresh worklog view with updated settings
     loadAndRenderWorklogs({ force: true });
   } catch (err) {
-    // The drawer stays open with everything as entered, so saving can be retried.
+    // The drawer stays open with everything as entered, and Jira Connection expanded to show the
+    // error, so saving can be retried.
+    connectionSection.setExpanded(true);
     renderStatus('error', {
       title: 'Settings Not Saved',
       error: `Your settings could not be saved: ${err.message || 'Storage error'}. Your entries are kept; try again.`

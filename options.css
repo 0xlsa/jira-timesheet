@@ -2376,9 +2376,11 @@ body {
   border-top: 1px solid var(--border-subtle);
 }
 
-/* Jira Connection: a header button (styled as a field label, with a chevron) that expands and
-   collapses the URL, email, token, security notice, connection status, and the Test Connection and
-   Save Settings buttons. Collapsed, it's just the header row. */
+/* Jira Connection: a full-width header button (link icon, title, chevron) that expands and
+   collapses the Jira edition selector, URL, email, token, security notice, connection status, and
+   the Test Connection and Save Settings buttons. Collapsed, it's just the header. Styled like a
+   secondary button; until the connection is saved it's a setup prompt, in the primary colour, with
+   a line of help under the title (.needs-setup). */
 .connection-section {
   margin-bottom: 18px;
 }
@@ -2392,11 +2394,11 @@ body {
 .connection-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   width: 100%;
-  padding: 4px 0;
-  background: none;
-  border: 0;
+  padding: 10px 12px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-main);
   font: inherit;
@@ -2404,15 +2406,53 @@ body {
   font-weight: 600;
   text-align: left;
   cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
 }
 
-.connection-toggle:hover .connection-chevron {
-  color: var(--text-main);
+.connection-toggle:hover {
+  background-color: var(--bg-hover);
 }
 
 .connection-toggle:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
+}
+
+.connection-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+}
+
+.connection-toggle-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connection-setup-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+
+.connection-section.needs-setup .connection-toggle {
+  padding: 12px 14px;
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.connection-section.needs-setup .connection-toggle:hover {
+  border-color: var(--primary);
+}
+
+.connection-section.needs-setup .connection-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
 }
 
 .connection-chevron {
@@ -2423,12 +2463,17 @@ body {
   transition: transform var(--transition), color var(--transition);
 }
 
-.connection-section.is-collapsed .connection-chevron {
-  transform: rotate(-90deg);
+.connection-toggle:hover .connection-chevron {
+  color: var(--text-main);
+}
+
+/* On the right: points down to expand, up to collapse. */
+.connection-section:not(.is-collapsed) .connection-chevron {
+  transform: rotate(180deg);
 }
 
 .connection-body {
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -28,23 +28,25 @@ describe('Jira Connection section', () => {
   afterEach(() => restoreDocument());
 
   function setup() {
+    const edition = h('input', { type: 'radio', id: 'typeCloud' });
     const url = h('input', { id: 'jiraBaseUrl' });
     const token = h('input', { id: 'jiraToken', type: 'password' });
     const status = h('div', { id: 'statusArea', class: 'status-container status-success' }, 'Connected as Ada Lovelace');
     const testButton = h('button', { type: 'button', id: 'testConnectionBtn' }, 'Test Connection');
     const saveButton = h('button', { type: 'submit', id: 'saveSettingsBtn' }, 'Save Settings');
-    const toggle = h('button', { type: 'button', 'aria-controls': 'connectionBody' }, 'Jira Connection');
-    const body = h('div', { id: 'connectionBody' }, url, token, status, h('div', { class: 'form-actions' }, testButton, saveButton));
+    const title = h('span', { id: 'connectionTitle' }, 'Jira Connection');
+    const setupHint = h('span', { id: 'connectionSetupHint', class: 'hidden' }, 'Connect your Jira instance to get started.');
+    const toggle = h('button', { type: 'button', 'aria-controls': 'connectionBody' }, title, setupHint);
+    const body = h('div', { id: 'connectionBody' }, edition, url, token, status, h('div', { class: 'form-actions' }, testButton, saveButton));
     const section = h('section', {}, h('h3', {}, toggle), body);
-    // The edition selector and Public Holidays are siblings of the section, outside it.
-    const edition = h('input', { type: 'radio', id: 'typeCloud' });
+    // Public Holidays is a sibling of the section, outside it.
     const holidays = h('input', { type: 'checkbox', id: 'publicHolidaysEnabled' });
-    h('form', {}, edition, section, holidays);
+    h('form', {}, section, holidays);
     url.value = 'https://example.atlassian.net';
     token.value = 'secret-token';
     return {
-      section, toggle, body, url, token, status, testButton, saveButton, edition, holidays,
-      connection: createConnectionSection({ section, toggle, body })
+      section, toggle, body, url, token, status, testButton, saveButton, edition, holidays, title, setupHint,
+      connection: createConnectionSection({ section, toggle, body, title, setupHint })
     };
   }
 
@@ -55,6 +57,49 @@ describe('Jira Connection section', () => {
     ariaExpanded: toggle.getAttribute('aria-expanded'),
     bodyHidden: body.classList.contains('hidden'),
     collapsedClass: section.classList.contains('is-collapsed')
+  });
+
+  const header = ({ section, title, setupHint }) => ({
+    title: title.textContent,
+    hint: isVisible(setupHint),
+    needsSetup: section.classList.contains('needs-setup')
+  });
+
+  it('shows a setup prompt while not configured', () => {
+    const view = setup();
+    view.connection.setConfigured(false);
+    assert.deepEqual(header(view), { title: 'Configure Jira Connection', hint: true, needsSetup: true });
+    assert.equal(view.setupHint.textContent, 'Connect your Jira instance to get started.');
+  });
+
+  it('shows just "Jira Connection" once configured', () => {
+    const view = setup();
+    view.connection.setConfigured(false);
+    view.connection.setConfigured(true);
+    assert.deepEqual(header(view), { title: 'Jira Connection', hint: false, needsSetup: false });
+  });
+
+  it('keeps the header the same while expanding and collapsing', () => {
+    for (const configured of [false, true]) {
+      const view = setup();
+      view.connection.setConfigured(configured);
+      const before = header(view);
+      view.toggle.click();
+      assert.deepEqual(header(view), before);
+      view.toggle.click();
+      assert.deepEqual(header(view), before);
+    }
+  });
+
+  it('expands and collapses from the header in either state', () => {
+    for (const configured of [false, true]) {
+      const view = setup();
+      view.connection.setConfigured(configured);
+      view.toggle.click();
+      assert.equal(view.connection.isExpanded(), false);
+      view.toggle.click();
+      assert.equal(view.connection.isExpanded(), true);
+    }
   });
 
   it('starts expanded', () => {
@@ -83,10 +128,18 @@ describe('Jira Connection section', () => {
     assert.deepEqual(contents.map(isVisible), [true, true, true, true, true]);
   });
 
-  it('keeps the edition selector and Public Holidays shown while collapsed', () => {
+  it('hides the edition selector with the rest of the connection settings while collapsed', () => {
+    const view = setup();
+    assert.equal(isVisible(view.edition), true);
+    view.connection.setExpanded(false);
+    assert.equal(isVisible(view.edition), false);
+    view.toggle.click();
+    assert.equal(isVisible(view.edition), true);
+  });
+
+  it('keeps Public Holidays shown while collapsed', () => {
     const view = setup();
     view.connection.setExpanded(false);
-    assert.equal(isVisible(view.edition), true);
     assert.equal(isVisible(view.holidays), true);
   });
 
@@ -180,6 +233,20 @@ describe('Jira Connection section - markup', () => {
     assert.match(section, /class="connection-chevron"[^>]*aria-hidden="true"/);
   });
 
+  it('heads it with a link icon, the title and its setup help, and the chevron on the right', () => {
+    const button = section.slice(section.indexOf('id="connectionToggle"'), section.indexOf('</button>'));
+    const order = ['class="connection-icon"', 'id="connectionTitle"', 'id="connectionSetupHint"', 'class="connection-chevron"']
+      .map((marker) => button.indexOf(marker));
+    assert.ok(order.every((index) => index > 0), String(order));
+    assert.deepEqual([...order].sort((a, b) => a - b), order);
+    assert.match(button, /class="connection-icon"[^>]*aria-hidden="true"/);
+    // The same link icon as the Jira Instance URL label.
+    const link = 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71';
+    assert.ok(button.includes(link));
+    assert.ok(html.indexOf(link, html.indexOf('</button>', html.indexOf('id="connectionToggle"'))) > 0);
+    assert.match(button, /id="connectionSetupHint" class="connection-setup-hint hidden">Connect your Jira instance to get started\.</);
+  });
+
   it('holds the URL, email, token, their help, the security notice, the status, and the buttons', () => {
     for (const id of ['jiraBaseUrl', 'urlHint', 'cloudEmailGroup', 'jiraToken', 'tokenHelpText', 'tokenError',
       'statusArea', 'testConnectionBtn', 'saveSettingsBtn']) {
@@ -204,11 +271,18 @@ describe('Jira Connection section - markup', () => {
     assert.match(html, /id="settingsBtn"[^>]*aria-label="Settings"[^>]*data-tooltip="Settings"/s);
   });
 
-  it('leaves the edition selector before it, and Public Holidays and About after it', () => {
-    assert.ok(!section.includes('name="deploymentType"'));
-    const sectionStart = html.indexOf('id="connectionSection"');
-    assert.ok(html.indexOf('id="typeCloud"') < sectionStart);
-    assert.ok(html.indexOf('id="typeServer"') < sectionStart);
+  it('holds the edition selector first in the body, above the instance URL, with no selector outside it', () => {
+    const fieldset = elementHtml('typeCloud', 'fieldset');
+    assert.match(fieldset, /<legend class="form-label">Jira Edition<\/legend>/);
+    assert.ok(fieldset.includes('id="typeServer"'));
+    assert.match(body, /^<div id="connectionBody" class="connection-body">\s*<!-- Jira Edition Selector -->\s*<fieldset class="form-group deployment-group">/);
+    assert.ok(body.indexOf(fieldset) < body.indexOf('id="jiraBaseUrl"'));
+    // Moved, not copied: one edition selector on the page, and no nested collapsible.
+    assert.equal(html.split('name="deploymentType"').length, 3);
+    assert.equal(section.split('aria-expanded=').length, 2);
+  });
+
+  it('has Public Holidays and About after it', () => {
     const sectionEnd = html.indexOf(section) + section.length;
     assert.ok(html.indexOf('id="publicHolidaysEnabled"') > sectionEnd);
     // About is still the last section of Settings.
@@ -244,6 +318,34 @@ describe('Connection status - options page wiring', () => {
     for (const name of ['closeSettings', 'hideConnectionStatus', 'fillSettingsForm']) {
       assert.doesNotMatch(fn(name), /clearTestResult|saveTestResult|settingsStore/, name);
     }
+  });
+
+  it('collapses Jira Connection after a successful save, keeping the drawer open and the form as entered', () => {
+    const save = fn('onSaveSettings');
+    const [success, failure] = save.split('} catch (err) {');
+    const collapse = success.indexOf('connectionSection.setExpanded(false);');
+    assert.ok(collapse > success.indexOf('await settingsStore.save('), 'only once saved');
+    assert.ok(collapse > success.lastIndexOf('await '), 'after the last step that can fail');
+    assert.ok(success.indexOf('connectionToggle.focus();') > collapse, 'focus moves to the header');
+    assert.doesNotMatch(success, /closeSettings\(|fillSettingsForm\(|\.value = ''|\.reset\(/);
+    assert.match(failure, /connectionSection\.setExpanded\(true\);/);
+    assert.doesNotMatch(failure, /setExpanded\(false\)/);
+  });
+
+  it('shows the setup prompt from the saved settings, when Settings opens and after a successful save', () => {
+    const open = fn('openSettings');
+    assert.match(open, /const isConnectionCollapsed = shouldCollapseConnection\(savedSettings\);\s*connectionSection\.setConfigured\(isConnectionCollapsed\);\s*connectionSection\.setExpanded\(!isConnectionCollapsed\);/);
+    const [success, failure] = fn('onSaveSettings').split('} catch (err) {');
+    const configured = success.indexOf('connectionSection.setConfigured(shouldCollapseConnection(savedSettings));');
+    assert.ok(configured > success.indexOf('savedSettings = await settingsStore.load()'), 'from the newly saved settings');
+    assert.ok(configured < success.indexOf('connectionSection.setExpanded(false);'));
+    assert.doesNotMatch(failure, /setConfigured/);
+    // Saved isn't tested: neither the test nor its result changes the header.
+    assert.doesNotMatch(fn('onTestConnection'), /setConfigured/);
+  });
+
+  it("doesn't collapse Jira Connection when the connection is tested", () => {
+    assert.doesNotMatch(fn('onTestConnection'), /setExpanded\(false\)/);
   });
 
   it('still shows a new test result during the visit that ran it', () => {

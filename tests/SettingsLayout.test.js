@@ -15,12 +15,12 @@ const at = (marker) => {
 const rule = (selector) => css.match(new RegExp(`^${selector.replace('.', '\\.')} \\{([^}]*)\\}`, 'm'))?.[1] ?? '';
 
 describe('Connection Settings layout - section dividers', () => {
-  it('separates Jira Edition and connection, Additional Assignment Fields, and Public Holidays with a divider each', () => {
+  it('separates Jira Connection (with the edition selector), Additional Assignment Fields, and Public Holidays with a divider each', () => {
     const dividers = [...form.matchAll(/<hr class="settings-divider">/g)].map((match) => match.index);
     assert.equal(dividers.length, 2);
     const [first, second] = dividers;
+    assert.ok(at('id="connectionSection"') < at('id="typeCloud"'));
     assert.ok(at('id="typeCloud"') < first);
-    assert.ok(at('id="connectionSection"') < first);
     assert.ok(first < at('id="assignmentFieldsTitle"') && at('id="assignmentFieldsStatus"') < second);
     assert.ok(second < at('id="publicHolidaysEnabled"'));
   });

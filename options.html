@@ -229,59 +229,67 @@
       <div class="settings-drawer-scroll">
           <form id="settingsForm" novalidate>
 
-            <!-- Jira Edition Selector -->
-            <fieldset class="form-group deployment-group">
-              <legend class="form-label">Jira Edition</legend>
-              <div class="segmented-control">
-                <label class="segment-option" id="labelCloud">
-                  <input type="radio" name="deploymentType" id="typeCloud" value="cloud" checked>
-                  <span class="segment-btn">
-                    <svg class="segment-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
-                    </svg>
-                    <span class="segment-title">Jira Cloud</span>
-                    <span class="segment-desc">atlassian.net (API Token)</span>
-                  </span>
-                </label>
-
-                <label class="segment-option" id="labelServer">
-                  <input type="radio" name="deploymentType" id="typeServer" value="server">
-                  <span class="segment-btn">
-                    <svg class="segment-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-                      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-                      <line x1="6" y1="6" x2="6.01" y2="6" />
-                      <line x1="6" y1="18" x2="6.01" y2="18" />
-                    </svg>
-                    <span class="segment-title">Data Center / Server</span>
-                    <span class="segment-desc">Self-hosted (PAT 8.14+)</span>
-                  </span>
-                </label>
-              </div>
-            </fieldset>
-
             <!-- Jira Connection (src/ui/connectionSection.js): collapsible; collapsed by default once
                  everything it needs is saved. Collapsing only hides the fields. -->
             <section id="connectionSection" class="connection-section" aria-labelledby="connectionToggle">
               <h3 class="connection-heading">
                 <button type="button" id="connectionToggle" class="connection-toggle" aria-expanded="true"
                   aria-controls="connectionBody">
+                  <svg class="connection-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  <span class="connection-toggle-text">
+                    <span id="connectionTitle" class="connection-title">Jira Connection</span>
+                    <span id="connectionSetupHint" class="connection-setup-hint hidden">Connect your Jira instance to get started.</span>
+                  </span>
                   <svg class="connection-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
-                  <span>Jira Connection</span>
                 </button>
               </h3>
               <div id="connectionBody" class="connection-body">
+                <!-- Jira Edition Selector -->
+                <fieldset class="form-group deployment-group">
+                  <legend class="form-label">Jira Edition</legend>
+                  <div class="segmented-control">
+                    <label class="segment-option" id="labelCloud">
+                      <input type="radio" name="deploymentType" id="typeCloud" value="cloud" checked>
+                      <span class="segment-btn">
+                        <svg class="segment-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+                        </svg>
+                        <span class="segment-title">Jira Cloud</span>
+                        <span class="segment-desc">atlassian.net (API Token)</span>
+                      </span>
+                    </label>
+
+                    <label class="segment-option" id="labelServer">
+                      <input type="radio" name="deploymentType" id="typeServer" value="server">
+                      <span class="segment-btn">
+                        <svg class="segment-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        <svg class="segment-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+                          <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+                          <line x1="6" y1="6" x2="6.01" y2="6" />
+                          <line x1="6" y1="18" x2="6.01" y2="18" />
+                        </svg>
+                        <span class="segment-title">Data Center / Server</span>
+                        <span class="segment-desc">Self-hosted (PAT 8.14+)</span>
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+
                 <!-- Jira Instance URL -->
                 <div class="form-group">
                   <label for="jiraBaseUrl" class="form-label">

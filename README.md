@@ -124,7 +124,7 @@ On first install, the extension opens its page automatically so you can configur
 
 ## Configuration
 
-Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it. The drawer always opens with your saved settings: changes you didn't save, including a different Jira edition, are discarded when you close it. Once **Save Settings** succeeds, the drawer closes and a toast confirms that the settings were saved; if saving fails, the drawer stays open with the error and your entries.
+Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it. The drawer always opens with your saved settings: changes you didn't save, including a different Jira edition, are discarded when you close it. Until your connection details are saved, the section's header reads **Configure Jira Connection** and the section starts expanded; after that, the header reads **Jira Connection** and the section starts collapsed. Click the header to expand or collapse it. Once **Save Settings** succeeds, the drawer stays open with **Jira Connection** collapsed (click its header to reopen it) and a toast confirms that the settings were saved; if saving fails, Jira Connection stays expanded with the error and your entries.
 
 ### Jira Cloud
 
