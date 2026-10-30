@@ -209,8 +209,7 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
  * the issue, otherwise Start. With no state (no timer for this issue), the button is hidden.
  *
  * @param {HTMLButtonElement} button
- * @param {{ running: boolean, blocked?: string } | null} timerState - `blocked`: why a timer can't
- *   start on the issue (its pending worklog), shown as the tooltip
+ * @param {{ running: boolean } | null} timerState
  * @param {boolean} [busy=false] - A start or stop is in progress (aria-disabled, so it keeps focus)
  */
 function setEditorTimerButton(button, timerState, busy = false) {
@@ -221,7 +220,7 @@ function setEditorTimerButton(button, timerState, busy = false) {
   button.classList.toggle('is-running', running);
   button.dataset.timerAction = running ? 'stop' : 'start';
   button.setAttribute('aria-label', running ? 'Stop timer' : 'Start timer');
-  button.setAttribute('title', running ? 'Stop timer' : (timerState?.blocked || 'Start timer'));
+  button.setAttribute('title', running ? 'Stop timer' : 'Start timer');
   if (busy) button.setAttribute('aria-disabled', 'true');
   else button.removeAttribute('aria-disabled');
   button.replaceChildren(renderTimerIcon(running));
@@ -232,7 +231,7 @@ function setEditorTimerButton(button, timerState, busy = false) {
  * the timer's Start or Stop button to the left of the key.
  * @param {{ issueKey: string, issueSummary?: string, issueStatus?: object }} issue
  * @param {string} baseUrl - Jira instance URL for the issue link
- * @param {{ running: boolean, blocked?: string } | null} [timerState] - Undefined: no timer button
+ * @param {{ running: boolean } | null} [timerState] - Undefined: no timer button
  * @returns {HTMLElement}
  */
 export function renderEditorIssue(issue, baseUrl, timerState) {
@@ -257,7 +256,7 @@ export function renderEditorIssue(issue, baseUrl, timerState) {
  * @param {string} baseUrl - Jira instance URL for the issue link
  * @param {object} [options]
  * @param {'edit' | 'create' | 'pending'} [options.mode='edit']
- * @param {{ running: boolean, blocked?: string } | null} [options.timerState] - Create with a given issue: the
+ * @param {{ running: boolean } | null} [options.timerState] - Create with a given issue: the
  *   timer's state for it, for the Start or Stop button beside its key; undefined for no button
  * @returns {HTMLFormElement}
  */
@@ -380,7 +379,7 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', tim
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  * @param {object} [options.timer] - Create: the timer, for a Start or Stop button beside the issue's key once there
  *   is one (choosing an issue alone never starts a timer). Neither submits the form.
- * @param {(issue: object) => ({ running: boolean, blocked?: string } | null)} options.timer.stateOf - The timer's state
+ * @param {(issue: object) => ({ running: boolean } | null)} options.timer.stateOf - The timer's state
  *   for an issue; null hides the button
  * @param {(issue: object) => Promise<boolean>} options.timer.onStart - Resolves true once the timer runs on the issue
  * @param {() => Promise<boolean>} options.timer.onStop - Resolves true once the timer is stopped

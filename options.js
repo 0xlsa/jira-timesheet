@@ -46,7 +46,7 @@ import { DISCARD_PENDING_WORDING, formatPendingDuration, siteBaseUrl } from './s
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
-import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, findPending, submissionStatus } from './src/timer/timeTrackingStore.js';
+import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus } from './src/timer/timeTrackingStore.js';
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
 
@@ -519,13 +519,7 @@ function logWorkTimerOptions() {
     stateOf(issue) {
       const state = timer.getState();
       if (!state.tracking || state.status === 'unavailable' || !currentClient) return null;
-      const timed = timedIssue(issue);
-      const running = Boolean(state.tracking.running) && isSameIssue(state.tracking.running, timed);
-      // Starting it would be refused (the store checks too, and says why on a click).
-      const blocked = !running && findPending(state.tracking, timed)
-        ? `${issue.issueKey} has a pending worklog. Submit or discard it before starting another timer.`
-        : '';
-      return { running, blocked };
+      return { running: Boolean(state.tracking.running) && isSameIssue(state.tracking.running, timedIssue(issue)) };
     },
     async onStart(issue) {
       if (!currentClient) return false;

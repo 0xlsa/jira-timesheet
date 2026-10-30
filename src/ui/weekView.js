@@ -455,8 +455,8 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
 
   const body = section.querySelector('.working-issues-body');
   if (pending) {
-    // The tab counts what its list shows, once Jira's issues are in.
-    body.replaceChildren(renderWorkingIssuesTabs(pending, state.status === 'ready' ? rows.length : null,
+    // The tab counts what its list shows, from the start: 0 until Jira's issues are in.
+    body.replaceChildren(renderWorkingIssuesTabs(pending, rows.length,
       fragment(
         list,
         errorMessage,
@@ -509,8 +509,8 @@ const TAB_UNSELECTED_CLASS = 'btn-secondary';
  * stopped session, so two sessions on one issue count twice.
  *
  * @param {object} pending - renderWorkingIssues()'s `pending` options
- * @param {number | null} activeCount - Rows in the Active Issues list; null while Jira's issues
- *   aren't in (loading, or failed), when the tab shows no count
+ * @param {number} activeCount - Rows in the Active Issues list (0 while Jira's issues load or
+ *   failed, unless the running timer's issue is listed)
  * @param {DocumentFragment} activeContent - The Active Issues panel's contents
  * @returns {DocumentFragment}
  */
@@ -527,7 +527,7 @@ function renderWorkingIssuesTabs(pending, activeCount, activeContent) {
     'aria-controls': `workingIssuesPanel-${id}`,
     'aria-selected': String(id === selected),
     tabindex: id === selected ? '0' : '-1'
-  }, counts[id] === null ? label : `${label} (${counts[id]})`));
+  }, `${label} (${counts[id]})`));
 
   const panels = TABS.map(({ id }) => h('div', {
     role: 'tabpanel',

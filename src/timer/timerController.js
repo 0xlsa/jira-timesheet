@@ -21,7 +21,7 @@ const ERROR_MESSAGES = {
 
 // Engine errors whose own message is written for users (it names the issue or says what happened).
 const OWN_MESSAGE_CODES = new Set([
-  'PENDING_EXISTS', 'PENDING_NOT_FOUND', 'PENDING_CHANGED', 'INVALID_PENDING',
+  'PENDING_NOT_FOUND', 'PENDING_CHANGED', 'INVALID_PENDING',
   'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE'
 ]);
 

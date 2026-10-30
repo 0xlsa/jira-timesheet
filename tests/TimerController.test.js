@@ -248,21 +248,18 @@ describe('Timer controller - start and stop', () => {
     }
   });
 
-  it('explains that a pending worklog must be submitted or discarded first, and starts nothing', async () => {
+  it('starts an issue that has a pending worklog, as a new session, without any warning', async () => {
     const page = createPage(createMemoryStorageArea());
     await page.controller.init();
     await page.controller.start(ABC_1);
     await page.controller.start(ABC_2);
 
-    await page.controller.start(ABC_1);
+    assert.equal(await page.controller.start(ABC_1), true);
 
-    assert.equal(page.errors.length, 1);
-    assert.match(page.errors[0], /ABC-1 already has a pending worklog/);
-    assert.match(page.errors[0], /Submit or discard it/);
-    assert.equal(page.state.tracking.running.issueKey, 'ABC-2');
-    assert.equal(page.state.tracking.pending.length, 1);
+    assert.deepEqual(page.errors, []);
+    assert.equal(page.state.tracking.running.issueKey, 'ABC-1');
+    assert.deepEqual(page.state.tracking.pending.map((p) => p.issueKey), ['ABC-1', 'ABC-2']);
     assert.equal(page.state.busy, false);
-    // An expected refusal, not a fault.
     assert.deepEqual(page.logged, []);
   });
 
@@ -403,8 +400,8 @@ describe('Timer controller - error messages', () => {
     assert.match(timerErrorMessage(new TimeTrackingError('x', 'LOCK_UNAVAILABLE'), 'read'), /turned off/);
     assert.match(timerErrorMessage(new TimeTrackingError('x', 'INVALID_ISSUE'), 'change'), /can't be timed/);
     assert.match(timerErrorMessage(new TimeTrackingError('x', 'UNSUPPORTED_VERSION'), 'read'), /another version/);
-    assert.equal(timerErrorMessage(new TimeTrackingError('ABC-1 already has a pending worklog.', 'PENDING_EXISTS'), 'change'),
-      'ABC-1 already has a pending worklog.');
+    assert.equal(timerErrorMessage(new TimeTrackingError('This pending worklog is no longer here.', 'PENDING_NOT_FOUND'), 'change'),
+      'This pending worklog is no longer here.');
     assert.match(timerErrorMessage(new Error('boom'), 'read'), /Couldn't read/);
     assert.match(timerErrorMessage(new Error('boom'), 'change'), /Couldn't save/);
     assert.match(timerErrorMessage(undefined, 'change'), /Couldn't save/);

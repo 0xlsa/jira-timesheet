@@ -662,16 +662,20 @@ describe('Discarding a pending worklog', () => {
     assert.deepEqual((await page.store.load()).pending, [second]);
   });
 
-  it('lets the issue be timed again once its pending worklog is discarded', async () => {
+  it('times an issue with a pending worklog again, and discards one of its sessions only', async () => {
     const page = await withTwoPending();
     const [first] = page.controller.getState().tracking.pending;
 
-    assert.equal(await page.controller.start({ site: SITE, issueId: '10020', issueKey: 'KAN-20' }), false);
-    assert.match(page.errors.at(-1), /KAN-20 already has a pending worklog/);
+    // KAN-20 has a pending worklog: a new session starts anyway, and becomes a second one.
+    assert.equal(await page.controller.start({ site: SITE, issueId: '10020', issueKey: 'KAN-20' }), true);
+    page.advance(60_000);
+    await page.controller.stop();
+    const kan20 = page.controller.getState().tracking.pending.filter((p) => p.issueKey === 'KAN-20');
+    assert.equal(kan20.length, 2);
+    assert.deepEqual(page.errors, []);
 
     await page.controller.discardPending(first.id);
-    assert.equal(await page.controller.start({ site: SITE, issueId: '10020', issueKey: 'KAN-20' }), true);
-    assert.equal(page.controller.getState().tracking.running.issueKey, 'KAN-20');
+    assert.deepEqual(page.controller.getState().tracking.pending.filter((p) => p.issueKey === 'KAN-20').map((p) => p.id), [kan20[1].id]);
   });
 
   it('ignores a late close event from the previous confirmation after reopening', async () => {
@@ -724,13 +728,13 @@ describe('Log work panel - timer button', () => {
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const issue = { issueId: '10020', issueKey: 'KAN-20', issueSummary: 'Write the docs', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' } };
 
-  /** A timer stand-in: `running` and `blocked` by issue key, with the calls recorded. */
-  function fakeTimer({ running = null, blocked = {}, result = true } = {}) {
+  /** A timer stand-in: `running` by issue key, with the calls recorded. */
+  function fakeTimer({ running = null, result = true } = {}) {
     const calls = [];
     return {
       calls,
       running,
-      stateOf(i) { return { running: this.running === i.issueKey, blocked: blocked[i.issueKey] || '' }; },
+      stateOf(i) { return { running: this.running === i.issueKey }; },
       async onStart(i) { calls.push(['start', i.issueKey]); return result; },
       async onStop() { calls.push(['stop']); return result; }
     };
@@ -883,12 +887,6 @@ describe('Log work panel - timer button', () => {
     assert.equal(timerButton(root).getAttribute('aria-disabled'), null);
   });
 
-  it('explains a pending worklog in its tooltip', () => {
-    const { root } = openLogWork({ timer: fakeTimer({ blocked: { 'KAN-20': 'KAN-20 has a pending worklog.' } }) });
-    assert.equal(timerButton(root).getAttribute('aria-label'), 'Start timer');
-    assert.equal(timerButton(root).getAttribute('title'), 'KAN-20 has a pending worklog.');
-  });
-
   it('follows the timer when it changes elsewhere, keeping the same button', () => {
     const timer = fakeTimer();
     const { root, editor } = openLogWork({ timer });
@@ -927,9 +925,7 @@ describe('Log work panel - timer button', () => {
         stateOf(i) {
           const { tracking } = page.controller.getState();
           if (!tracking) return null;
-          const running = Boolean(tracking.running) && tracking.running.issueKey === i.issueKey;
-          const blocked = !running && tracking.pending.some((p) => p.issueKey === i.issueKey) ? `${i.issueKey} has a pending worklog.` : '';
-          return { running, blocked };
+          return { running: Boolean(tracking.running) && tracking.running.issueKey === i.issueKey };
         },
         onStart: (i) => page.controller.start(timed(i)),
         onStop: () => page.controller.stop()
@@ -968,19 +964,22 @@ describe('Log work panel - timer button', () => {
       assert.deepEqual(page.jiraCalls, []);
     });
 
-    it('is refused by the store for an issue with a pending worklog, with its warning, and stays open', async () => {
+    it('starts a new session for an issue with a pending worklog, offering plain Start timer', async () => {
       const page = await createTimerPage();
       await page.controller.start({ site: SITE, issueId: '10020', issueKey: 'KAN-20' });
       page.advance(60_000);
       await page.controller.stop();
       const { root, closed } = openLogWork({ timer: pageTimerOptions(page) });
+      assert.equal(timerButton(root).getAttribute('title'), 'Start timer');
 
       timerButton(root).click();
       await flush();
 
-      assert.equal(page.controller.getState().tracking.running, null);
-      assert.match(page.errors.at(-1), /KAN-20 already has a pending worklog\. Submit or discard it/);
-      assert.deepEqual(closed, []);
+      const { running, pending } = page.controller.getState().tracking;
+      assert.equal(running.issueKey, 'KAN-20');
+      assert.equal(pending.length, 1, 'the earlier session stays pending');
+      assert.deepEqual(page.errors, []);
+      assert.deepEqual(closed, ['closed']);
     });
   });
 });
@@ -1104,5 +1103,109 @@ describe('Pending tab - Submit', () => {
     assert.deepEqual(page.jiraCalls, [['createWorklog', '10020']]);
     assert.equal(section.querySelector('.working-issues-pending-count').textContent, '1 pending worklog');
     assert.equal(section.querySelector('#workingIssuesTab-pending').textContent, 'Pending (1)');
+  });
+});
+
+describe('Pending tab - several sessions for one issue', () => {
+  let restoreDocument;
+  before(() => { restoreDocument = installFakeDocument(); });
+  after(() => restoreDocument());
+
+  /** KAN-1 twice and KAN-2 once, from the page's timer: sessions A, B, and C. */
+  async function threeSessions() {
+    const page = await createTimerPage();
+    for (const [key, id, minutes] of [['KAN-1', '10001', 10], ['KAN-2', '10002', 5], ['KAN-1', '10001', 2]]) {
+      await page.controller.start({ site: SITE, issueId: id, issueKey: key, issueSummary: `Work on ${key}` });
+      page.advance(minutes * 60_000);
+      await page.controller.stop();
+    }
+    return page;
+  }
+  const drawSection = (page, section = h('section', { id: 'workingIssues' })) => {
+    renderWorkingIssues(section, {
+      state: READY, expanded: false,
+      pending: { entries: page.controller.getState().tracking.pending, site: SITE, tab: 'pending', onEdit: () => {}, onDiscard: () => {}, onSubmit: () => {} }
+    });
+    return section;
+  };
+
+  it('lists each session on its own row, keyed by its ID, and counts sessions', async () => {
+    const page = await threeSessions();
+    const [a, b, c] = page.controller.getState().tracking.pending;
+    const section = drawSection(page);
+    const rows = section.querySelectorAll('.pending-worklog');
+
+    assert.deepEqual(rows.map((r) => r.dataset.pendingId), [c.id, b.id, a.id]);
+    assert.deepEqual(rows.map((r) => r.querySelector('.issue-key-badge').textContent), ['KAN-1', 'KAN-2', 'KAN-1']);
+    assert.deepEqual(rows.map((r) => r.querySelector('.pending-worklog-duration').textContent), ['0h 02m', '0h 05m', '0h 10m']);
+    assert.equal(section.querySelector('#workingIssuesTab-pending').textContent, 'Pending (3)');
+    assert.equal(section.querySelector('.working-issues-pending-count').textContent, '3 pending worklogs');
+  });
+
+  it('acts on the clicked session only: its buttons carry its ID', async () => {
+    const page = await threeSessions();
+    const [a, , c] = page.controller.getState().tracking.pending;
+    const clicked = [];
+    const section = h('section');
+    renderWorkingIssues(section, {
+      state: READY, expanded: true,
+      pending: {
+        entries: page.controller.getState().tracking.pending, site: SITE, tab: 'pending',
+        onEdit: (id) => clicked.push(['edit', id]), onDiscard: (id) => clicked.push(['discard', id]), onSubmit: (id) => clicked.push(['submit', id])
+      }
+    });
+    section.querySelector(`.pending-submit-btn[data-pending-id="${c.id}"]`).click();
+    section.querySelector(`.pending-edit-btn[data-pending-id="${a.id}"]`).click();
+    section.querySelector(`.pending-discard-btn[data-pending-id="${c.id}"]`).click();
+    assert.deepEqual(clicked, [['submit', c.id], ['edit', a.id], ['discard', c.id]]);
+  });
+
+  it('updates the counts as sessions are edited, submitted, and discarded', async () => {
+    const page = await threeSessions();
+    const [a, b, c] = page.controller.getState().tracking.pending;
+    const section = drawSection(page);
+
+    await page.controller.updatePending(a.id, { comment: 'First pass' });
+    drawSection(page, section);
+    assert.equal(section.querySelector('#workingIssuesTab-pending').textContent, 'Pending (3)');
+
+    const { submitPendingWorklog } = await import('../src/worklog/pendingSubmission.js');
+    const client = { createWorklog: async (issue, worklog) => ({ id: '9', started: worklog.started.toISOString(), timeSpentSeconds: worklog.timeSpentSeconds }) };
+    assert.equal((await submitPendingWorklog({ timer: page.controller, client, id: c.id, site: SITE })).status, 'submitted');
+    drawSection(page, section);
+    assert.deepEqual(page.controller.getState().tracking.pending.map((p) => p.id), [a.id, b.id], 'only the submitted KAN-1 session left');
+    assert.equal(page.controller.getState().tracking.pending[0].comment, 'First pass');
+    assert.equal(section.querySelector('.working-issues-pending-count').textContent, '2 pending worklogs');
+
+    await page.controller.discardPending(b.id);
+    drawSection(page, section);
+    assert.equal(section.querySelector('#workingIssuesTab-pending').textContent, 'Pending (1)');
+  });
+
+  it('keeps every session when another tab adds and changes them', async () => {
+    const storage = createMemoryStorageArea();
+    let tail = Promise.resolve();
+    const lock = { run(fn) { const r = tail.then(() => fn()); tail = r.catch(() => {}); return r; } };
+    let clock = T0;
+    const tab = () => createTimerController({
+      createStore: () => createTimeTrackingStore(storage, { lock, now: () => clock }),
+      watchStorage: (listener) => { storage.onChanged.addListener(listener); return () => storage.onChanged.removeListener(listener); },
+      onChange: () => {}, onTick: () => {}, onError: () => {}, setInterval: () => 1, clearInterval: () => {}
+    });
+    const tabA = tab();
+    const tabB = tab();
+    await tabA.init();
+    await tabB.init();
+
+    for (let i = 0; i < 3; i++) {
+      await tabA.start({ site: SITE, issueId: '10001', issueKey: 'KAN-1' });
+      clock += 60_000;
+      await tabA.stop();
+    }
+    const ids = tabA.getState().tracking.pending.map((p) => p.id);
+    await tabA.updatePending(ids[1], { comment: 'Middle one' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(tabB.getState().tracking.pending.map((p) => [p.id, p.comment]), [[ids[0], ''], [ids[1], 'Middle one'], [ids[2], '']]);
   });
 });

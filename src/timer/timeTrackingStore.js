@@ -53,7 +53,6 @@ const ISSUE_ID = /^\d+$/;
  * A timer engine error. `code` says what went wrong:
  * - LOCK_UNAVAILABLE: the browser has no Web Locks, so changes can't be made safely across tabs
  * - INVALID_ISSUE: the issue to time has no valid site, key, or ID
- * - PENDING_EXISTS: the issue already has a pending worklog, to submit or discard first
  * - UNSUPPORTED_VERSION: the stored state is from another version of the extension, so it's
  *   neither read nor overwritten
  * - PENDING_NOT_FOUND: the pending worklog is no longer stored (discarded or submitted elsewhere)
@@ -69,7 +68,7 @@ const ISSUE_ID = /^\d+$/;
 export class TimeTrackingError extends Error {
   /**
    * @param {string} message
-   * @param {'LOCK_UNAVAILABLE' | 'INVALID_ISSUE' | 'PENDING_EXISTS' | 'UNSUPPORTED_VERSION' |
+   * @param {'LOCK_UNAVAILABLE' | 'INVALID_ISSUE' | 'UNSUPPORTED_VERSION' |
    *   'PENDING_NOT_FOUND' | 'PENDING_CHANGED' | 'INVALID_PENDING' | 'SUBMISSION_IN_PROGRESS' |
    *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE'} code
    */
@@ -259,27 +258,16 @@ export function isSameIssue(a, b) {
 }
 
 /**
- * The issue's pending worklog, if it has one.
+ * True when starting the issue would start (or resume) its timer: it isn't the one already
+ * running. Another issue's timer doesn't prevent it (starting stops that one), and neither do the
+ * issue's pending worklogs: each timer session becomes a pending worklog of its own.
  *
- * @param {{ pending: Array<object> }} state
- * @param {{ site: string, issueId?: string, issueKey: string }} issue
- * @returns {object | null}
- */
-export function findPending(state, issue) {
-  return state.pending.find((entry) => isSameIssue(entry, issue)) || null;
-}
-
-/**
- * True when a timer can start on the issue: it isn't already running, and has no pending
- * worklog. Another issue's running timer doesn't prevent it; starting stops that one.
- *
- * @param {{ running: object | null, pending: Array<object> }} state
+ * @param {{ running: object | null }} state
  * @param {{ site: string, issueId?: string, issueKey: string }} issue
  * @returns {boolean}
  */
 export function canStart(state, issue) {
-  if (state.running && isSameIssue(state.running, issue)) return false;
-  return !findPending(state, issue);
+  return !(state.running && isSameIssue(state.running, issue) && !isPaused(state.running));
 }
 
 /**
@@ -386,12 +374,13 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
     /**
      * Starts a timer on an issue. A timer running (or paused) on another issue stops first,
      * becoming a pending worklog of its active time, in the same write. Starting the issue already
-     * running changes nothing; starting it while paused resumes it.
+     * running changes nothing; starting it while paused resumes it. The issue's pending worklogs
+     * don't matter: the new session is a separate one, and becomes a pending worklog of its own.
      *
      * @param {{ site: string, issueId?: string | number, issueKey: string, issueSummary?: string }} issue
      * @returns {Promise<{ state: object, running: object, stopped: object | null }>} `stopped` is the
      *   pending worklog of the timer this one replaced
-     * @throws {TimeTrackingError} INVALID_ISSUE, or PENDING_EXISTS when the issue has a pending worklog
+     * @throws {TimeTrackingError} INVALID_ISSUE
      */
     async start(issue) {
       const timed = toTimedIssue(issue);
@@ -404,12 +393,6 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
           }
           return { running: state.running, stopped: null };
         }
-        if (findPending(state, timed)) {
-          throw new TimeTrackingError(
-            `${timed.issueKey} already has a pending worklog. Submit or discard it before starting another timer.`,
-            'PENDING_EXISTS');
-        }
-
         const at = now();
         const stopped = state.running ? toStoppedSession(state.running, at) : null;
         const running = { id: newId(), ...timed, startedAt: at, accumulatedMs: 0, resumedAt: at };

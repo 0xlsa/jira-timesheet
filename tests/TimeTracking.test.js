@@ -143,26 +143,44 @@ describe('timeTrackingStore - start and stop', () => {
     assert.deepEqual(state.running, running);
   });
 
-  it('refuses to start an issue that has a pending worklog, and leaves the state alone', async () => {
-    const { store, storage } = setup();
+  it('starts an issue that has a pending worklog, as a new session that becomes its own pending worklog', async () => {
+    const { store, clock } = setup();
+    // KAN-1, KAN-2, then KAN-1 again: sessions A, B, and C.
     await store.start(ABC_1);
+    clock.advance(10 * 60_000);
     await store.stop();
     await store.start(ABC_2);
-    const before = await stored(storage);
+    clock.advance(5 * 60_000);
+    await store.stop();
+    const before = (await store.load()).pending;
 
-    await assert.rejects(store.start(ABC_1), (err) => err instanceof TimeTrackingError && err.code === 'PENDING_EXISTS');
-    assert.deepEqual(await stored(storage), before);
+    const { running, stopped } = await store.start(ABC_1);
+    assert.equal(stopped, null);
+    assert.deepEqual([running.issueKey, running.startedAt, running.accumulatedMs], ['ABC-1', clock.now(), 0]);
+    clock.advance(2 * 60_000);
+    const { state } = await store.stop();
+
+    assert.deepEqual(state.pending.map((p) => [p.issueKey, p.timeSpentSeconds]), [['ABC-1', 600], ['ABC-2', 300], ['ABC-1', 120]]);
+    assert.deepEqual(state.pending.slice(0, 2), before, 'the earlier sessions are untouched');
+    assert.equal(new Set(state.pending.map((p) => p.id)).size, 3, 'each session has its own ID');
+    assert.notEqual(state.pending[0].startedAt, state.pending[2].startedAt);
   });
 
-  it('matches a pending issue by its ID even when its key changed, and by key when an ID is missing', async () => {
-    const { store } = setup();
-    await store.start(ABC_1);
-    await store.stop();
+  it('starts an issue with several pending worklogs, and switching to it from another keeps every session', async () => {
+    const { store, clock } = setup();
+    for (let i = 0; i < 2; i++) {
+      await store.start(ABC_1);
+      clock.advance(60_000);
+      await store.stop();
+    }
+    await store.start(ABC_2);
+    clock.advance(30_000);
 
-    await assert.rejects(store.start({ ...ABC_1, issueKey: 'XYZ-9' }), { code: 'PENDING_EXISTS' });
-    await assert.rejects(store.start({ site: SITE, issueKey: 'ABC-1' }), { code: 'PENDING_EXISTS' });
-    // The same key on another site is another issue.
-    await store.start({ ...ABC_1, site: siteId('server', 'https://jira.example.com') });
+    const { running, stopped, state } = await store.start(ABC_1);
+    assert.equal(running.issueKey, 'ABC-1');
+    assert.equal(stopped.issueKey, 'ABC-2');
+    assert.deepEqual(state.pending.map((p) => p.issueKey), ['ABC-1', 'ABC-1', 'ABC-2']);
+    assert.equal(new Set(state.pending.map((p) => p.id)).size, 3);
   });
 
   it('changes nothing when starting the issue already running, or stopping with no timer', async () => {
@@ -429,15 +447,17 @@ describe('timeTrackingStore - lock', () => {
 });
 
 describe('timeTrackingStore - canStart', () => {
-  it('allows another issue while a timer runs, but not the running issue or one with a pending worklog', async () => {
+  it('allows any issue but the running one, including one with pending worklogs, and the paused one (resume)', async () => {
     const { store } = setup();
     await store.start(ABC_1);
     await store.stop();
     const { state } = await store.start(ABC_2);
 
-    assert.equal(canStart(state, ABC_1), false);
-    assert.equal(canStart(state, ABC_2), false);
+    assert.equal(canStart(state, ABC_1), true, 'a pending worklog doesn\'t prevent it');
+    assert.equal(canStart(state, ABC_2), false, 'already running');
     assert.equal(canStart(state, { site: SITE, issueId: '10003', issueKey: 'ABC-3' }), true);
+    const { state: paused } = await store.pause();
+    assert.equal(canStart(paused, ABC_2), true, 'starting the paused issue resumes it');
   });
 });
 
@@ -603,10 +623,13 @@ describe('timeTrackingStore - editing and discarding pending worklogs', () => {
     assert.deepEqual(await stored(storage), before);
   });
 
-  it('keeps refusing a timer on an issue with a pending worklog, and allows it once that is discarded', async () => {
+  it('times an issue with a pending worklog again, before or after it is discarded', async () => {
     const { store, first } = await withPending();
 
-    await assert.rejects(store.start(ABC_1), { code: 'PENDING_EXISTS' });
+    const { running: whilePending } = await store.start(ABC_1);
+    assert.equal(whilePending.issueKey, 'ABC-1');
+    assert.ok((await store.load()).pending.some((p) => p.id === first.id), 'the pending worklog stays');
+    await store.start({ site: SITE, issueId: '10003', issueKey: 'ABC-3' });
     await store.discardPending(first.id);
     const { running, stopped } = await store.start(ABC_1);
 
@@ -731,8 +754,12 @@ describe('timeTrackingStore - pause and resume', () => {
     assert.equal(isPaused(running), false);
     assert.equal(running.accumulatedMs, 60_000);
 
+    // Switching away makes it pending; starting it again is a new session.
     await store.start(ABC_2);
-    await assert.rejects(store.start(ABC_1), { code: 'PENDING_EXISTS' });
+    const { running: again, stopped: switched } = await store.start(ABC_1);
+    assert.equal(switched.issueKey, 'ABC-2');
+    assert.notEqual(again.id, running.id);
+    assert.deepEqual((await store.load()).pending.map((p) => p.issueKey), ['ABC-1', 'ABC-2']);
   });
 
   it('changes nothing when pausing a paused timer, resuming a running one, or either with no timer', async () => {
@@ -934,5 +961,75 @@ describe('timeTrackingStore - submission state', () => {
     }
     const [plain] = normalizeTimeTracking({ version: 2, running: null, pending: [base] }).pending;
     assert.equal('submission' in plain, false);
+  });
+});
+
+describe('timeTrackingStore - several pending worklogs for one issue', () => {
+  /** Three sessions: ABC-1 (10 min), ABC-2 (5 min), ABC-1 again (2 min). */
+  async function sessions() {
+    const ctx = setup({ storage: instrument(createMemoryStorageArea()) });
+    const { store, clock } = ctx;
+    for (const [issue, minutes] of [[ABC_1, 10], [ABC_2, 5], [ABC_1, 2]]) {
+      await store.start(issue);
+      clock.advance(minutes * 60_000);
+      await store.stop();
+    }
+    const [a, b, c] = (await store.load()).pending;
+    return { ...ctx, a, b, c };
+  }
+
+  it('edits one session of an issue without touching its other one', async () => {
+    const { store, a, b, c } = await sessions();
+    const { state } = await store.updatePending(c.id, { comment: 'Second look', timeSpentSeconds: 300 });
+    assert.deepEqual(state.pending, [a, b, { ...c, comment: 'Second look', timeSpentSeconds: 300, stoppedAt: c.startedAt + 300_000 }]);
+  });
+
+  it('discards one session of an issue, keeping its other one', async () => {
+    const { store, a, b, c } = await sessions();
+    const { state } = await store.discardPending(a.id);
+    assert.deepEqual(state.pending, [b, c]);
+  });
+
+  it('submits, fails, and completes one session of an issue at a time', async () => {
+    const { store, a, b, c } = await sessions();
+    const { entry } = await store.beginSubmission(c.id, { site: SITE });
+    assert.equal(entry.id, c.id);
+    // The other ABC-1 session can be submitted at the same time: it's another worklog.
+    await store.beginSubmission(a.id, { site: SITE });
+    await store.failSubmission(a.id, { uncertain: true });
+    const { state } = await store.completeSubmission(c.id);
+
+    assert.deepEqual(state.pending.map((p) => [p.id, p.submission?.state ?? null]), [[a.id, 'uncertain'], [b.id, null]]);
+    assert.deepEqual({ ...state.pending[0], submission: undefined }, { ...a, submission: undefined });
+  });
+
+  it('keeps every session through concurrent edits, discards, and starts on the same issue', async () => {
+    const storage = instrument(createMemoryStorageArea(), { delay: true });
+    const lock = createSerialLock();
+    const clock = createClock();
+    const ids = createIds();
+    const [pageA, pageB, pageC] = [0, 1, 2].map(() => createTimeTrackingStore(storage, { lock, now: clock.now, newId: ids }));
+    for (const issue of [ABC_1, ABC_2, ABC_1]) {
+      await pageA.start(issue);
+      clock.advance(60_000);
+      await pageA.stop();
+    }
+    const [a, b, c] = (await pageA.load()).pending;
+
+    await Promise.all([
+      pageA.updatePending(a.id, { comment: 'A' }),
+      pageB.updatePending(c.id, { comment: 'C' }),
+      pageC.start(ABC_1),
+      pageB.discardPending(b.id)
+    ]);
+
+    const state = normalizeTimeTracking(await stored(storage));
+    assert.deepEqual(state.pending.map((p) => [p.id, p.comment]), [[a.id, 'A'], [c.id, 'C']]);
+    assert.equal(state.running.issueKey, 'ABC-1');
+  });
+
+  it('reads several stored sessions for one issue back as they are', async () => {
+    const { storage, a, b, c } = await sessions();
+    assert.deepEqual(normalizeTimeTracking(await stored(storage)).pending, [a, b, c]);
   });
 });
