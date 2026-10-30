@@ -22,23 +22,20 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
 }
 
 /**
- * Fetches the issues assigned to the current user in one of the My Active Issues statuses.
- * Independent of loadWeek(): one failing doesn't affect the other.
+ * Fetches the issues for My Active Issues in one week: those assigned to the current user that
+ * are in progress, or that have work logged in the week. Independent of loadWeek(): one failing
+ * doesn't affect the other.
  *
- * @param {{ getWorkingStatuses: Function, getWorkingIssues: Function }} client - JiraClient (or a test double)
- * @param {object} [options]
- * @param {object} [options.workingStatuses] - Statuses found earlier on the same Jira site
- *   (getWorkingStatuses()); looked up when not given
- * @param {AbortSignal} [options.signal] - Cancels the requests
- * @returns {Promise<{ workingStatuses: object, issues: Array<object> | null }>} `issues` is null when the
- *   site has none of the statuses; `workingStatuses.reason` then says why
+ * @param {{ getActiveIssues: Function }} client - JiraClient (or a test double)
+ * @param {object} week
+ * @param {Date} week.monday - First day of the week
+ * @param {Date} [week.sunday] - Last day of the week (defaults to the Sunday after `monday`)
+ * @param {AbortSignal} [week.signal] - Cancels the requests
+ * @returns {Promise<Array<object>>} From JiraClient.getActiveIssues()
  */
-export async function loadWorkingIssues(client, { workingStatuses, signal } = {}) {
-  const statuses = workingStatuses ?? await client.getWorkingStatuses({ signal });
-  if (!statuses.names) return { workingStatuses: statuses, issues: null };
-
-  const issues = await client.getWorkingIssues(statuses, { signal });
-  return { workingStatuses: statuses, issues };
+export async function loadActiveIssues(client, { monday, sunday, signal }) {
+  const range = getWeekRange(monday);
+  return client.getActiveIssues(range.monday, sunday ?? range.sunday, { signal });
 }
 
 /**

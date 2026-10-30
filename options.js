@@ -351,9 +351,7 @@ function workingIssuesOptions() {
       isWorkingIssuesExpanded = expanded;
       localStorage.setItem('jts-working-issues-expanded', String(expanded));
     },
-    onRetry: () => {
-      if (currentClient) workingIssues.refresh(currentClient);
-    },
+    onRetry: refreshActiveIssues,
     // Like the worklog cards' + buttons: once the week has loaded.
     onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined
   };
@@ -377,6 +375,16 @@ function setWorkingIssuesState(state) {
 // happens there. Refreshed with every week load (changing weeks, Sync); a newer load cancels an
 // older one.
 const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
+
+/**
+ * Reloads My Active Issues for the displayed week: Retry, and after a worklog is logged, edited,
+ * or deleted, which can add an issue (its first worklog this week) or remove one (its last).
+ */
+function refreshActiveIssues() {
+  if (!currentClient) return;
+  const { monday, sunday } = getWeekRange(currentMonday);
+  workingIssues.refresh(currentClient, { monday, sunday, force: true });
+}
 
 /**
  * Shows a loaded week: totals, the selected-day card, the empty-week banner, and the days.
@@ -480,6 +488,7 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
         selectedDateKey = createdDateKey;
         showWeek(replaceWorklogInWeek(currentAggregatedData, created), currentBaseUrl);
       }
+      refreshActiveIssues();
       // The issue key and the worklog's own (logged) date, as Jira stored them.
       showToast(`Saved ${loggedIssue.issueKey}`, { success: true, subtitle: formatWorklogDate(startedOn), durationMs: 5000 });
     },
@@ -575,6 +584,7 @@ async function deleteWorklogAndRefresh(client, worklog) {
   if (currentAggregatedData?.sourceWorklogs) {
     showWeek(removeWorklogFromWeek(currentAggregatedData, String(worklog.id)), currentBaseUrl);
   }
+  refreshActiveIssues();
   showToast('Worklog deleted.');
 }
 
@@ -635,6 +645,7 @@ function openEditor(worklogId) {
       if (currentAggregatedData?.sourceWorklogs?.some((wl) => String(wl.id) === worklogId)) {
         showWeek(replaceWorklogInWeek(currentAggregatedData, updated), currentBaseUrl);
       }
+      refreshActiveIssues();
       const movedTo = new Date(updated.started);
       const stillInWeek = currentAggregatedData.weekDays.some((d) => d.dateKey === getLocalDateKey(movedTo));
       showToast(stillInWeek ? 'Worklog updated.' : `Worklog updated and moved to ${movedTo.toLocaleDateString()}.`);
@@ -729,7 +740,7 @@ function showSiteAccessNeeded(baseUrl) {
  * Fetches worklogs from Jira for the current week and updates all views.
  *
  * @param {object} [options]
- * @param {boolean} [options.force=false] - Also look up the My Active Issues statuses again (Sync, Retry, new settings)
+ * @param {boolean} [options.force=false] - Also reload My Active Issues when the week is already shown (Sync, Retry, new settings)
  */
 async function loadAndRenderWorklogs(options = {}) {
   if (isBusyFetching) return;
@@ -811,7 +822,7 @@ async function loadAndRenderWorklogs(options = {}) {
     }
 
     // Not awaited: the worklogs don't wait for the issues, nor fail with them.
-    workingIssues.refresh(client, { refreshStatuses: Boolean(options.force) });
+    workingIssues.refresh(client, { monday, sunday, force: Boolean(options.force) });
 
     const aggregated = await loadWeek(client, { monday, sunday });
 

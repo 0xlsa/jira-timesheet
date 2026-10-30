@@ -21,8 +21,8 @@ const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', mont
 // Subtitle of the My Active Issues section, by state.
 const WORKING_ISSUES_SUBTITLES = {
   loading: 'Retrieving issues from Jira…',
-  error: "Couldn't retrieve issues from Jira",
-  unavailable: 'No matching status on this Jira site'
+  ready: 'In progress and recently logged issues',
+  error: "Couldn't retrieve issues from Jira"
 };
 
 // Jira status category keys with a dedicated badge color; anything else (custom or `undefined`) is neutral.
@@ -143,6 +143,16 @@ function renderWorkingIssue(issue, baseUrl, canLogWork) {
 }
 
 /**
+ * Keeps the first of each issue, by key: a row is its issue key, which its + button looks it up by.
+ * @param {Array<{ issueKey: string }>} issues
+ * @returns {Array<object>}
+ */
+function uniqueIssues(issues) {
+  const seen = new Set();
+  return issues.filter((issue) => !seen.has(issue.issueKey) && seen.add(issue.issueKey));
+}
+
+/**
  * Renders the My Active Issues section: a header button that expands and collapses it (count and
  * subtitle included), and below it the issues, or why there are none to show. The first call
  * builds the header; later calls on the same section update it in place, so the header button
@@ -150,9 +160,9 @@ function renderWorkingIssue(issue, baseUrl, canLogWork) {
  *
  * @param {HTMLElement} section
  * @param {object} options
- * @param {{ status: 'loading' | 'ready' | 'error' | 'unavailable', issues?: Array<object>, message?: string,
- *   statusNames?: string[] }} options.state - `issues` when ready (those assigned to the user in one of
- *   `statusNames`, which the subtitle names), `message` for an error or for statuses the site doesn't have
+ * @param {{ status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string }} options.state -
+ *   `issues` when ready (JiraClient.getActiveIssues(): each with `inProgress` and `loggedThisWeek`),
+ *   `message` for an error
  * @param {boolean} options.expanded
  * @param {string} [options.baseUrl] - Jira instance URL used for issue links
  * @param {(expanded: boolean) => void} [options.onToggle] - Called after the header expands or collapses the section
@@ -180,19 +190,14 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }));
   }
 
-  const issues = state.status === 'ready' ? state.issues || [] : [];
+  // One row per issue, and the badge counts the rows.
+  const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
   section.className = `working-issues is-${state.status}`;
 
-  // Names the statuses searched ("In Progress"), so the list says what it's filtered by.
-  const statusLabel = state.statusNames?.length ? state.statusNames.join(' or ') : 'working';
-  toggle.querySelector('.working-issues-subtitle').textContent = state.status === 'ready'
-    ? (issues.length > 0
-      ? `${issues.length} ${statusLabel}, assigned to you`
-      : `No ${statusLabel} issues assigned to you`)
-    : WORKING_ISSUES_SUBTITLES[state.status] || '';
+  toggle.querySelector('.working-issues-subtitle').textContent = WORKING_ISSUES_SUBTITLES[state.status] || '';
   toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
     state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' }),
-    state.status === 'ready' && h('span', { class: 'working-issues-count', title: `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} assigned to you` }, String(issues.length))));
+    state.status === 'ready' && h('span', { class: 'working-issues-count', title: `${issues.length} active ${issues.length === 1 ? 'issue' : 'issues'}` }, String(issues.length))));
 
   const retryButton = state.status === 'error' && onRetry
     ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm working-issues-retry' }, 'Retry')
@@ -219,7 +224,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   const body = section.querySelector('.working-issues-body');
   body.replaceChildren(fragment(
     list,
-    (state.status === 'error' || state.status === 'unavailable') && h('div', { class: 'working-issues-message', role: 'status' },
+    state.status === 'error' && h('div', { class: 'working-issues-message', role: 'status' },
       h('p', {}, state.message || WORKING_ISSUES_SUBTITLES[state.status]),
       retryButton)));
   // Nothing to show below the header (loading, or no issues).
@@ -301,7 +306,7 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
   container.appendChild(strip);
 
-  // 2. My Active Issues: issues assigned to the user in a working status
+  // 2. My Active Issues: the user's issues in progress or with work logged this week
   if (workingIssues) {
     const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Active Issues' });
     renderWorkingIssues(section, { ...workingIssues, baseUrl });

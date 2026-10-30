@@ -3,7 +3,7 @@ import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
 import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
-import { selectWorkingStatuses, buildWorkingIssuesJql } from './workingStatuses.js';
+import { buildActiveIssuesJql, isInProgress, hasWorklogInWeek } from './activeIssues.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -684,6 +684,7 @@ export class JiraClient {
    * @param {object} [options]
    * @param {number} [options.startAt=0]
    * @param {number} [options.maxResults=100]
+   * @param {AbortSignal} [options.signal] - Cancels the request
    * @returns {Promise<{
    *   startAt: number,
    *   maxResults: number,
@@ -701,12 +702,15 @@ export class JiraClient {
 
     // Fallback from v3 to v2 if 404
     const { response, path: endpoint } = await this.#requestWithV2Fallback(
-      this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`)
+      this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`),
+      { signal: options.signal }
     );
 
     if (!response.ok) {
       const err = await this.#handleHttpError(response, new Date().toISOString());
-      throw new Error(err.error || `Failed to fetch worklogs for issue ${issueIdOrKey}`);
+      const error = new Error(err.error || `Failed to fetch worklogs for issue ${issueIdOrKey}`);
+      error.status = response.status;
+      throw error;
     }
 
     return await this.#parseJson(response, endpoint);
@@ -942,16 +946,18 @@ export class JiraClient {
    * Useful when an issue has more than 20 worklogs, which exceeds the search API limit.
    *
    * @param {string} issueIdOrKey
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the requests
    * @returns {Promise<Array<object>>}
    */
-  async getAllIssueWorklogs(issueIdOrKey) {
+  async getAllIssueWorklogs(issueIdOrKey, { signal } = {}) {
     const allWorklogs = [];
     let startAt = 0;
     const maxResults = 100;
     let total = 0;
 
     do {
-      const data = await this.getIssueWorklogs(issueIdOrKey, { startAt, maxResults });
+      const data = await this.getIssueWorklogs(issueIdOrKey, { startAt, maxResults, signal });
       if (!data || !Array.isArray(data.worklogs) || data.worklogs.length === 0) {
         break;
       }
@@ -1009,59 +1015,117 @@ export class JiraClient {
   }
 
   /**
-   * Finds which of the My Active Issues statuses (WORKING_STATUS_NAMES) exist on this Jira site,
-   * from its status list (`GET /status`; see selectWorkingStatuses()).
+   * Retrieves the issues assigned to the authenticated user that are in progress (status
+   * category "In Progress"), or that have a worklog, by anyone, on a day of the given range in
+   * local time, as the weekly view groups worklogs. One paginated search finds both. Whether an
+   * issue has a worklog in the range is checked as getWorklogsForDateRange() does, for every
+   * issue, so an in-progress issue with work logged in the range has both flags.
    *
+   * @param {Date | string} startDate - First day of the range (e.g. Monday)
+   * @param {Date | string} endDate - Last day of the range, inclusive (e.g. Sunday)
    * @param {object} [options]
-   * @param {AbortSignal} [options.signal] - Cancels the request; the promise then rejects with an AbortError
-   * @returns {Promise<ReturnType<typeof selectWorkingStatuses>>}
-   *   Rejects with a user-facing Error (with `status` for HTTP errors) when the status list can't be read
+   * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
+   * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null,
+   *   inProgress: boolean, loggedThisWeek: boolean }>>} Each issue once (by issue ID), with at least one
+   *   flag: in-progress issues first, then the others, each group most recently updated first.
+   *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
    */
-  async getWorkingStatuses({ signal } = {}) {
+  async getActiveIssues(startDate, endDate, { signal } = {}) {
+    const range = this.#worklogSearchRange(startDate, endDate);
     try {
-      const { response, path } = await this.#requestWithV2Fallback(this.#apiPath('status'), { signal });
+      const issues = await this.#searchAllIssues(
+        buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate), ['summary', 'status', 'worklog'], signal);
 
-      if (!response.ok) {
-        const err = await this.#handleHttpError(response, new Date().toISOString());
-        const error = new Error(err.error || `Jira status list request failed with status ${response.status}`);
-        error.status = response.status;
-        throw error;
+      // A page boundary can move while paging, so an issue may come back twice: keep it once.
+      const seen = new Set();
+      const inProgress = [];
+      const loggedOnly = [];
+      for (const issue of issues) {
+        const issueKey = String(issue.key ?? '');
+        const id = String(issue.id ?? issueKey);
+        if (!issueKey || seen.has(id)) continue;
+        seen.add(id);
+
+        const issueStatus = toIssueStatus(issue.fields?.status);
+        const active = {
+          issueId: String(issue.id ?? ''),
+          issueKey,
+          issueSummary: issue.fields?.summary || '',
+          issueStatus,
+          inProgress: isInProgress(issueStatus),
+          // Found through the buffered worklog dates, or in progress: either way, only a worklog in
+          // the range itself counts.
+          loggedThisWeek: await this.#hasWorklogInRange(issue, range, signal)
+        };
+        if (active.inProgress) inProgress.push(active);
+        else if (active.loggedThisWeek) loggedOnly.push(active);
       }
-
-      return selectWorkingStatuses(await this.#parseJson(response, path));
+      return [...inProgress, ...loggedOnly];
     } catch (err) {
       throw this.#toUserFacingError(err);
     }
   }
 
   /**
-   * Retrieves every issue assigned to the authenticated user in one of the given statuses,
-   * across all result pages. The assignee and status conditions are in the JQL; the status is
-   * checked again on Jira's answer.
+   * Returns the local date keys of a range of days and the dates to search worklogs by. The search
+   * adds a day before and after the range, so worklogs near midnight in the user's time zone aren't
+   * missed when Jira's server is in another one; worklogs are then filtered by their local date.
    *
-   * @param {{ names: string[] }} workingStatuses - From getWorkingStatuses()
-   * @param {object} [options]
-   * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
-   * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }>>}
-   *   Most recently updated first. Rejects with a user-facing Error (with `status` for HTTP errors)
-   *   when Jira can't be searched
+   * @param {Date | string} startDate
+   * @param {Date | string} endDate
+   * @returns {{ startKey: string, endKey: string, jqlStartDate: string, jqlEndDate: string }}
    */
-  async getWorkingIssues({ names }, { signal } = {}) {
-    const wanted = new Set(names.map((name) => name.toLowerCase()));
-    try {
-      const issues = await this.#searchAllIssues(buildWorkingIssuesJql(names), ['summary', 'status'], signal);
+  #worklogSearchRange(startDate, endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
 
-      return issues
-        .map((issue) => ({
-          issueId: String(issue.id ?? ''),
-          issueKey: String(issue.key ?? ''),
-          issueSummary: issue.fields?.summary || '',
-          issueStatus: toIssueStatus(issue.fields?.status)
-        }))
-        .filter((issue) => issue.issueKey && wanted.has(issue.issueStatus?.name.toLowerCase()));
-    } catch (err) {
-      throw this.#toUserFacingError(err);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Valid startDate and endDate are required.');
     }
+
+    const bufferStart = new Date(start);
+    bufferStart.setDate(bufferStart.getDate() - 1);
+    const bufferEnd = new Date(end);
+    bufferEnd.setDate(bufferEnd.getDate() + 1);
+
+    return {
+      startKey: getLocalDateKey(start),
+      endKey: getLocalDateKey(end),
+      jqlStartDate: getLocalDateKey(bufferStart),
+      jqlEndDate: getLocalDateKey(bufferEnd)
+    };
+  }
+
+  /**
+   * Checks whether any of an issue's worklogs starts on a day of the range, in local time. The
+   * worklogs the search included are checked first; the issue's full list is fetched only when
+   * those don't settle it (none in the range, and the issue has more).
+   *
+   * @param {object} issue - From a search with the `worklog` field
+   * @param {{ startKey: string, endKey: string }} range - From #worklogSearchRange()
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<boolean>}
+   */
+  async #hasWorklogInRange(issue, range, signal) {
+    const included = issue.fields?.worklog?.worklogs;
+    if (Array.isArray(included) && hasWorklogInWeek(included, range.startKey, range.endKey)) return true;
+    return hasWorklogInWeek(await this.#issueWorklogs(issue, signal), range.startKey, range.endKey);
+  }
+
+  /**
+   * Returns all of an issue's worklogs. The search embeds up to 20; the full list is fetched only
+   * when the issue has more, or when the search didn't include them.
+   *
+   * @param {object} issue - From a search with the `worklog` field
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<Array<object>>}
+   */
+  async #issueWorklogs(issue, signal) {
+    const worklogField = issue.fields?.worklog;
+    if (worklogField && Array.isArray(worklogField.worklogs) && !(worklogField.total > worklogField.worklogs.length)) {
+      return worklogField.worklogs;
+    }
+    return this.getAllIssueWorklogs(issue.key, { signal });
   }
 
   /**
@@ -1100,31 +1164,13 @@ export class JiraClient {
    * }>}
    */
   async getWorklogsForDateRange(startDate, endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    // 1. Local date keys (YYYY-MM-DD), and the dates to search by: a day before and after the
+    // range, so worklogs near midnight aren't lost to time zone differences. Strict local time
+    // zone filtering is then performed client-side.
+    const { startKey, endKey, jqlStartDate, jqlEndDate } = this.#worklogSearchRange(startDate, endDate);
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      throw new Error('Valid startDate and endDate are required.');
-    }
-
-    // 1. Resolve current user identity
+    // 2. Resolve current user identity
     const currentUser = await this.getCurrentUser();
-
-    // 2. Format local date keys (YYYY-MM-DD)
-    const startKey = getLocalDateKey(start);
-    const endKey = getLocalDateKey(end);
-
-    // Add a 1-day buffer before and after the range in the JQL query.
-    // This guarantees that any worklog near midnight in the user's local timezone
-    // is not excluded by Jira server timezone differences. Strict local timezone
-    // filtering is then performed client-side.
-    const bufferStart = new Date(start);
-    bufferStart.setDate(bufferStart.getDate() - 1);
-    const bufferEnd = new Date(end);
-    bufferEnd.setDate(bufferEnd.getDate() + 1);
-
-    const jqlStartDate = getLocalDateKey(bufferStart);
-    const jqlEndDate = getLocalDateKey(bufferEnd);
 
     const jql = `worklogAuthor = currentUser() AND worklogDate >= "${jqlStartDate}" AND worklogDate <= "${jqlEndDate}" order by updated desc`;
 
@@ -1141,20 +1187,8 @@ export class JiraClient {
       const issueId = issue.id;
       const issueStatus = toIssueStatus(issue.fields?.status);
 
-      let rawWorklogs = [];
-      const worklogField = issue.fields?.worklog;
-
-      // Jira search API embeds up to 20 worklogs directly.
-      // If an issue has more worklogs (total > worklogs.length), fetch the full list.
-      if (worklogField && Array.isArray(worklogField.worklogs)) {
-        if (worklogField.total > worklogField.worklogs.length) {
-          rawWorklogs = await this.getAllIssueWorklogs(issueKey);
-        } else {
-          rawWorklogs = worklogField.worklogs;
-        }
-      } else {
-        rawWorklogs = await this.getAllIssueWorklogs(issueKey);
-      }
+      // Jira search API embeds up to 20 worklogs; issues with more have their full list fetched.
+      const rawWorklogs = await this.#issueWorklogs(issue);
 
       for (const wl of rawWorklogs) {
         const wlId = wl.id ? String(wl.id) : null;

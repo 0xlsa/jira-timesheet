@@ -1067,7 +1067,7 @@ body {
   line-height: 1.45;
 }
 
-/* My Active Issues: collapsible list of the issues assigned to the user in a working status,
+/* My Active Issues: collapsible list of the user's issues in progress or with work logged this week,
    between the weekday cards and the selected-day panel. Kept compact so the timesheet stays in front. */
 .working-issues {
   background-color: var(--bg-card);
@@ -1135,10 +1135,6 @@ body {
 
 .working-issues.is-error .working-issues-subtitle {
   color: var(--danger);
-}
-
-.working-issues.is-unavailable .working-issues-subtitle {
-  color: var(--warning);
 }
 
 .working-issues-indicator {
