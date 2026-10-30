@@ -13,7 +13,12 @@
  * - cloudBaseUrl, serverBaseUrl, cloudToken, serverToken: per-edition values kept
  *   by the settings form, so switching edition never overwrites the other one
  * - lastTestResult: last successful connection test
+ * - publicHolidaysEnabled, publicHolidaysCountry: the Public Holidays switch, and the country the
+ *   user selected (an ISO 3166-1 alpha-2 code, or ''). The country is only ever what the user
+ *   chose; it's kept when the feature is turned off.
  */
+
+import { normalizeCountryCode } from '../holidays/nagerDateClient.js';
 
 const STORAGE_KEYS = [
   'jiraBaseUrl',
@@ -24,7 +29,9 @@ const STORAGE_KEYS = [
   'serverBaseUrl',
   'cloudToken',
   'serverToken',
-  'lastTestResult'
+  'lastTestResult',
+  'publicHolidaysEnabled',
+  'publicHolidaysCountry'
 ];
 
 /**
@@ -41,7 +48,8 @@ const STORAGE_KEYS = [
  *   token: string,
  *   baseUrlsByType: { cloud: string, server: string },
  *   tokensByType: { cloud: string, server: string },
- *   lastTestResult: object | null
+ *   lastTestResult: object | null,
+ *   publicHolidays: { enabled: boolean, countryCode: string }
  * }}
  */
 export function normalizeSettings(raw = {}) {
@@ -60,8 +68,15 @@ export function normalizeSettings(raw = {}) {
     token: activeToken,
     baseUrlsByType: forEdition(raw.cloudBaseUrl, raw.serverBaseUrl, activeBaseUrl),
     tokensByType: forEdition(raw.cloudToken, raw.serverToken, activeToken),
-    lastTestResult: raw.lastTestResult || null
+    lastTestResult: raw.lastTestResult || null,
+    publicHolidays: normalizePublicHolidays(raw)
   };
+}
+
+/** The feature is only on with a country: a stored "on" without one reads as off. */
+function normalizePublicHolidays(raw) {
+  const countryCode = normalizeCountryCode(raw.publicHolidaysCountry);
+  return { enabled: raw.publicHolidaysEnabled === true && Boolean(countryCode), countryCode };
 }
 
 /**
@@ -91,11 +106,16 @@ export function createSettingsStore(storageArea) {
      *   deploymentType: 'cloud' | 'server',
      *   email: string,
      *   baseUrlsByType: { cloud: string, server: string },
-     *   tokensByType: { cloud: string, server: string }
-     * }} settings
+     *   tokensByType: { cloud: string, server: string },
+     *   publicHolidays?: { enabled: boolean, countryCode: string }
+     * }} settings - Without `publicHolidays`, the saved Public Holidays settings are kept
      */
-    async save({ deploymentType, email, baseUrlsByType, tokensByType }) {
+    async save({ deploymentType, email, baseUrlsByType, tokensByType, publicHolidays }) {
       await storageArea.set({
+        ...(publicHolidays && {
+          publicHolidaysEnabled: publicHolidays.enabled,
+          publicHolidaysCountry: publicHolidays.countryCode
+        }),
         jiraBaseUrl: baseUrlsByType[deploymentType],
         deploymentType,
         email,

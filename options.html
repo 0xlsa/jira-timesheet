@@ -363,6 +363,26 @@
               </div>
             </div>
 
+            <!-- Public Holidays (src/ui/publicHolidaysSettings.js); saved with the other settings -->
+            <fieldset class="form-group holidays-group">
+              <legend class="form-label">Public Holidays</legend>
+              <label class="switch-row" for="publicHolidaysEnabled">
+                <input type="checkbox" id="publicHolidaysEnabled" class="switch-input" role="switch">
+                <span class="switch" aria-hidden="true"></span>
+                <span>Show public holidays on the timesheet</span>
+              </label>
+              <label for="publicHolidaysCountry" class="holidays-country-label">Country</label>
+              <select id="publicHolidaysCountry" aria-describedby="publicHolidaysError publicHolidaysHint" disabled>
+                <option value="">Select a country…</option>
+              </select>
+              <div id="publicHolidaysStatus" class="field-hint hidden" role="status"></div>
+              <div id="publicHolidaysError" class="field-error" role="alert"></div>
+              <div id="publicHolidaysHint" class="field-hint">
+                Holidays come from <a href="https://nagerholidays.com/api" target="_blank" rel="noopener noreferrer">Nager.Date</a>.
+                When this is on, the selected country and year are sent there to download its official public holidays.
+              </div>
+            </fieldset>
+
             <!-- Status & Feedback Area -->
             <div id="statusArea" class="status-container hidden" role="region" aria-live="polite"></div>
 
@@ -378,7 +398,8 @@
             </div>
           </form>
 
-          <!-- About: name, version, and developer links (src/ui/aboutSection.js) -->
+          <!-- About: name, version, and developer links (src/ui/aboutSection.js). Always the last
+               section of Settings: nothing goes after it. -->
           <section id="aboutSection" class="settings-about" aria-labelledby="aboutTitle"></section>
       </div>
     </div>

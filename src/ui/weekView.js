@@ -584,6 +584,37 @@ function setWorkingIssuesExpanded(section, expanded) {
 }
 
 /**
+ * Shows a weekday card's public holiday (or none): one icon on the right of the card's top row,
+ * before the Today badge, with the holiday's name as its tooltip and in the card's tooltip.
+ *
+ * @param {HTMLElement} dayCard
+ * @param {{ dayName: string, formattedDate: string, isToday: boolean }} day
+ * @param {{ icon: string, label: string } | undefined} holiday
+ */
+function showHoliday(dayCard, day, holiday) {
+  dayCard.title = holiday ? `${day.dayName}, ${day.formattedDate} · ${holiday.label}` : `${day.dayName}, ${day.formattedDate}`;
+  dayCard.querySelector('.day-card-end')?.replaceChildren(...[
+    holiday && h('span', { class: 'day-holiday', role: 'img', 'aria-label': `Public holiday: ${holiday.label}`, title: holiday.label }, holiday.icon),
+    day.isToday && h('span', { class: 'badge-today' }, 'Today')
+  ].filter(Boolean));
+}
+
+/**
+ * Updates the public holidays on the weekday cards already rendered, in place (focus and the
+ * selected day's panel are untouched).
+ *
+ * @param {HTMLElement} container - As passed to renderWeek()
+ * @param {{ weekDays: Array<object> }} week
+ * @param {Map<string, { icon: string, label: string }>} holidays
+ */
+export function updateHolidays(container, week, holidays) {
+  for (const day of week.weekDays || []) {
+    const dayCard = container.querySelector(`.day-card[data-date-key="${day.dateKey}"]`);
+    if (dayCard) showHoliday(dayCard, day, holidays.get(day.dateKey));
+  }
+}
+
+/**
  * Renders the 7 weekday cards, the My Active Issues section, and the selected day's worklog panel
  * into `container`. Daily totals and weekly totals are never modified by changing the selection.
  *
@@ -601,8 +632,10 @@ function setWorkingIssuesExpanded(section, expanded) {
  * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
  * @param {object} [options.workingIssues] - Options for renderWorkingIssues() (without `baseUrl`); no
  *   My Active Issues section without it. The section has the ID `workingIssues`.
+ * @param {Map<string, { icon: string, label: string }>} [options.holidays] - Public holiday shown
+ *   beside a weekday's name, by date key (src/holidays/publicHolidays.js); display only
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -627,18 +660,19 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     dayCard.setAttribute('role', 'tab');
     dayCard.setAttribute('aria-selected', isSelected ? 'true' : 'false');
     dayCard.setAttribute('aria-controls', 'selectedDayPanel');
-    dayCard.title = `${day.dayName}, ${day.formattedDate}`;
-
     dayCard.append(
       h('span', { class: 'day-card-top' },
         h('span', { class: 'day-name' }, day.shortDayName),
-        day.isToday && h('span', { class: 'badge-today' }, 'Today')),
+        // The holiday icon and the Today badge, on the right (filled by showHoliday()).
+        h('span', { class: 'day-card-end' })),
       h('span', { class: 'day-date' }, String(day.dayOfMonth)),
       h('span', { class: 'day-duration' }, day.formattedTotal),
       h('span', { class: 'day-count' }, `${day.worklogCount} ${day.worklogCount === 1 ? 'worklog' : 'worklogs'}`),
       h('span', { class: 'day-indicator', 'aria-hidden': 'true' },
         h('span', { class: 'day-indicator-fill', style: `width: ${fillPercent.toFixed(1)}%` }))
     );
+
+    showHoliday(dayCard, day, holidays?.get(day.dateKey));
 
     dayCard.addEventListener('click', () => onSelectDay(day.dateKey));
     strip.appendChild(dayCard);

@@ -50,6 +50,10 @@ class FakeNode {
     return node;
   }
 
+  remove() {
+    this.parentNode?.removeChild(this);
+  }
+
   replaceChildren(...items) {
     for (const child of [...this.childNodes]) this.removeChild(child);
     this.append(...items);

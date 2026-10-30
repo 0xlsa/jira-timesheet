@@ -652,6 +652,21 @@ body {
   color: var(--text-subtle);
 }
 
+/* Right of the weekday name: the public holiday icon (its name is the tooltip), then Today. */
+.day-card-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.day-holiday {
+  font-size: 16px;
+  line-height: 1;
+  /* Taller than the weekday name's line: overlaps it slightly instead of making the row taller, so
+     every card's date stays level. */
+  margin: -2px 0;
+}
+
 .day-date {
   font-size: 20px;
   font-weight: 700;
@@ -2432,6 +2447,7 @@ input[type="text"],
 input[type="date"],
 input[type="time"],
 input[type="number"],
+select,
 textarea {
   width: 100%;
   padding: 8px 12px;
@@ -2445,17 +2461,20 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
 }
 
-input.is-invalid {
+input.is-invalid,
+select.is-invalid {
   border-color: var(--danger);
 }
 
-input.is-invalid:focus {
+input.is-invalid:focus,
+select.is-invalid:focus {
   box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.2);
 }
 
@@ -2650,6 +2669,93 @@ input.is-invalid:focus {
 .user-meta {
   font-size: 11px;
   color: var(--text-subtle);
+}
+
+/* Public Holidays: an on/off switch, then the country list. */
+.holidays-group {
+  border: none;
+  padding: 0;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+/* The checkbox stays in place (and focusable) under the switch drawn next to it. */
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 99px;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background-color: var(--text-subtle);
+  border-radius: 50%;
+  transition: transform var(--transition), background-color var(--transition);
+}
+
+.switch-input:checked + .switch {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.switch-input:checked + .switch::after {
+  transform: translateX(14px);
+  background-color: #fff;
+}
+
+.switch-input:focus-visible + .switch {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.holidays-country-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.holidays-retry-btn {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.holidays-retry-btn:hover {
+  text-decoration: underline;
 }
 
 /* Action Buttons */

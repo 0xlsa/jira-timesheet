@@ -58,6 +58,8 @@ export function createMemoryStorageArea(initial = {}) {
 
   return {
     async get(keys) {
+      // As in the browser, null reads every key.
+      if (keys === null || keys === undefined) return { ...data };
       const result = {};
       for (const key of toKeys(keys)) {
         if (key in data) result[key] = data[key];

@@ -35,7 +35,7 @@ import { createPlatform, ext, isExtensionContext } from './src/compat/browser-ap
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -50,6 +50,10 @@ import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, s
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
 import { loadAboutInfo, renderAboutSection } from './src/ui/aboutSection.js';
+import { createNagerDateClient } from './src/holidays/nagerDateClient.js';
+import { createHolidayCache } from './src/holidays/holidayCache.js';
+import { createPublicHolidays } from './src/holidays/publicHolidays.js';
+import { createPublicHolidaysSettings } from './src/ui/publicHolidaysSettings.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -124,6 +128,12 @@ const testSpinner = document.getElementById('testSpinner');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 
+// Public Holidays section of the Connection Settings form
+const publicHolidaysToggle = document.getElementById('publicHolidaysEnabled');
+const publicHolidaysCountry = document.getElementById('publicHolidaysCountry');
+const publicHolidaysStatus = document.getElementById('publicHolidaysStatus');
+const publicHolidaysError = document.getElementById('publicHolidaysError');
+
 // ============================================================================
 // State
 // ============================================================================
@@ -179,6 +189,31 @@ let settingsDraft = createSettingsDraft(normalizeSettings({}));
 // records edits made since the last successful test.
 let connectionTestId = 0;
 let hasUntestedChanges = false;
+
+// Public holidays (src/holidays/): Nager.Date data cached in storage, the indicators shown on the
+// weekday cards, and the settings section. Display only: nothing here touches worklogs.
+const holidayCache = createHolidayCache(platform.storage, { api: createNagerDateClient() });
+const publicHolidays = createPublicHolidays({
+  cache: holidayCache,
+  // Data that arrives after the week was rendered is added to its weekday cards in place.
+  onChange: () => {
+    if (currentAggregatedData) updateHolidays(daysContainer, currentAggregatedData, holidaysForWeek(currentAggregatedData));
+  }
+});
+const publicHolidaysSettings = createPublicHolidaysSettings({
+  toggle: publicHolidaysToggle,
+  select: publicHolidaysCountry,
+  status: publicHolidaysStatus,
+  error: publicHolidaysError
+}, holidayCache);
+
+/**
+ * The public holidays to show on a week's cards; loads the week's years when needed.
+ * @param {{ weekDays?: Array<{ dateKey: string }> }} week
+ */
+function holidaysForWeek(week) {
+  return publicHolidays.indicatorsFor((week.weekDays || []).map((day) => day.dateKey));
+}
 
 // ============================================================================
 // Theme Toggle
@@ -337,7 +372,8 @@ function renderDays(aggregatedData, baseUrl = '') {
     onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
     onDeleteWorklog: aggregatedData.sourceWorklogs ? confirmDeleteWorklog : undefined,
     editingWorklogId: worklogEditor?.worklogId,
-    workingIssues: workingIssuesOptions()
+    workingIssues: workingIssuesOptions(),
+    holidays: holidaysForWeek(aggregatedData)
   });
 }
 
@@ -1382,11 +1418,14 @@ async function onSaveSettings(event) {
   if (saveSettingsBtn.disabled) return;
 
   const formValidation = validateForm();
-  if (!formValidation.isValid || !formValidation.values) {
+  // Public Holidays can't be turned on without a country; then nothing is saved.
+  const holidaysValidation = publicHolidaysSettings.validate();
+  if (!formValidation.isValid || !formValidation.values || !holidaysValidation.isValid) {
     return;
   }
 
   const { baseUrl, deploymentType, email, token } = formValidation.values;
+  const publicHolidaysValues = holidaysValidation.value;
 
   // Before any await, so the browser still treats it as part of the submit. Settings are
   // saved even if access is refused; the weekly view then offers to allow it.
@@ -1405,7 +1444,7 @@ async function onSaveSettings(event) {
     baseUrlsByType[deploymentType] = baseUrl;
     tokensByType[deploymentType] = token;
 
-    await settingsStore.save({ deploymentType, email, baseUrlsByType, tokensByType });
+    await settingsStore.save({ deploymentType, email, baseUrlsByType, tokensByType, publicHolidays: publicHolidaysValues });
 
     // Don't show the previous "Connection Successful" on next load for settings
     // that were changed and saved without being tested.
@@ -1416,6 +1455,8 @@ async function onSaveSettings(event) {
     // The saved settings are now the active configuration, and what the form shows when it
     // next opens.
     savedSettings = await settingsStore.load();
+    // Turning the feature on loads the current year's holidays now; turning it off hides them.
+    publicHolidays.configure(savedSettings.publicHolidays);
 
     await removeUnusedSiteAccess([baseUrlsByType.cloud, baseUrlsByType.server]);
 
@@ -1470,6 +1511,7 @@ function fillSettingsForm(settings) {
   updateOpenInstanceBtn();
   jiraEmailInput.value = settingsDraft.email;
   jiraTokenInput.value = settingsDraft.tokensByType[deploymentType];
+  publicHolidaysSettings.fill(settings.publicHolidays);
 
   invalidateConnectionStatus();
   hasUntestedChanges = false;
@@ -1487,6 +1529,7 @@ async function loadSavedSettings() {
     const settings = await settingsStore.load();
     savedSettings = settings;
     fillSettingsForm(settings);
+    publicHolidays.configure(settings.publicHolidays);
 
     // Open Connection Settings when the page was opened for them (the toolbar icon's Settings menu
     // item) or nothing is configured yet. The hash is dropped at once, so a reload or a later
