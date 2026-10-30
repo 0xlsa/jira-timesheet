@@ -316,13 +316,14 @@ function renderHeaderTimer(indicator, timer) {
   const state = paused ? 'paused' : 'running';
   indicator.classList.toggle('is-paused', paused);
   indicator.setAttribute('title', `Timer ${state} on ${running.issueKey}${running.issueSummary ? `: ${running.issueSummary}` : ''}`);
-  indicator.replaceChildren(
+  // fragment() leaves out the Paused label while running (replaceChildren() would show `false`).
+  indicator.replaceChildren(fragment(
     h('span', { class: 'working-issues-timer-dot', 'aria-hidden': 'true' }),
     h('span', { class: 'sr-only' }, `Timer ${state} on `),
     h('span', { class: 'working-issues-timer-key' }, running.issueKey),
     h('span', { class: 'sr-only' }, ', '),
     renderElapsed(running, timer.now, 'working-issues-timer-elapsed'),
-    paused && h('span', { class: 'working-issues-timer-state' }, 'Paused'));
+    paused && h('span', { class: 'working-issues-timer-state' }, 'Paused')));
 }
 
 /**

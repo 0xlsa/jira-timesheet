@@ -825,7 +825,8 @@ body {
   height: 16px;
 }
 
-/* The running issue's Stop button */
+/* Stop: a light-red circle with a red icon, in the running-timer indicator's reds; a stronger
+   tint on hover */
 .working-issue-timer-btn.is-running {
   color: var(--danger);
   background-color: var(--danger-bg);
@@ -834,8 +835,26 @@ body {
 
 .working-issue-timer-btn.is-running:hover {
   color: var(--danger);
-  background-color: var(--danger-bg);
+  background-color: var(--danger-border);
   border-color: var(--danger);
+}
+
+/* Play (Start, and Resume while paused) in My Active Issues and the Log work panel: solid primary
+   blue with a white icon, as the Log work button. Pause keeps the neutral style. */
+.working-issue-timer-btn[data-timer-action="start"],
+.working-issue-timer-btn[data-timer-action="resume"] {
+  color: #ffffff;
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.working-issue-timer-btn[data-timer-action="start"]:hover,
+.working-issue-timer-btn[data-timer-action="resume"]:hover,
+.working-issue-timer-btn[data-timer-action="start"]:active,
+.working-issue-timer-btn[data-timer-action="resume"]:active {
+  color: #ffffff;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 
 /* While a start or stop is in progress, or the timer is unavailable (aria-disabled keeps focus) */
@@ -1658,26 +1677,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-/* With the timer's Start or Stop button to the left of the key; the summary lines up under the key. */
-.editor-issue.has-timer {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 10px;
-  row-gap: 8px;
-  align-items: center;
-}
-
-.editor-issue.has-timer .editor-timer-btn {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.editor-issue.has-timer .editor-issue-row,
-.editor-issue.has-timer .editor-issue-summary {
-  grid-column: 2;
-  min-width: 0;
 }
 
 .editor-issue-row {

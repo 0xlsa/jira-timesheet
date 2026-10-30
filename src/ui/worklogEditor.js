@@ -205,8 +205,9 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
 }
 
 /**
- * Sets the issue's timer button (beside its key) to the timer's state: Stop while the timer runs on
- * the issue, otherwise Start. With no state (no timer for this issue), the button is hidden.
+ * Sets the Log work panel's timer button (in its footer) to the timer's state for the panel's
+ * issue: Stop while the timer runs on the issue, otherwise Start. With no state (no issue chosen
+ * yet, or the timer's state unknown), the button is hidden.
  *
  * @param {HTMLButtonElement} button
  * @param {{ running: boolean } | null} timerState
@@ -215,8 +216,6 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
 function setEditorTimerButton(button, timerState, busy = false) {
   const running = Boolean(timerState?.running);
   button.classList.toggle('hidden', !timerState);
-  // The issue's layout leaves room for the button only while it shows.
-  button.parentNode?.classList?.toggle('has-timer', Boolean(timerState));
   button.classList.toggle('is-running', running);
   button.dataset.timerAction = running ? 'stop' : 'start';
   button.setAttribute('aria-label', running ? 'Stop timer' : 'Start timer');
@@ -227,20 +226,14 @@ function setEditorTimerButton(button, timerState, busy = false) {
 }
 
 /**
- * Builds the read-only issue summary: key (linked to Jira), status, and summary; with `timerState`,
- * the timer's Start or Stop button to the left of the key.
+ * Builds the read-only issue summary: key (linked to Jira), status, and summary.
  * @param {{ issueKey: string, issueSummary?: string, issueStatus?: object }} issue
  * @param {string} baseUrl - Jira instance URL for the issue link
- * @param {{ running: boolean } | null} [timerState] - Undefined: no timer button
  * @returns {HTMLElement}
  */
-export function renderEditorIssue(issue, baseUrl, timerState) {
+export function renderEditorIssue(issue, baseUrl) {
   const issueUrl = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/browse/${encodeURIComponent(issue.issueKey)}` : '#';
-  const timerButton = timerState !== undefined &&
-    h('button', { type: 'button', class: 'working-issue-timer-btn editor-timer-btn', 'data-action': 'timer' });
-  if (timerButton) setEditorTimerButton(timerButton, timerState);
-  return h('div', { class: `editor-issue${timerButton && timerState ? ' has-timer' : ''}` },
-    timerButton,
+  return h('div', { class: 'editor-issue' },
     h('div', { class: 'editor-issue-row' },
       h('a', { href: issueUrl, target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey || ''} in Jira` },
         issue.issueKey || 'ISSUE'),
@@ -256,8 +249,9 @@ export function renderEditorIssue(issue, baseUrl, timerState) {
  * @param {string} baseUrl - Jira instance URL for the issue link
  * @param {object} [options]
  * @param {'edit' | 'create' | 'pending'} [options.mode='edit']
- * @param {{ running: boolean } | null} [options.timerState] - Create with a given issue: the
- *   timer's state for it, for the Start or Stop button beside its key; undefined for no button
+ * @param {{ running: boolean } | null} [options.timerState] - Create only: the timer's state for the
+ *   issue, for the Start or Stop button in the footer (null hides it until there's an issue);
+ *   undefined for no button. Editing a worklog never has one.
  * @returns {HTMLFormElement}
  */
 export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', timerState } = {}) {
@@ -285,7 +279,7 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', tim
           svg('line', { x1: '6', y1: '6', x2: '18', y2: '18' })))),
 
     h('div', { class: 'editor-body' },
-      !pickIssue && renderEditorIssue(worklog, baseUrl, isCreate ? timerState : undefined),
+      !pickIssue && renderEditorIssue(worklog, baseUrl),
 
       h('div', { class: 'editor-note' },
         icon({ class: 'editor-note-icon' },
@@ -342,7 +336,9 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', tim
         h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'cancel' }, 'Cancel'),
         h('button', { type: 'submit', class: 'btn btn-primary btn-sm', 'data-action': 'save' },
           h('span', { class: 'btn-spinner hidden', 'data-spinner': 'saving' }),
-          h('span', { 'data-save-label': true }, isCreate ? 'Log work' : isPending ? 'Save' : 'Save changes'))),
+          h('span', { 'data-save-label': true }, isCreate ? 'Log work' : isPending ? 'Save' : 'Save changes')),
+        // Log work only: the timer's Start or Stop, right of Log work.
+        isCreate && timerState !== undefined && renderEditorTimerButton(timerState)),
 
       h('div', { class: 'editor-confirm hidden', 'data-confirm': 'discard', role: 'alertdialog', 'aria-labelledby': 'worklogEditorDiscardText' },
         h('p', { id: 'worklogEditorDiscardText' }, 'You have unsaved changes. Discard them?'),
@@ -363,6 +359,17 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', tim
 }
 
 /**
+ * Builds the Log work panel's timer button (see setEditorTimerButton()).
+ * @param {{ running: boolean } | null} timerState
+ * @returns {HTMLButtonElement}
+ */
+function renderEditorTimerButton(timerState) {
+  const button = h('button', { type: 'button', class: 'working-issue-timer-btn editor-timer-btn', 'data-action': 'timer' });
+  setEditorTimerButton(button, timerState);
+  return button;
+}
+
+/**
  * Opens the panel inside `root` (an initially hidden panel element), to edit a worklog
  * or to log new work on an issue.
  *
@@ -377,8 +384,8 @@ export function renderWorklogEditor(worklog, form, baseUrl, { mode = 'edit', tim
  * @param {'edit' | 'create' | 'pending'} [options.mode='edit'] - 'pending': a pending worklog kept in this
  *   browser, saved through onSave only (no Delete)
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
- * @param {object} [options.timer] - Create: the timer, for a Start or Stop button beside the issue's key once there
- *   is one (choosing an issue alone never starts a timer). Neither submits the form.
+ * @param {object} [options.timer] - Create: the timer, for a Start or Stop button in the footer once there's an
+ *   issue (choosing an issue alone never starts a timer). Neither submits the form. Ignored when editing.
  * @param {(issue: object) => ({ running: boolean } | null)} options.timer.stateOf - The timer's state
  *   for an issue; null hides the button
  * @param {(issue: object) => Promise<boolean>} options.timer.onStart - Resolves true once the timer runs on the issue
@@ -396,14 +403,14 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   const isCreate = mode === 'create';
   const saveLabel = isCreate ? 'Log work' : mode === 'pending' ? 'Save' : 'Save changes';
   const firstField = session.pickIssue ? '#worklogIssueSearch' : isCreate ? '#worklogEditHours' : '#worklogEditDate';
-  // The issue's timer button: logging new work only, once there's an issue.
+  // The timer button: logging new work only, shown once there's an issue.
   const hasTimer = isCreate && Boolean(timer);
   const timerStateOf = (issue) => (issue?.issueKey ? timer.stateOf(issue) : null);
   // True while a start or stop from the timer button is in progress.
   let isTimerBusy = false;
 
   showPanel(root, renderWorklogEditor(worklog, session.initialForm, baseUrl, {
-    mode, timerState: hasTimer && !session.pickIssue ? timerStateOf(worklog) : undefined
+    mode, timerState: hasTimer ? timerStateOf(session.pickIssue ? null : worklog) : undefined
   }));
   root.setAttribute('aria-labelledby', 'worklogEditorTitle');
 
@@ -416,7 +423,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
   // null (not false) without a picker, so `issuePicker?.destroy()` is skipped on close.
   const issuePicker = !session.pickIssue ? null : attachIssuePicker(root.querySelector('[data-issue-picker]'), {
     search: searchIssues ?? (async () => []),
-    renderSelected: (issue) => renderEditorIssue(issue, baseUrl, hasTimer ? timerStateOf(issue) : undefined),
+    renderSelected: (issue) => renderEditorIssue(issue, baseUrl),
     onSelect: (issue) => {
       session.setIssue(issue);
       sync();
@@ -481,7 +488,7 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     }
   }
 
-  /** Shows the timer's current state, and any start or stop in progress, on the issue's timer button. */
+  /** Shows the timer's current state, and any start or stop in progress, on the footer's timer button. */
   function syncTimer() {
     const timerButton = root.querySelector('[data-action="timer"]');
     if (!hasTimer || !timerButton) return;

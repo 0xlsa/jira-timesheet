@@ -509,6 +509,9 @@ describe('Timer - pause and resume controls', () => {
     const live = render(RUNNING).section.querySelector('.working-issues-timer');
     assert.ok(!live.classList.contains('is-paused'));
     assert.equal(live.querySelector('.working-issues-timer-state'), null);
+    // Exactly what's read and shown: nothing after the time while running.
+    assert.equal(live.textContent, 'Timer running on KAN-12, 00:07:00');
+    assert.equal(indicator.textContent, 'Timer paused on KAN-12, 00:05:00Paused');
   });
 
   it('keeps focus in place from Pause to Resume, and moves it from Stop to Start', () => {
@@ -523,6 +526,17 @@ describe('Timer - pause and resume controls', () => {
     renderWorkingIssues(section, opts(null));
     assert.equal(document.activeElement.dataset.timerAction, 'start');
     assert.equal(document.activeElement.dataset.issueKey, 'KAN-12');
+  });
+
+  it('marks its play buttons (Start, Resume) for the solid blue style, and Pause and Stop not', () => {
+    const running = render(RUNNING).section;
+    const paused = render(PAUSED).section;
+    const actions = (section) => section.querySelectorAll('.working-issue-timer-btn').map((b) => b.dataset.timerAction);
+    assert.deepEqual(actions(running), ['pause', 'stop', 'start']);
+    assert.deepEqual(actions(paused), ['resume', 'stop', 'start']);
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="start"\],\n\.working-issue-timer-btn\[data-timer-action="resume"\] \{\s*color: #ffffff;\s*background-color: var\(--primary\);/);
+    assert.doesNotMatch(css, /data-timer-action="(pause|stop)"/);
   });
 
   it('lists a paused issue Jira doesn\'t list, with Resume and Stop', () => {

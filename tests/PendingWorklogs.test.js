@@ -138,17 +138,22 @@ describe('My Active Issues - tabs', () => {
     assert.equal(panel(section, 'pending').querySelectorAll('.pending-worklog').length, 2);
   });
 
-  it('counts the Active Issues rows, including the running issue Jira doesn\'t list, and none while loading', () => {
+  it('counts the Active Issues rows, including the running issue Jira doesn\'t list, starting at 0', () => {
     const elsewhere = { ...RUNNING, issueId: '10099', issueKey: 'KAN-99' };
     assert.equal(tab(render({ running: elsewhere }).section, 'active').textContent, 'Active Issues (2)');
     assert.equal(tab(render({ running: RUNNING }).section, 'active').textContent, 'Active Issues (1)');
 
-    const { options } = sectionOptions();
+    // Both tabs start at (0): while Jira's issues load, after a failure, and with nothing pending.
+    const { options } = sectionOptions({ entries: [] });
     const section = h('section');
-    renderWorkingIssues(section, { ...options, state: { status: 'loading' } });
-    assert.equal(tab(section, 'active').textContent, 'Active Issues');
-    renderWorkingIssues(section, { ...options, state: { status: 'ready', issues: [] } });
-    assert.equal(tab(section, 'active').textContent, 'Active Issues (0)');
+    for (const state of [{ status: 'loading' }, { status: 'error', message: 'Server error' }, { status: 'ready', issues: [] }]) {
+      renderWorkingIssues(section, { ...options, state });
+      assert.equal(tab(section, 'active').textContent, 'Active Issues (0)', state.status);
+      assert.equal(tab(section, 'pending').textContent, 'Pending (0)', state.status);
+    }
+    // The running issue is listed (and counted) while Jira's issues load.
+    renderWorkingIssues(section, { ...options, state: { status: 'loading' }, timer: { ...options.timer, running: elsewhere } });
+    assert.equal(tab(section, 'active').textContent, 'Active Issues (1)');
   });
 
   it('styles the tabs as the app\'s buttons: primary when selected, secondary otherwise', () => {
@@ -758,21 +763,18 @@ describe('Log work panel - timer button', () => {
   }
   const timerButton = (root) => root.querySelector('[data-action="timer"]');
 
-  it('sits to the left of the issue key, beside the status and summary', () => {
-    const { root } = openLogWork({ timer: fakeTimer() });
-    const issueEl = root.querySelector('.editor-issue');
-    assert.ok(issueEl.classList.contains('has-timer'));
-    assert.deepEqual(issueEl.childNodes.map((n) => n.className), ['working-issue-timer-btn editor-timer-btn', 'editor-issue-row', 'editor-issue-summary']);
-    assert.equal(issueEl.querySelector('.editor-issue-row').querySelector('.issue-key-badge').textContent, 'KAN-20');
-    assert.ok(issueEl.querySelector('.issue-status'));
-    assert.equal(timerButton(root).getAttribute('type'), 'button', 'it never submits the form');
-  });
-
-  it('leaves the footer with Cancel and Log work only', () => {
+  it('sits in the footer, right of Log work; the issue shows as before', () => {
     const { root } = openLogWork({ timer: fakeTimer() });
     const actions = root.querySelector('[data-actions="main"]');
-    assert.deepEqual(actions.querySelectorAll('button').map((b) => b.dataset.action), ['cancel', 'save']);
+    assert.deepEqual(actions.childNodes.map((n) => n.dataset.action ?? n.className),
+      ['editor-actions-spacer', 'cancel', 'save', 'timer']);
     assert.equal(actions.querySelector('[data-action="save"]').textContent, 'Log work');
+    assert.equal(timerButton(root).getAttribute('type'), 'button', 'it never submits the form');
+
+    const issueEl = root.querySelector('.editor-issue');
+    assert.equal(issueEl.className, 'editor-issue');
+    assert.deepEqual(issueEl.childNodes.map((n) => n.className), ['editor-issue-row', 'editor-issue-summary']);
+    assert.equal(issueEl.querySelector('[data-action="timer"]'), null);
     assert.equal(root.querySelector('[data-action="start-timer"]'), null);
   });
 
@@ -798,15 +800,15 @@ describe('Log work panel - timer button', () => {
     assert.match(toHtml(button), /<rect x="6" y="6" width="12" height="12" rx="1">/);
   });
 
-  it('has no timer button without the timer, before an issue is chosen, or when its state is unknown', async () => {
+  it('has no timer button without the timer, and hides it before an issue is chosen or when its state is unknown', async () => {
     assert.equal(timerButton(openLogWork().root), null);
+    assert.deepEqual(openLogWork().root.querySelector('[data-actions="main"]').querySelectorAll('button').map((b) => b.dataset.action), ['cancel', 'save']);
 
     const picking = openLogWork({ worklog: null, timer: fakeTimer() });
-    assert.equal(timerButton(picking.root), null);
+    assert.ok(timerButton(picking.root).classList.contains('hidden'));
 
     const unknown = openLogWork({ timer: { stateOf: () => null, onStart: async () => true, onStop: async () => true } });
     assert.ok(timerButton(unknown.root).classList.contains('hidden'));
-    assert.ok(!unknown.root.querySelector('.editor-issue').classList.contains('has-timer'));
   });
 
   it('appears once an issue is chosen, and choosing it never starts a timer', async () => {
@@ -823,6 +825,7 @@ describe('Log work panel - timer button', () => {
     assert.ok(button);
     assert.ok(!button.classList.contains('hidden'));
     assert.equal(button.getAttribute('aria-label'), 'Start timer');
+    assert.ok(root.querySelector('[data-actions="main"]').querySelectorAll('button').includes(button), 'in the footer');
     assert.deepEqual(timer.calls, []);
   });
 
@@ -911,10 +914,100 @@ describe('Log work panel - timer button', () => {
     assert.deepEqual(timer.calls, [], 'logging work never touches the timer');
   });
 
-  it('is styled as the Active Issues timer buttons, laid out beside the issue', () => {
+  it('is styled as the Active Issues timer buttons, and leaves the issue\'s layout alone', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
     assert.match(css, /\.working-issue-timer-btn:focus-visible,/);
-    assert.match(css, /\.editor-issue\.has-timer \{[^}]*grid-template-columns: auto minmax\(0, 1fr\);/);
+    assert.doesNotMatch(css, /\.editor-issue\.has-timer/);
+  });
+
+  it('styles the timer buttons: solid blue Play (as Log work), light-red Stop, neutral Pause', () => {
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    // The declarations of the rule whose selector list starts with `selector`.
+    const rule = (selector) => {
+      const at = css.indexOf(`${selector}`);
+      return at < 0 ? '' : css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at));
+    };
+    const play = rule('.working-issue-timer-btn[data-timer-action="start"],\n.working-issue-timer-btn[data-timer-action="resume"] {');
+    const playHover = rule('.working-issue-timer-btn[data-timer-action="start"]:hover,');
+    assert.match(play, /color: #ffffff;\s*background-color: var\(--primary\);\s*border-color: var\(--primary\);/);
+    assert.match(playHover, /background-color: var\(--primary-hover\);/);
+    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="resume"\]:active \{/);
+    // The Log work button's own blue.
+    assert.match(rule('.btn-primary {'), /background-color: var\(--primary\);\s*color: #ffffff;/);
+
+    // Stop: light red, never solid; a stronger tint on hover.
+    const stop = rule('.working-issue-timer-btn.is-running {');
+    const stopHover = rule('.working-issue-timer-btn.is-running:hover {');
+    assert.match(stop, /color: var\(--danger\);\s*background-color: var\(--danger-bg\);\s*border-color: var\(--danger-border\);/);
+    assert.match(stopHover, /background-color: var\(--danger-border\);\s*border-color: var\(--danger\);/);
+    assert.doesNotMatch(stop + stopHover, /background-color: var\(--danger\);/);
+
+    // Pause has no rule of its own: the neutral base style.
+    assert.doesNotMatch(css, /data-timer-action="pause"/);
+    // Keyboard focus stays visible on all of them.
+    assert.match(css, /\.working-issue-timer-btn:focus-visible,/);
+
+    // The panel's button is a play button of the same kind.
+    const { root } = openLogWork({ timer: fakeTimer() });
+    assert.equal(timerButton(root).dataset.timerAction, 'start');
+    assert.ok(timerButton(root).classList.contains('working-issue-timer-btn'));
+  });
+
+  describe('Edit worklog panel is unaffected', () => {
+    const worklog = {
+      id: '10012', issueId: '10020', issueKey: 'KAN-20', issueSummary: 'Write the docs', issueStatus: null,
+      started: '2026-10-26T09:15:00.000+0000', timeSpentSeconds: 3600, comment: 'Docs'
+    };
+    const footerOf = (root) => root.querySelector('[data-actions="main"]').childNodes.map((n) => n.dataset.action ?? n.className);
+
+    it('keeps its footer and issue, with no timer button even when the page passes the timer', () => {
+      for (const timer of [undefined, fakeTimer(), fakeTimer({ running: 'KAN-20' })]) {
+        const root = h('aside', { class: 'worklog-editor hidden' });
+        openWorklogEditor(root, { worklog, baseUrl: '', timer, onSave: async () => {}, onDelete: async () => {}, onClose: () => {} });
+        assert.equal(root.querySelector('#worklogEditorTitle').textContent, 'Edit worklog');
+        assert.deepEqual(footerOf(root), ['delete', 'editor-actions-spacer', 'cancel', 'save']);
+        assert.equal(root.querySelector('[data-action="save"]').textContent, 'Save changes');
+        assert.equal(timerButton(root), null);
+        assert.equal(root.querySelector('.editor-issue').className, 'editor-issue');
+        assert.deepEqual(root.querySelector('.editor-issue').childNodes.map((n) => n.className), ['editor-issue-row', 'editor-issue-summary']);
+        assert.ok(root.querySelector('[data-confirm="delete"]'), 'its delete confirmation stays');
+      }
+    });
+
+    it('renders exactly as before the Log work timer existed', () => {
+      const form = toEditForm(worklog);
+      const withTimer = toHtml(renderWorklogEditor(worklog, form, 'https://acme.atlassian.net', { mode: 'edit', timerState: { running: false } }));
+      const without = toHtml(renderWorklogEditor(worklog, form, 'https://acme.atlassian.net', { mode: 'edit' }));
+      assert.equal(withTimer, without);
+      assert.doesNotMatch(without, /data-action="timer"|working-issue-timer-btn/);
+    });
+
+    it('still saves and deletes as before', async () => {
+      const saved = [];
+      let deleted = 0;
+      const root = h('aside', { class: 'worklog-editor hidden' });
+      openWorklogEditor(root, { worklog, baseUrl: '', timer: fakeTimer(), onSave: async (changes) => { saved.push(changes); }, onDelete: async () => { deleted++; }, onClose: () => {} });
+      const comment = root.querySelector('#worklogEditComment');
+      comment.value = 'Docs, reviewed';
+      comment.dispatchEvent({ type: 'input' });
+      root.querySelector('.editor-form').dispatchEvent({ type: 'submit' });
+      await flush();
+      assert.deepEqual(saved, [{ comment: 'Docs, reviewed' }]);
+
+      const again = h('aside', { class: 'worklog-editor hidden' });
+      openWorklogEditor(again, { worklog, baseUrl: '', timer: fakeTimer(), onSave: async () => {}, onDelete: async () => { deleted++; }, onClose: () => {} });
+      again.querySelector('[data-action="delete"]').click();
+      again.querySelector('[data-action="confirm-delete"]').click();
+      await flush();
+      assert.equal(deleted, 1);
+    });
+
+    it('keeps the pending worklog panel without a timer button too', () => {
+      const root = h('aside', { class: 'worklog-editor hidden' });
+      openWorklogEditor(root, { mode: 'pending', worklog: { ...worklog, id: 'p1' }, baseUrl: '', timer: fakeTimer(), onSave: async () => {}, onClose: () => {} });
+      assert.deepEqual(footerOf(root), ['editor-actions-spacer', 'cancel', 'save']);
+      assert.equal(timerButton(root), null);
+    });
   });
 
   describe('through the page\'s timer', () => {
