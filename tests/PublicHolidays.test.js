@@ -101,7 +101,7 @@ describe('Public holidays', () => {
     holidays.indicatorsFor(NEW_YEAR_2027);
     await flush();
     assert.deepEqual(cache.calls, ['IT:2026', 'IT:2027']);
-    assert.equal(holidays.indicatorsFor(NEW_YEAR_2027).get('2027-01-01').icon, '🎆');
+    assert.equal(holidays.indicatorsFor(NEW_YEAR_2027).get('2027-01-01').icon, '✨');
   });
 
   it('shows the newly selected country, using its cached data', async () => {

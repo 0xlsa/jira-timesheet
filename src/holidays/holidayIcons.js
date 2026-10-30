@@ -12,7 +12,7 @@ export const HOLIDAY_ICONS = {
   christmas: '🎄',
   easter: '🐰',
   goodFriday: '✝️',
-  newYear: '🎆',
+  newYear: '✨',
   labour: '⚒️',
   other: '🎉'
 };

@@ -52,6 +52,6 @@ describe('Holiday icons', () => {
   });
 
   it('maps each kind to its icon', () => {
-    assert.deepEqual(HOLIDAY_ICONS, { christmas: '🎄', easter: '🐰', goodFriday: '✝️', newYear: '🎆', labour: '⚒️', other: '🎉' });
+    assert.deepEqual(HOLIDAY_ICONS, { christmas: '🎄', easter: '🐰', goodFriday: '✝️', newYear: '✨', labour: '⚒️', other: '🎉' });
   });
 });
