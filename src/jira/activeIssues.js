@@ -8,6 +8,7 @@
  */
 
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
+import { assignmentFieldClause } from './assignmentFields.js';
 
 // Jira's key for the "In Progress" status category, as `status.statusCategory.key` returns it.
 export const IN_PROGRESS_CATEGORY_KEY = 'indeterminate';
@@ -18,12 +19,19 @@ export const IN_PROGRESS_CATEGORY_KEY = 'indeterminate';
  * the week (see JiraClient.getActiveIssues()); which worklogs are really the user's and in the
  * week is checked afterwards.
  *
+ * Additional assignment fields (src/jira/assignmentFields.js) also count as assigned:
+ * `(assignee = currentUser() OR cf[10050] = currentUser())`. Without any, the query is unchanged.
+ *
  * @param {string} firstDateKey - YYYY-MM-DD
  * @param {string} lastDateKey - YYYY-MM-DD
+ * @param {string[]} [assignmentFieldIds] - Custom field IDs (`customfield_10050`)
  * @returns {string}
  */
-export function buildActiveIssuesJql(firstDateKey, lastDateKey) {
-  return '(assignee = currentUser() AND statusCategory = "In Progress") OR ' +
+export function buildActiveIssuesJql(firstDateKey, lastDateKey, assignmentFieldIds = []) {
+  const assigned = ['assignee', ...assignmentFieldIds.map(assignmentFieldClause)]
+    .map((clause) => `${clause} = currentUser()`);
+  const assignedClause = assigned.length === 1 ? assigned[0] : `(${assigned.join(' OR ')})`;
+  return `(${assignedClause} AND statusCategory = "In Progress") OR ` +
     `(worklogAuthor = currentUser() AND worklogDate >= "${firstDateKey}" AND worklogDate <= "${lastDateKey}") ORDER BY updated DESC`;
 }
 

@@ -31,11 +31,13 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
  * @param {Date} week.monday - First day of the week
  * @param {Date} [week.sunday] - Last day of the week (defaults to the Sunday after `monday`)
  * @param {AbortSignal} [week.signal] - Cancels the requests
+ * @param {Array<{ id: string }>} [week.assignmentFields] - Additional assignment fields; none by default
  * @returns {Promise<Array<object>>} From JiraClient.getActiveIssues()
  */
-export async function loadActiveIssues(client, { monday, sunday, signal }) {
+export async function loadActiveIssues(client, { monday, sunday, signal, assignmentFields = [] }) {
   const range = getWeekRange(monday);
-  return client.getActiveIssues(range.monday, sunday ?? range.sunday, { signal });
+  return client.getActiveIssues(range.monday, sunday ?? range.sunday,
+    assignmentFields.length ? { signal, assignmentFields } : { signal });
 }
 
 /**

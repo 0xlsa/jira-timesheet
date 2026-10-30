@@ -29,7 +29,7 @@ import {
   replaceWorklogInWeek,
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
-import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
+import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite } from './src/settings/settingsStore.js';
 import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
@@ -54,6 +54,7 @@ import { createNagerDateClient } from './src/holidays/nagerDateClient.js';
 import { createHolidayCache } from './src/holidays/holidayCache.js';
 import { createPublicHolidays } from './src/holidays/publicHolidays.js';
 import { createPublicHolidaysSettings } from './src/ui/publicHolidaysSettings.js';
+import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSettings.js';
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 
 const platform = createPlatform();
@@ -138,6 +139,12 @@ const publicHolidaysCountry = document.getElementById('publicHolidaysCountry');
 const publicHolidaysStatus = document.getElementById('publicHolidaysStatus');
 const publicHolidaysError = document.getElementById('publicHolidaysError');
 
+// Additional Assignment Fields section of the Settings form
+const assignmentFieldsList = document.getElementById('assignmentFieldsList');
+const assignmentFieldsAddBtn = document.getElementById('assignmentFieldsAddBtn');
+const assignmentFieldsMenu = document.getElementById('assignmentFieldsMenu');
+const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus');
+
 // ============================================================================
 // State
 // ============================================================================
@@ -218,6 +225,44 @@ const publicHolidaysSettings = createPublicHolidaysSettings({
   status: publicHolidaysStatus,
   error: publicHolidaysError
 }, holidayCache);
+
+// Additional Assignment Fields (src/jira/assignmentFields.js): Jira user fields that also count as
+// assigning an issue to the user in My Active Issues, per Jira site. Saved as they change.
+const assignmentFieldsSettings = createAssignmentFieldsSettings({
+  list: assignmentFieldsList,
+  addButton: assignmentFieldsAddBtn,
+  menu: assignmentFieldsMenu,
+  status: assignmentFieldsStatus
+}, {
+  async onChange(site, fields) {
+    await settingsStore.saveAssignmentFields(site, fields);
+    savedSettings = await settingsStore.load();
+    refreshActiveIssues();
+  }
+});
+
+/** The Additional Assignment Fields of a client's Jira site, from the saved settings. */
+function assignmentFieldsFor(client, settings = savedSettings) {
+  return client ? assignmentFieldsForSite(settings, siteId(client.deploymentType, client.baseUrl)) : [];
+}
+
+/**
+ * Shows the saved connection's Additional Assignment Fields in Settings, with its Jira site's
+ * fields to choose from (loaded when the menu first opens). Without a saved connection, none.
+ */
+function showAssignmentFieldsSettings() {
+  const { client } = isConfigured(savedSettings ?? {}) ? createJiraClient({
+    baseUrl: savedSettings.jiraBaseUrl,
+    deploymentType: savedSettings.deploymentType,
+    email: savedSettings.email,
+    token: savedSettings.token
+  }) : { client: null };
+  assignmentFieldsSettings.show(client && {
+    site: siteId(client.deploymentType, client.baseUrl),
+    fields: assignmentFieldsFor(client),
+    loadFields: () => client.getUserPickerFields()
+  });
+}
 
 /**
  * The public holidays to show on a week's cards; loads the week's years when needed.
@@ -306,6 +351,7 @@ function openSettings() {
   if (settingsDrawerState) return;
   // Unsaved changes from an earlier visit are discarded: the form shows the saved settings.
   if (savedSettings) fillSettingsForm(savedSettings);
+  showAssignmentFieldsSettings();
   // Connection details already saved: collapsed, out of the way. Missing: expanded, to fill in.
   const isConnectionCollapsed = shouldCollapseConnection(savedSettings);
   connectionSection.setExpanded(!isConnectionCollapsed);
@@ -324,6 +370,7 @@ function closeSettings() {
   // A revealed token never outlives a visit to Settings, and neither does a test result.
   tokenVisibility.mask();
   hideConnectionStatus();
+  assignmentFieldsSettings.close();
   hidePanel(settingsDrawerRoot, { keepContents: true });
   settingsBtn.setAttribute('aria-expanded', 'false');
   uncoverWorklogEditor(coversEditor);
@@ -702,7 +749,7 @@ const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
 function refreshActiveIssues() {
   if (!currentClient) return;
   const { monday, sunday } = getWeekRange(currentMonday);
-  workingIssues.refresh(currentClient, { monday, sunday, force: true });
+  workingIssues.refresh(currentClient, { monday, sunday, force: true, assignmentFields: assignmentFieldsFor(currentClient) });
 }
 
 /**
@@ -1144,7 +1191,7 @@ async function loadAndRenderWorklogs(options = {}) {
     }
 
     // Not awaited: the worklogs don't wait for the issues, nor fail with them.
-    workingIssues.refresh(client, { monday, sunday, force: Boolean(options.force) });
+    workingIssues.refresh(client, { monday, sunday, force: Boolean(options.force), assignmentFields: assignmentFieldsFor(client, settings) });
 
     const aggregated = await loadWeek(client, { monday, sunday });
 

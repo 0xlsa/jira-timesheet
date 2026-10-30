@@ -4,6 +4,7 @@ import { getLocalDateKey } from '../worklog/worklogUtils.js';
 import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
 import { buildActiveIssuesJql, isInProgress, hasWorklogInWeek } from './activeIssues.js';
+import { parseUserPickerFields } from './assignmentFields.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -1035,6 +1036,32 @@ export class JiraClient {
   }
 
   /**
+   * Lists the Jira fields that can be additional assignment fields: searchable single-user custom
+   * fields (see src/jira/assignmentFields.js). `GET /field` (v3 on Cloud, with the v2 fallback;
+   * v2 on Data Center / Server) returns every field the user can see, in one response.
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<Array<{ id: string, name: string }>>} Sorted by name. Rejects with a
+   *   user-facing Error (with `status` for HTTP errors) when the fields can't be read; a failure is
+   *   never reported as an empty list
+   */
+  async getUserPickerFields({ signal } = {}) {
+    try {
+      const { response, path } = await this.#requestWithV2Fallback(this.#apiPath('field'), { signal });
+      if (!response.ok) {
+        const err = await this.#handleHttpError(response, new Date().toISOString());
+        const error = new Error(err.error || `Jira fields request failed with status ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return parseUserPickerFields(await this.#parseJson(response, path));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
    * Retrieves the issues assigned to the authenticated user that are in progress (status
    * category "In Progress"), and the issues the user logged work on, on a day of the given range
    * in local time, whoever they're assigned to and whatever their status. One paginated search
@@ -1042,22 +1069,29 @@ export class JiraClient {
    * by local start date), for every issue, so an in-progress issue with the user's work logged in
    * the range has both flags.
    *
+   * Additional assignment fields count as assigned too: an issue in progress whose Assignee or any
+   * of those fields is the user. An issue matching several of them is still listed once.
+   *
    * @param {Date | string} startDate - First day of the range (e.g. Monday)
    * @param {Date | string} endDate - Last day of the range, inclusive (e.g. Sunday)
    * @param {object} [options]
    * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
+   * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields (custom
+   *   field IDs, from normalizeAssignmentFields()); none by default
    * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null,
    *   inProgress: boolean, loggedThisWeek: boolean }>>} Each issue once (by issue ID), with at least one
    *   flag: in-progress issues first, then the others, each group most recently updated first.
    *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
    */
-  async getActiveIssues(startDate, endDate, { signal } = {}) {
+  async getActiveIssues(startDate, endDate, { signal, assignmentFields = [] } = {}) {
     const range = this.#worklogSearchRange(startDate, endDate);
+    const fieldIds = assignmentFields.map((field) => field.id);
     try {
       const [currentUser, issues] = await Promise.all([
         this.getCurrentUser(),
         this.#searchAllIssues(
-          buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate), ['summary', 'status', 'assignee', 'worklog'], signal)
+          buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate, fieldIds),
+          ['summary', 'status', 'assignee', ...fieldIds, 'worklog'], signal)
       ]);
 
       // A page boundary can move while paging, so an issue may come back twice: keep it once.
@@ -1079,7 +1113,8 @@ export class JiraClient {
           // Only while it's the user's: an issue found through the user's worklogs may be in
           // progress for someone else. Without the field, the search's assignee clause decides.
           inProgress: isInProgress(issueStatus) &&
-            (issue.fields?.assignee === undefined || isSameUser(issue.fields.assignee, currentUser)),
+            (issue.fields?.assignee === undefined || isSameUser(issue.fields.assignee, currentUser) ||
+              fieldIds.some((fieldId) => isSameUser(issue.fields?.[fieldId], currentUser))),
           // Found through the buffered worklog dates, or in progress: either way, only the user's
           // worklog in the range itself counts.
           loggedThisWeek: await this.#hasWorklogInRange(issue, range, currentUser, signal)

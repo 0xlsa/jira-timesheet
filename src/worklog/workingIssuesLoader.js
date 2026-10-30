@@ -32,9 +32,12 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
      * @param {Date} [week.sunday]
      * @param {boolean} [week.force=false] - Load even when the week is already shown or loading
      *   (Sync, Retry, or a worklog change)
+     * @param {Array<{ id: string }>} [week.assignmentFields] - Additional assignment fields; a
+     *   different set loads again, like another week
      */
-    async refresh(client, { monday, sunday, force = false }) {
-      const key = `${client.deploymentType}|${client.baseUrl}|${getLocalDateKey(monday)}`;
+    async refresh(client, { monday, sunday, force = false, assignmentFields = [] }) {
+      const fieldsKey = assignmentFields.map((field) => field.id).join(',');
+      const key = `${client.deploymentType}|${client.baseUrl}|${getLocalDateKey(monday)}${fieldsKey ? `|${fieldsKey}` : ''}`;
       if (!force && (request?.key === key || (!request && shownKey === key))) return;
 
       request?.controller.abort();
@@ -44,7 +47,7 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
 
       onChange({ status: 'loading' });
       try {
-        const issues = await loadActiveIssues(client, { monday, sunday, signal: current.controller.signal });
+        const issues = await loadActiveIssues(client, { monday, sunday, signal: current.controller.signal, assignmentFields });
         if (current.controller.signal.aborted) return;
         shownKey = key;
         onChange({ status: 'ready', issues });

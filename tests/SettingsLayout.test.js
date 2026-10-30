@@ -15,13 +15,14 @@ const at = (marker) => {
 const rule = (selector) => css.match(new RegExp(`^${selector.replace('.', '\\.')} \\{([^}]*)\\}`, 'm'))?.[1] ?? '';
 
 describe('Connection Settings layout - section dividers', () => {
-  it('separates Jira Edition and connection from Public Holidays with one divider', () => {
+  it('separates Jira Edition and connection, Additional Assignment Fields, and Public Holidays with a divider each', () => {
     const dividers = [...form.matchAll(/<hr class="settings-divider">/g)].map((match) => match.index);
-    assert.equal(dividers.length, 1);
-    const [divider] = dividers;
-    assert.ok(at('id="typeCloud"') < divider);
-    assert.ok(at('id="connectionSection"') < divider);
-    assert.ok(divider < at('id="publicHolidaysEnabled"'));
+    assert.equal(dividers.length, 2);
+    const [first, second] = dividers;
+    assert.ok(at('id="typeCloud"') < first);
+    assert.ok(at('id="connectionSection"') < first);
+    assert.ok(first < at('id="assignmentFieldsTitle"') && at('id="assignmentFieldsStatus"') < second);
+    assert.ok(second < at('id="publicHolidaysEnabled"'));
   });
 
   it('adds no divider inside the collapsible connection details', () => {

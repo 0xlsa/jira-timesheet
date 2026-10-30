@@ -16,9 +16,14 @@
  * - publicHolidaysEnabled, publicHolidaysCountry: the Public Holidays switch, and the country the
  *   user selected (an ISO 3166-1 alpha-2 code, or ''). The country is only ever what the user
  *   chose; it's kept when the feature is turned off.
+ * - assignmentFieldsBySite: Additional Assignment Fields, per Jira site, so one site's fields never
+ *   apply to another: { [site]: [{ id, name }] }, `site` being `${deploymentType}|${baseUrl}`
+ *   (siteId() in src/timer/timeTrackingStore.js), `id` the custom field ID, and `name` its name when
+ *   it was chosen (for display). Saved on its own, by saveAssignmentFields(). Missing or empty: none.
  */
 
 import { normalizeCountryCode } from '../holidays/nagerDateClient.js';
+import { normalizeAssignmentFields, normalizeAssignmentFieldsBySite } from '../jira/assignmentFields.js';
 
 const STORAGE_KEYS = [
   'jiraBaseUrl',
@@ -31,7 +36,8 @@ const STORAGE_KEYS = [
   'serverToken',
   'lastTestResult',
   'publicHolidaysEnabled',
-  'publicHolidaysCountry'
+  'publicHolidaysCountry',
+  'assignmentFieldsBySite'
 ];
 
 /**
@@ -49,7 +55,8 @@ const STORAGE_KEYS = [
  *   baseUrlsByType: { cloud: string, server: string },
  *   tokensByType: { cloud: string, server: string },
  *   lastTestResult: object | null,
- *   publicHolidays: { enabled: boolean, countryCode: string }
+ *   publicHolidays: { enabled: boolean, countryCode: string },
+ *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>
  * }}
  */
 export function normalizeSettings(raw = {}) {
@@ -69,8 +76,19 @@ export function normalizeSettings(raw = {}) {
     baseUrlsByType: forEdition(raw.cloudBaseUrl, raw.serverBaseUrl, activeBaseUrl),
     tokensByType: forEdition(raw.cloudToken, raw.serverToken, activeToken),
     lastTestResult: raw.lastTestResult || null,
-    publicHolidays: normalizePublicHolidays(raw)
+    publicHolidays: normalizePublicHolidays(raw),
+    assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite)
   };
+}
+
+/**
+ * A Jira site's Additional Assignment Fields.
+ * @param {{ assignmentFieldsBySite?: object } | null} settings - From normalizeSettings()
+ * @param {string} site - `${deploymentType}|${baseUrl}`
+ * @returns {Array<{ id: string, name: string }>} Empty when none are set for the site
+ */
+export function assignmentFieldsForSite(settings, site) {
+  return settings?.assignmentFieldsBySite?.[site] ?? [];
 }
 
 /** The feature is only on with a country: a stored "on" without one reads as off. */
@@ -137,6 +155,23 @@ export function createSettingsStore(storageArea) {
 
     async clearTestResult() {
       await storageArea.remove('lastTestResult');
+    },
+
+    /**
+     * Replaces one Jira site's Additional Assignment Fields; other sites' are kept. An empty list
+     * removes the site's entry.
+     *
+     * @param {string} site - `${deploymentType}|${baseUrl}`
+     * @param {Array<{ id: string, name: string }>} fields
+     */
+    async saveAssignmentFields(site, fields) {
+      if (!site) throw new Error('A Jira site is required.');
+      const { assignmentFieldsBySite } = await storageArea.get(['assignmentFieldsBySite']);
+      const bySite = normalizeAssignmentFieldsBySite(assignmentFieldsBySite);
+      const valid = normalizeAssignmentFields(fields);
+      if (valid.length) bySite[site] = valid;
+      else delete bySite[site];
+      await storageArea.set({ assignmentFieldsBySite: bySite });
     }
   };
 }

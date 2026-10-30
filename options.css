@@ -2828,6 +2828,120 @@ select:disabled {
   cursor: not-allowed;
 }
 
+/* Additional Assignment Fields: the chosen fields as a list (name, the field ID when names repeat,
+   and a remove button), then Add field with its menu of the site's fields. */
+.assignment-fields-description {
+  margin: 0 0 10px;
+}
+
+.assignment-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.assignment-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background-color: var(--bg-card-highlight);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.assignment-field-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assignment-field-id {
+  font-size: 11px;
+  color: var(--text-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.assignment-field-remove {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assignment-field-remove:hover {
+  color: var(--danger);
+  background-color: var(--bg-hover);
+}
+
+.assignment-field-remove:focus-visible,
+.assignment-fields-option:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.assignment-fields-add {
+  position: relative;
+}
+
+.assignment-fields-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.assignment-fields-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assignment-fields-option:hover,
+.assignment-fields-option:focus {
+  background-color: var(--bg-hover);
+}
+
+.assignment-fields-status {
+  margin-top: 8px;
+}
+
+.assignment-fields-status.is-error {
+  color: var(--danger);
+}
+
 .holidays-retry-btn {
   padding: 0;
   background: none;

@@ -395,6 +395,25 @@
 
             <hr class="settings-divider">
 
+            <!-- Additional Assignment Fields (src/ui/assignmentFieldsSettings.js); saved as they change -->
+            <section class="form-group assignment-fields" aria-labelledby="assignmentFieldsTitle">
+              <h3 id="assignmentFieldsTitle" class="form-label">Additional Assignment Fields</h3>
+              <p id="assignmentFieldsDescription" class="field-hint assignment-fields-description">
+                Also show issues assigned to you through these Jira user fields.
+              </p>
+              <ul id="assignmentFieldsList" class="assignment-fields-list hidden" aria-labelledby="assignmentFieldsTitle"></ul>
+              <div class="assignment-fields-add">
+                <button type="button" id="assignmentFieldsAddBtn" class="btn btn-secondary btn-sm" aria-haspopup="menu"
+                  aria-expanded="false" aria-controls="assignmentFieldsMenu" aria-describedby="assignmentFieldsDescription" disabled>
+                  + Add field
+                </button>
+                <ul id="assignmentFieldsMenu" class="assignment-fields-menu hidden" role="menu" aria-label="Jira user fields"></ul>
+              </div>
+              <div id="assignmentFieldsStatus" class="field-hint assignment-fields-status hidden" role="status"></div>
+            </section>
+
+            <hr class="settings-divider">
+
             <!-- Public Holidays (src/ui/publicHolidaysSettings.js); saved with the other settings -->
             <fieldset class="form-group holidays-group">
               <legend class="form-label">Public Holidays</legend>

@@ -3,8 +3,9 @@
  * project has no dependencies, so this covers just what the UI modules use: elements,
  * SVG elements, fragments, text, attributes, dataset, classList, textContent, form field
  * values, focus, simple selectors (tag, #id, .class, [attr], [attr="value"], compounded,
- * and comma-separated lists; no combinators), and events that bubble (with preventDefault()
- * and stopPropagation()). There is no HTML parser, so text can never turn into elements.
+ * and comma-separated lists; no combinators), and events that bubble up to the document (with
+ * preventDefault() and stopPropagation()). There is no HTML parser, so text can never turn into
+ * elements.
  *
  * toHtml() serializes nodes the way a browser does, escaping text and attribute values.
  */
@@ -228,6 +229,10 @@ class FakeElement extends FakeNode {
     for (let el = this; el instanceof FakeElement && !stopped; el = el.parentNode) {
       for (const listener of el.listeners[event.type] ?? []) listener(bubbling);
     }
+    // Then the document, as for an element in the page.
+    if (!stopped) {
+      for (const listener of this.ownerDocument.listeners[event.type] ?? []) listener(bubbling);
+    }
     return !bubbling.defaultPrevented;
   }
 
@@ -238,8 +243,17 @@ class FakeElement extends FakeNode {
 
 class FakeDocument {
   constructor() {
+    this.listeners = {};
     this.documentElement = this.createElement('html');
     this.activeElement = null;
+  }
+
+  addEventListener(type, listener) {
+    (this.listeners[type] ??= []).push(listener);
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners[type] = (this.listeners[type] ?? []).filter((l) => l !== listener);
   }
 
   createElement(tagName) {
