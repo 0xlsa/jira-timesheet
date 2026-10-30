@@ -56,6 +56,7 @@ import { createPublicHolidays } from './src/holidays/publicHolidays.js';
 import { createPublicHolidaysSettings } from './src/ui/publicHolidaysSettings.js';
 import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSettings.js';
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
+import { createWeekPicker } from './src/ui/weekPicker.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -74,6 +75,7 @@ const prevWeekBtn = document.getElementById('prevWeekBtn');
 const thisWeekBtn = document.getElementById('thisWeekBtn');
 const nextWeekBtn = document.getElementById('nextWeekBtn');
 const weekDateRangeText = document.getElementById('weekDateRangeText');
+const weekPickerBtn = document.getElementById('weekPickerBtn');
 const refreshWorklogsBtn = document.getElementById('refreshWorklogsBtn');
 
 // Weekly Stats Elements
@@ -153,6 +155,20 @@ const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus')
 
 let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
+
+// The date range opens a calendar; the chosen day's week is shown with that day selected, through
+// the same state as the buttons around it.
+const weekPicker = createWeekPicker({
+  trigger: weekPickerBtn,
+  container: document.body,
+  getSelection: () => ({ monday: currentMonday, selectedDateKey }),
+  onSelect: (date) => {
+    currentMonday = getMondayOfWeek(date);
+    selectedDateKey = getLocalDateKey(date);
+    loadAndRenderWorklogs();
+  }
+});
+
 let currentAggregatedData = null;
 let isBusyFetching = false;
 
@@ -1244,6 +1260,8 @@ function setWorklogBusy(isBusy) {
   prevWeekBtn.disabled = isBusy;
   thisWeekBtn.disabled = isBusy;
   nextWeekBtn.disabled = isBusy;
+  weekPickerBtn.disabled = isBusy;
+  if (isBusy) weekPicker.close();
   refreshWorklogsBtn.disabled = isBusy;
 
   if (isBusy) {

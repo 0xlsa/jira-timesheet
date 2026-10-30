@@ -159,7 +159,7 @@ The extension has no access to any website when you install it. The first time y
 
 ### Viewing your week
 
-The weekly timesheet loads the current week. Use the arrows to move between weeks, **Today** to return, and **Sync** to reload from Jira. Click a weekday card to list that day's worklogs. Selecting a day doesn't change any totals.
+The weekly timesheet loads the current week. Use the arrows to move between weeks, **Today** to return, and **Sync** to reload from Jira. To go to any week, click the date range between the arrows and choose a day in the calendar: that day's week opens with the day selected. In the calendar, the arrow keys move between days, **Page Up** and **Page Down** change the month, and **Escape** closes it. Click a weekday card to list that day's worklogs. Selecting a day doesn't change any totals.
 
 The timesheet shows worklogs that you authored. It finds them with the JQL query `worklogAuthor = currentUser() AND worklogDate >= … AND worklogDate <= …`, then keeps only worklogs whose start falls in the week in your browser's time zone.
 

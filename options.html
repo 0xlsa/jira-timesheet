@@ -124,7 +124,19 @@
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
-          <h2 id="weekDateRangeText" class="week-date-range">Loading week...</h2>
+          <!-- The date range opens the week picker (src/ui/weekPicker.js) -->
+          <h2 class="week-date-range">
+            <button type="button" id="weekPickerBtn" class="week-range-btn" title="Choose a week">
+              <span id="weekDateRangeText">Loading week...</span><span class="sr-only">, choose a week</span>
+              <svg class="week-range-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+            </button>
+          </h2>
           <button type="button" id="nextWeekBtn" class="btn btn-secondary btn-nav" title="Next Week"
             aria-label="Next week">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

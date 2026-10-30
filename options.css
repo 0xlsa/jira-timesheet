@@ -354,6 +354,148 @@ body {
   white-space: nowrap;
 }
 
+/* The date range is the week picker's button (src/ui/weekPicker.js): the heading's text, with a small
+   calendar icon, and a subtle background on hover and while the calendar is open. */
+.week-range-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+.week-range-btn:hover:not(:disabled),
+.week-range-btn[aria-expanded="true"] {
+  background-color: var(--bg-hover);
+}
+
+.week-range-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.week-range-btn:disabled {
+  cursor: default;
+}
+
+.week-range-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+}
+
+/* The week picker's calendar: a small popover under the date range, placed by script in the
+   viewport (position: fixed, in <body>, so nothing around it clips it). The shown week is a band
+   in the primary tint, the selected day is filled, and today is outlined. */
+.week-picker {
+  position: fixed;
+  z-index: 50;
+  width: 264px;
+  padding: 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.week-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.week-picker-month {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.btn.week-picker-month-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.week-picker-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 2px;
+  table-layout: fixed;
+}
+
+.week-picker-grid th {
+  padding-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.week-picker-grid td {
+  padding: 0;
+  text-align: center;
+}
+
+.week-picker-week.is-shown-week td {
+  background-color: var(--primary-light);
+}
+
+.week-picker-week.is-shown-week td:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.week-picker-week.is-shown-week td:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.week-picker-day {
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.week-picker-day:hover {
+  background-color: var(--bg-hover);
+}
+
+.week-picker-day:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -1px;
+}
+
+.week-picker-day.is-outside {
+  color: var(--text-muted);
+}
+
+.week-picker-day.is-today {
+  border-color: var(--primary);
+  font-weight: 700;
+}
+
+.week-picker-day.is-selected {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 700;
+}
+
 .week-actions {
   justify-content: flex-end;
 }
