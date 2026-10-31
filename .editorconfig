@@ -1,0 +1,40 @@
+# EditorConfig: https://EditorConfig.org
+#
+# https://marketplace.visualstudio.com/items?itemName=EditorConfig.EditorConfig
+# https://github.com/sindresorhus/atom-editorconfig?tab=readme-ov-file
+# https://github.com/editorconfig/editorconfig-vim
+# https://www.jetbrains.com/help/idea/editorconfig.html
+#
+
+
+# top-most EditorConfig file
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Matches multiple files with brace expansion notation
+# Set default charset
+[*.{js,py}]
+charset = utf-8
+
+# 4 space indentation
+[*.{py,md}]
+indent_style = space
+indent_size = 4
+
+# Tab indentation (no size specified)
+[*.{sh,bash,jq,js}]
+indent_style = space
+indent_size = 2
+
+[*.{json,yml,yaml,toml}]
+indent_style = space
+indent_size = 2
+
+[.vscode/*]
+indent_style = tab
+

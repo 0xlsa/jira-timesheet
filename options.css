@@ -178,7 +178,75 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 4px 2px;
+}
+
+/* Header controls: the theme toggle, keyboard shortcuts, and Connection Settings, side by side */
+.header-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The cog and the ? button while their drawer is open (their aria-expanded follows the drawer) */
+.header-icon-btn[aria-controls="settingsDrawer"][aria-expanded="true"],
+.header-icon-btn[aria-controls="shortcutsDrawer"][aria-expanded="true"] {
+  color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+/* Scoped to the header, so it wins over .editor-icon-btn's 30 px declared further down. */
+.header-actions .header-icon-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  transition: color var(--transition), background-color var(--transition);
+}
+
+.header-icon-btn .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* The keyboard shortcuts button's "?": in the button's colour, like the cog's icon, and about as
+   tall and light as the cog (15 px, medium weight, or regular where the font has no medium). */
+.header-help-glyph {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.header-icon-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* Tooltip, on hover and on keyboard focus (a title attribute only shows on hover) */
+.header-icon-btn::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
+.header-icon-btn:hover::after,
+.header-icon-btn:focus-visible::after {
+  opacity: 1;
 }
 
 .brand {
@@ -216,51 +284,6 @@ body {
   border: 1px solid var(--primary-border);
   padding: 3px 8px;
   border-radius: var(--radius-sm);
-}
-
-/* Main Navigation Tabs */
-.app-nav {
-  display: flex;
-  gap: 6px;
-  background-color: var(--bg-card);
-  padding: 4px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-}
-
-.nav-tab {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: transparent;
-  border: none;
-  color: var(--text-subtle);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.nav-tab:hover {
-  color: var(--text-main);
-  background-color: var(--bg-card-elevated);
-}
-
-.nav-tab.active {
-  background-color: var(--bg-card-elevated);
-  color: var(--primary);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-color);
-}
-
-.tab-icon {
-  width: 16px;
-  height: 16px;
 }
 
 /* View Sections */
@@ -329,6 +352,204 @@ body {
   min-width: 170px;
   text-align: center;
   white-space: nowrap;
+}
+
+/* The date range is the week picker's button (src/ui/weekPicker.js): the heading's text, with a small
+   calendar icon, and a subtle background on hover and while the calendar is open. */
+.week-range-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition: background-color var(--transition);
+}
+
+.week-range-btn:hover:not(:disabled),
+.week-range-btn[aria-expanded="true"] {
+  background-color: var(--bg-hover);
+}
+
+.week-range-btn:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.week-range-btn:disabled {
+  cursor: default;
+}
+
+.week-range-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+}
+
+/* Next Public Holiday: a compact full-width button under the week navigation bar (about 42px tall),
+  in the card colours. The negative margins bring the page's 16px gaps around it down to 10px. The
+  icon and text are centred together. */
+.next-holiday-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  margin: -6px 0;
+  padding: 8px 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.next-holiday-banner:hover:not(:disabled) {
+  background-color: var(--bg-card-highlight);
+  border-color: var(--text-muted);
+}
+
+.next-holiday-banner:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.next-holiday-banner:disabled {
+  cursor: default;
+}
+
+.next-holiday-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.next-holiday-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.next-holiday-name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* The week picker's calendar: a small popover under the date range, placed by script in the
+   viewport (position: fixed, in <body>, so nothing around it clips it). The shown week is a band
+   in the primary tint, the selected day is filled, and today is outlined. */
+.week-picker {
+  position: fixed;
+  z-index: 50;
+  width: 264px;
+  padding: 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.week-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.week-picker-month {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.btn.week-picker-month-btn {
+  width: 28px;
+  height: 28px;
+}
+
+.week-picker-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 2px;
+  table-layout: fixed;
+}
+
+.week-picker-grid th {
+  padding-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.week-picker-grid td {
+  padding: 0;
+  text-align: center;
+}
+
+.week-picker-week.is-shown-week td {
+  background-color: var(--primary-light);
+}
+
+.week-picker-week.is-shown-week td:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.week-picker-week.is-shown-week td:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.week-picker-day {
+  width: 32px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.week-picker-day:hover {
+  background-color: var(--bg-hover);
+}
+
+.week-picker-day:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -1px;
+}
+
+.week-picker-day.is-outside {
+  color: var(--text-muted);
+}
+
+.week-picker-day.is-today {
+  border-color: var(--primary);
+  font-weight: 700;
+}
+
+.week-picker-day.is-selected {
+  background-color: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 700;
 }
 
 .week-actions {
@@ -624,9 +845,33 @@ body {
 }
 
 .day-name {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 500;
   color: var(--text-subtle);
+}
+
+/* Right of the weekday name: the public holiday icon (its name is the tooltip). */
+.day-card-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.day-holiday {
+  font-size: 16px;
+  line-height: 1;
+  /* Taller than the weekday name's line: overlaps it slightly instead of making the row taller, so
+     every card's date stays level. */
+  margin: -2px 0;
+}
+
+/* The day number on the left, the Today badge (today only) on the right of its row. */
+.day-date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
 }
 
 .day-date {
@@ -637,6 +882,7 @@ body {
 }
 
 .badge-today {
+  flex-shrink: 0;
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
@@ -725,6 +971,42 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  cursor: pointer;
+}
+
+.day-panel-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* The header button: chevron, then the date and its count, as My Active Issues' header */
+.day-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-panel-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.day-panel-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .day-panel-title {
@@ -760,7 +1042,10 @@ body {
   gap: 12px;
 }
 
-/* Circular add worklog button in the selected day's heading */
+/* Circular add worklog button in the selected day's heading, and the timer and log work buttons
+   of each My Active Issues row */
+.working-issue-timer-btn,
+.working-issue-log-btn,
 .day-add-btn {
   flex-shrink: 0;
   display: inline-flex;
@@ -777,20 +1062,64 @@ body {
   transition: color var(--transition), background-color var(--transition), border-color var(--transition);
 }
 
+.working-issue-timer-btn:hover,
+.working-issue-log-btn:hover,
 .day-add-btn:hover {
   color: var(--primary);
   background-color: var(--primary-light);
   border-color: var(--primary-border);
 }
 
+.working-issue-timer-btn:focus-visible,
+.working-issue-log-btn:focus-visible,
 .day-add-btn:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
 
+.working-issue-timer-btn .icon,
+.working-issue-log-btn .icon,
 .day-add-btn .icon {
   width: 16px;
   height: 16px;
+}
+
+/* Stop: a light-red circle with a red icon, in the running-timer indicator's reds; a stronger
+   tint on hover */
+.working-issue-timer-btn.is-running {
+  color: var(--danger);
+  background-color: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.working-issue-timer-btn.is-running:hover {
+  color: var(--danger);
+  background-color: var(--danger-border);
+  border-color: var(--danger);
+}
+
+/* Play (Start, and Resume while paused) in My Active Issues and the Log work panel: solid primary
+   blue with a white icon, as the Log work button. Pause keeps the neutral style. */
+.working-issue-timer-btn[data-timer-action="start"],
+.working-issue-timer-btn[data-timer-action="resume"] {
+  color: #ffffff;
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.working-issue-timer-btn[data-timer-action="start"]:hover,
+.working-issue-timer-btn[data-timer-action="resume"]:hover,
+.working-issue-timer-btn[data-timer-action="start"]:active,
+.working-issue-timer-btn[data-timer-action="resume"]:active {
+  color: #ffffff;
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+/* While a start or stop is in progress, or the timer is unavailable (aria-disabled keeps focus) */
+.working-issue-timer-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .worklog-list {
@@ -961,7 +1290,10 @@ body {
 
 .worklog-log-btn,
 .worklog-edit-btn,
-.worklog-delete-btn {
+.worklog-delete-btn,
+.pending-submit-btn,
+.pending-edit-btn,
+.pending-discard-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -977,28 +1309,50 @@ body {
 
 .worklog-log-btn:hover,
 .worklog-edit-btn:hover,
-.worklog-delete-btn:hover {
+.worklog-delete-btn:hover,
+.pending-submit-btn:hover,
+.pending-edit-btn:hover,
+.pending-discard-btn:hover {
   color: var(--text-main);
   background-color: var(--bg-hover);
 }
 
 .worklog-log-btn:focus-visible,
 .worklog-edit-btn:focus-visible,
-.worklog-delete-btn:focus-visible {
+.worklog-delete-btn:focus-visible,
+.pending-submit-btn:focus-visible,
+.pending-edit-btn:focus-visible,
+.pending-discard-btn:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 1px;
 }
 
 .worklog-log-btn .icon,
 .worklog-edit-btn .icon,
-.worklog-delete-btn .icon {
+.worklog-delete-btn .icon,
+.pending-submit-btn .icon,
+.pending-edit-btn .icon,
+.pending-discard-btn .icon {
   width: 15px;
   height: 15px;
 }
 
-.worklog-delete-btn:hover {
+.worklog-delete-btn:hover,
+.pending-discard-btn:hover {
   color: var(--danger);
   background-color: var(--danger-bg);
+}
+
+.pending-submit-btn:not([aria-disabled="true"]):hover {
+  color: var(--primary);
+  background-color: var(--primary-light);
+}
+
+/* Submit or Edit can't be used now; the tooltip says why (aria-disabled keeps it readable and focusable) */
+.pending-submit-btn[aria-disabled="true"],
+.pending-edit-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Worklog open in the editor */
@@ -1037,6 +1391,395 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.45;
+}
+
+/* My Active Issues: collapsible list of the user's issues in progress or with work logged this week,
+   between the weekday cards and the selected-day panel. Kept compact so the timesheet stays in front. */
+.working-issues {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.working-issues-heading {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* The header button on the left; on the right, the timer controls at the top and the timed issue
+   just below them. A click anywhere but the controls toggles, so it all looks clickable. */
+.working-issues-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
+  align-items: start;
+  cursor: pointer;
+}
+
+/* With a timer, the text keeps its width when it can, and the right column takes the rest: at
+   least the controls, with the timed issue truncating in whatever is left. */
+.working-issues.has-timer .working-issues-header {
+  grid-template-columns: minmax(0, max-content) minmax(max-content, 1fr);
+}
+
+.working-issues-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 18px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-lg);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The controls bring their own gap on the right */
+.working-issues.has-timer .working-issues-toggle {
+  padding-right: 0;
+}
+
+.working-issues-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.working-issues-chevron,
+.day-panel-chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+  transition: transform var(--transition);
+}
+
+.working-issues.is-collapsed .working-issues-chevron,
+.day-panel.is-collapsed .day-panel-chevron {
+  transform: rotate(-90deg);
+}
+
+.working-issues-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.working-issues-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.working-issues-subtitle {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+/* The pending worklogs, on their own line under the subtitle */
+.working-issues-pending-count {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.working-issues.is-error .working-issues-subtitle {
+  color: var(--danger);
+}
+
+.working-issues-indicator {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Holds the loading spinner; with nothing in it, it takes no space (nor the header's gap). */
+.working-issues-indicator:empty {
+  display: none;
+}
+
+/* The timer controls at the header's top right: the elapsed time, Pause (or Resume), and Stop,
+   as in the timed issue's row. Shown collapsed too. */
+.working-issues-timer {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px 0 10px;
+  cursor: default;
+}
+
+.working-issues-timer.hidden {
+  display: none;
+}
+
+/* The timed issue ("KAN-12: Fix the login page"), right-aligned just below the controls. It
+   doesn't size its column (width 0, then the column's full width), so it truncates rather than
+   pushing into the text. */
+.working-issues-timer-summary {
+  grid-column: 2;
+  grid-row: 2;
+  width: 0;
+  min-width: 100%;
+  padding: 6px 18px 0 10px;
+  overflow: hidden;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.working-issue-elapsed {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+/* Paused: the time stands still */
+.working-issue-elapsed.is-paused {
+  color: var(--text-subtle);
+}
+
+.working-issues-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.working-issues-body {
+  padding: 0 18px 12px;
+}
+
+.working-issues-body.is-empty {
+  display: none;
+}
+
+.working-issues-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Columns: issue key | summary | status | log work button */
+.working-issue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 132px auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* With the timer: issue key | summary | status | timer | log work button */
+.working-issue.has-timer {
+  grid-template-columns: auto minmax(0, 1fr) 132px auto auto;
+}
+
+.working-issue:last-child {
+  border-bottom: 0;
+}
+
+.working-issue-timer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.working-issue-summary {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Active Issues and Pending tabs, shown only while the section is expanded (they're in its body).
+   They're the app's buttons (.btn, like Test Connection and Save Settings): primary when selected,
+   secondary otherwise. */
+.working-issues-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 8px;
+  margin-bottom: 4px;
+}
+
+.working-issues-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+/* Show Recently Logged Issues, at the right of the tabs: its label, then the Settings switch, with
+   smaller text. */
+.switch-row.working-issues-recent {
+  gap: 8px;
+  margin: 0 0 0 auto;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.working-issues-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.working-issues-empty {
+  margin: 0;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+/* Pending worklogs: issue key | summary and when | duration | edit and discard */
+.pending-worklogs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pending-worklog {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.pending-worklog:last-child {
+  border-bottom: 0;
+}
+
+.pending-worklog-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pending-worklog-summary {
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--text-main);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-worklog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.pending-flag {
+  padding: 0 7px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+.pending-flag.is-warning {
+  color: var(--warning);
+  background-color: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.pending-flag.is-danger {
+  color: var(--danger);
+  background-color: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+
+.pending-flag.is-busy {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.pending-worklog-duration {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--duration-highlight);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pending-worklog.is-too-short .pending-worklog-duration {
+  color: var(--warning);
+}
+
+.working-issues-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+  color: var(--text-subtle);
+}
+
+.working-issues-message .btn {
+  flex-shrink: 0;
+}
+
+/* Narrow: issue key, summary, and log work button on the first line, status on the second */
+@media (max-width: 600px) {
+  .working-issue {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  .working-issue.has-timer {
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  .working-issue-status {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .working-issues-message {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-issues-chevron,
+  .day-panel-chevron {
+    transition: none;
+  }
 }
 
 .empty-day-placeholder {
@@ -1097,11 +1840,15 @@ body {
 
 /* ==========================================================================
    EDIT WORKLOG PANEL
-   Beside the timesheet on wide windows, over its right side on medium ones,
-   and a full editing view on narrow ones.
+   Over the right side of the timesheet, like the drawers (the timesheet doesn't move),
+   and the full width of narrow windows.
    ========================================================================== */
 
-.worklog-editor {
+/* Right-hand side panels: the worklog panel, and the keyboard shortcuts and Connection Settings
+   drawers (above it). */
+.worklog-editor,
+.shortcuts-drawer,
+.settings-drawer {
   position: fixed;
   top: 0;
   right: 0;
@@ -1112,22 +1859,39 @@ body {
   background-color: var(--bg-card);
   border-left: 1px solid var(--border-color);
   box-shadow: var(--shadow-md);
+  /* Opening: slide in from the right and fade in (decelerating, no overshoot). */
+  transition: transform 250ms cubic-bezier(0.2, 0, 0, 1), opacity 250ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-@media (min-width: 1240px) {
-  .has-worklog-editor body {
-    padding-right: 396px;
+/* Closing: slide out to the right and fade out, a little faster (accelerating). The panel is
+   hidden once this ends (PANEL_CLOSE_MS in src/ui/panel.js). */
+.worklog-editor.is-closed,
+.shortcuts-drawer.is-closed,
+.settings-drawer.is-closed {
+  transform: translateX(100%);
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .worklog-editor,
+  .worklog-editor.is-closed,
+  .shortcuts-drawer,
+  .shortcuts-drawer.is-closed,
+  .settings-drawer,
+  .settings-drawer.is-closed {
+    transition: none;
   }
 }
 
 @media (max-width: 720px) {
-  .worklog-editor {
+  .worklog-editor,
+  .shortcuts-drawer,
+  .settings-drawer {
     width: 100%;
     border-left: none;
-  }
-
-  .has-worklog-editor body {
-    overflow: hidden;
   }
 }
 
@@ -1405,7 +2169,8 @@ body {
   line-height: 1.45;
 }
 
-.editor-rich-note {
+.editor-rich-note,
+.editor-short-note {
   color: var(--warning);
 }
 
@@ -1567,17 +2332,265 @@ body {
   box-shadow: none;
 }
 
+/* Success toast: check icon, message, and a close button. Charcoal in the dark theme,
+   white in the light theme. */
+.app-toast--success:not(:empty) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 14px;
+  font-size: 14px;
+  border-radius: var(--radius-lg);
+}
+
+[data-theme="light"] .app-toast--success {
+  background-color: var(--bg-card);
+}
+
+.app-toast-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  color: var(--success);
+}
+
+.app-toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.app-toast-subtitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-subtle);
+}
+
+.app-toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 6px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition);
+}
+
+.app-toast-close:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.app-toast-close:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.app-toast-close .icon {
+  width: 14px;
+  height: 14px;
+}
+
 /* ==========================================================================
-   SETTINGS VIEW (Retained functionality, Dark Theme styled)
+   KEYBOARD SHORTCUTS DRAWER
+   Opens with ?, in the same place as the worklog panel (src/ui/shortcutsDrawer.js).
    ========================================================================== */
 
-.settings-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: var(--shadow-md);
+/* The Connection Settings drawer shares this drawer's layout (only one is open at a time). */
+.shortcuts-drawer,
+.settings-drawer {
+  z-index: 45;
 }
+
+.shortcuts-drawer-body,
+.settings-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  padding: 18px 20px 0;
+}
+
+.shortcuts-header,
+.settings-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shortcuts-title,
+.settings-drawer-title {
+  flex: 1;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.2px;
+}
+
+/* Keycaps: the ? hint in the header and every key in the list */
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 -1px 0 var(--border-color);
+  white-space: nowrap;
+}
+
+.shortcuts-hint {
+  color: var(--text-subtle);
+}
+
+/* Search field: icon on the left, clear button on the right */
+.shortcuts-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.shortcuts-search-icon {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.shortcuts-search .shortcuts-search-input {
+  padding: 9px 36px 9px 34px;
+  border-radius: var(--radius-md);
+}
+
+.shortcuts-search-clear {
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition);
+}
+
+.shortcuts-search-clear:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.shortcuts-search-clear:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.shortcuts-search-clear .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Shortcut list: categories with description on the left and keys on the right */
+.shortcuts-list,
+.settings-drawer-scroll {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0 -20px;
+  padding: 4px 20px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.shortcuts-list:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.shortcuts-group + .shortcuts-group {
+  margin-top: 22px;
+}
+
+.shortcuts-group-title {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.shortcuts-rows {
+  list-style: none;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.shortcut-row:last-child {
+  border-bottom: none;
+}
+
+.shortcut-description {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.shortcut-keys {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.shortcut-combo {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.shortcut-keys-or {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.shortcuts-empty {
+  padding: 24px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   SETTINGS FORM (in the Connection Settings drawer)
+   ========================================================================== */
 
 .form-group {
   margin-bottom: 18px;
@@ -1606,6 +2619,122 @@ body {
 .deployment-group {
   border: none;
   padding: 0;
+}
+
+/* Between the sections of the Connection Settings form: a thin line across the drawer's content
+   width. The section above provides the space over it (its 18px bottom margin). About draws the same
+   line as its own top border. An <hr>, not a fieldset border, which a legend would cut through. */
+.settings-divider {
+  height: 0;
+  margin: 0 0 18px;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Jira Connection: a full-width header button (link icon, title, chevron) that expands and
+   collapses the Jira edition selector, URL, email, token, security notice, connection status, and
+   the Test Connection and Save Settings buttons. Collapsed, it's just the header. Styled like a
+   secondary button; until the connection is saved it's a setup prompt, in the primary colour, with
+   a line of help under the title (.needs-setup). */
+.connection-section {
+  margin-bottom: 18px;
+}
+
+.connection-heading {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.connection-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.connection-toggle:hover {
+  background-color: var(--bg-hover);
+}
+
+.connection-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.connection-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+}
+
+.connection-toggle-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.connection-setup-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+
+.connection-section.needs-setup .connection-toggle {
+  padding: 12px 14px;
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.connection-section.needs-setup .connection-toggle:hover {
+  border-color: var(--primary);
+}
+
+.connection-section.needs-setup .connection-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
+}
+
+.connection-chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-subtle);
+  transition: transform var(--transition), color var(--transition);
+}
+
+.connection-toggle:hover .connection-chevron {
+  color: var(--text-main);
+}
+
+/* On the right: points down to expand, up to collapse. */
+.connection-section:not(.is-collapsed) .connection-chevron {
+  transform: rotate(180deg);
+}
+
+.connection-body {
+  margin-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-chevron {
+    transition: none;
+  }
 }
 
 .segmented-control {
@@ -1699,6 +2828,7 @@ input[type="text"],
 input[type="date"],
 input[type="time"],
 input[type="number"],
+select,
 textarea {
   width: 100%;
   padding: 8px 12px;
@@ -1712,17 +2842,20 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--border-focus);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
 }
 
-input.is-invalid {
+input.is-invalid,
+select.is-invalid {
   border-color: var(--danger);
 }
 
-input.is-invalid:focus {
+input.is-invalid:focus,
+select.is-invalid:focus {
   box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.2);
 }
 
@@ -1919,11 +3052,273 @@ input.is-invalid:focus {
   color: var(--text-subtle);
 }
 
+/* Public Holidays: an on/off switch, then the country list. */
+.holidays-group {
+  border: none;
+  padding: 0;
+  /* The form's last section: About's margin spaces it from the divider below. */
+  margin-bottom: 0;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+/* The checkbox stays in place (and focusable) under the switch drawn next to it. */
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 99px;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background-color: var(--text-subtle);
+  border-radius: 50%;
+  transition: transform var(--transition), background-color var(--transition);
+}
+
+.switch-input:checked + .switch {
+  background-color: var(--primary);
+  border-color: var(--primary);
+}
+
+.switch-input:checked + .switch::after {
+  transform: translateX(14px);
+  background-color: #fff;
+}
+
+.switch-input:focus-visible + .switch {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.switch-input:disabled + .switch {
+  opacity: 0.6;
+}
+
+.switch-row:has(.switch-input:disabled) {
+  cursor: default;
+}
+
+/* Show Next Public Holiday: its own switch under the country, with its description below it. */
+.holidays-show-next {
+  margin: 14px 0 2px;
+}
+
+.holidays-show-next-hint {
+  margin: 0 0 10px 44px;
+}
+
+.holidays-country-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Additional Assignment Fields: the chosen fields as a list (name, the field ID when names repeat,
+   and a remove button), then Add field with its menu of the site's fields. */
+.assignment-fields-description {
+  margin: 0 0 10px;
+}
+
+.assignment-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.assignment-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  background-color: var(--bg-card-highlight);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-main);
+}
+
+.assignment-field-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assignment-field-id {
+  font-size: 11px;
+  color: var(--text-subtle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.assignment-field-remove {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.assignment-field-remove:hover {
+  color: var(--danger);
+  background-color: var(--bg-hover);
+}
+
+.assignment-field-remove:focus-visible,
+.assignment-fields-option:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.assignment-fields-add {
+  position: relative;
+}
+
+.assignment-fields-menu {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+.assignment-fields-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assignment-fields-option:hover,
+.assignment-fields-option:focus {
+  background-color: var(--bg-hover);
+}
+
+.assignment-fields-status {
+  margin-top: 8px;
+}
+
+.assignment-fields-status.is-error {
+  color: var(--danger);
+}
+
+.holidays-retry-btn {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.holidays-retry-btn:hover {
+  text-decoration: underline;
+}
+
 /* Action Buttons */
+/* Test Connection and Save Settings: equal widths filling the row; they stack, each full width,
+   when the drawer is too narrow for both side by side. */
 .form-actions {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.form-actions .btn {
+  flex: 1 1 130px;
+}
+
+/* About: small print below the actions, set off by a subtle divider (spaced like .settings-divider). */
+.settings-about {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-subtle);
+}
+
+.settings-about-title {
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.settings-about a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.settings-about a:hover {
+  text-decoration: underline;
+}
+
+/* Git logo before "View source on GitHub", sized to the text. */
+.settings-about-icon {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -2px;
 }
 
 .btn {

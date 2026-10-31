@@ -39,15 +39,27 @@ export function isExtensionContext() {
  * In-memory stand-in for `storage.local`, used when the page runs outside an
  * extension (e.g. opened directly in a browser tab) and in tests.
  *
+ * Like `storage.local`, it has an `onChanged` event whose listeners get the changed keys as
+ * `{ [key]: { oldValue, newValue } }` after each `set()` and `remove()`.
+ *
  * @param {object} [initial]
- * @returns {{ get: Function, set: Function, remove: Function }}
+ * @returns {{ get: Function, set: Function, remove: Function, onChanged: { addListener: Function, removeListener: Function } }}
  */
 export function createMemoryStorageArea(initial = {}) {
   const data = { ...initial };
+  const listeners = new Set();
   const toKeys = (keys) => (Array.isArray(keys) ? keys : [keys]);
+
+  // Listeners run after the change, as the browser's do.
+  function notify(changes) {
+    if (Object.keys(changes).length === 0) return;
+    for (const listener of [...listeners]) queueMicrotask(() => listener(changes));
+  }
 
   return {
     async get(keys) {
+      // As in the browser, null reads every key.
+      if (keys === null || keys === undefined) return { ...data };
       const result = {};
       for (const key of toKeys(keys)) {
         if (key in data) result[key] = data[key];
@@ -55,10 +67,24 @@ export function createMemoryStorageArea(initial = {}) {
       return result;
     },
     async set(items) {
+      const changes = {};
+      for (const [key, newValue] of Object.entries(items)) {
+        changes[key] = key in data ? { oldValue: data[key], newValue } : { newValue };
+      }
       Object.assign(data, items);
+      notify(changes);
     },
     async remove(keys) {
-      for (const key of toKeys(keys)) delete data[key];
+      const changes = {};
+      for (const key of toKeys(keys)) {
+        if (key in data) changes[key] = { oldValue: data[key] };
+        delete data[key];
+      }
+      notify(changes);
+    },
+    onChanged: {
+      addListener: (listener) => listeners.add(listener),
+      removeListener: (listener) => listeners.delete(listener)
     }
   };
 }
@@ -129,14 +155,45 @@ function createHostAccess(permissions) {
  *
  * @param {object | null} [api] - Extension API object (`browser` / `chrome`)
  * @param {Window} [win] - Window used for the non-extension fallback
- * @returns {{ storage: object, hostAccess: object, openTab: (url: string) => void }}
+ * @returns {{ storage: object, watchStorage: Function, hostAccess: object, getManifest: () => object | null, openTab: (url: string) => void }}
  */
 export function createPlatform(api = isExtensionContext() ? ext : null, win = globalThis) {
   const storage = api?.storage?.local ?? createMemoryStorageArea();
 
   return {
     storage,
+
+    /**
+     * Calls `listener` with the changed keys (`{ [key]: { oldValue, newValue } }`) whenever
+     * `storage` changes, in this page or any other page of the extension. Uses `storage.onChanged`,
+     * which Chrome and Firefox both fire for every area, keeping only `local` changes.
+     *
+     * @param {(changes: object) => void} listener
+     * @returns {() => void} Stops listening
+     */
+    watchStorage(listener) {
+      const events = api?.storage ? api.storage.onChanged : storage.onChanged;
+      if (!events) return () => {};
+      // The in-memory area's event has no area name.
+      const handler = (changes, areaName = 'local') => {
+        if (areaName === 'local') listener(changes);
+      };
+      events.addListener(handler);
+      return () => events.removeListener(handler);
+    },
+
     hostAccess: createHostAccess(api?.permissions),
+
+    /**
+     * The browser's copy of manifest.json (the one in the build, so its version is the
+     * installed version), or null outside an extension.
+     *
+     * @returns {object | null}
+     */
+    getManifest() {
+      return api?.runtime?.getManifest?.() ?? null;
+    },
+
     openTab(url) {
       if (api?.tabs?.create) {
         api.tabs.create({ url });

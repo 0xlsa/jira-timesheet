@@ -18,11 +18,15 @@
 
 ## Screenshots
 
-The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. It has light and dark themes.
+The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. A banner shows the next public holiday, and My Active Issues shows a running timer even when it's collapsed. It has light and dark themes.
 
 ![Timesheet for Jira: weekly overview, light theme](docs/screenshots/weekly-overview-light.png)
 
 ![Timesheet for Jira: weekly overview, dark theme](docs/screenshots/weekly-overview-dark.png)
+
+Time your work on an issue with the timer. A stopped timer leaves a pending worklog that you review and then submit to Jira:
+
+![Timesheet for Jira: a running timer and a pending worklog](docs/screenshots/timer-and-pending-worklogs.png)
 
 Log work on a day by finding the issue by its key:
 
@@ -34,15 +38,25 @@ Connect to Jira Cloud with your Atlassian account email and an API token, or to 
 
 ![Timesheet for Jira: connection settings for Jira Data Center / Server](docs/screenshots/connection-settings-data-center.png)
 
-The screenshots were taken in Chrome; the extension looks and works the same in Firefox.
+Show a country's official public holidays on the timesheet:
+
+![Timesheet for Jira: Public Holidays settings](docs/screenshots/public-holidays-settings.png)
+
+Press **?** for the keyboard shortcuts:
+
+![Timesheet for Jira: keyboard shortcuts](docs/screenshots/keyboard-shortcuts.png)
+
+The screenshots were taken in Chrome, with demonstration data; the extension looks and works the same in Firefox. [`docs/screenshots/source/`](docs/screenshots/source/README.md) describes how they are captured.
 
 ## Features
 
 **Weekly timesheet**
 - Shows your worklogs for one week, Monday through Sunday, grouped by day in your browser's local time zone.
-- Previous week, next week, and **This Week** navigation, plus a **Sync** button to reload from Jira.
+- Previous week, next week, and **Today** navigation, plus a **Sync** button to reload from Jira.
+- With Public Holidays on, a banner under the week navigation shows the next public holiday from today in your selected country; click it to go to that week. Turn it off with **Show Next Public Holiday** in Settings.
 - Seven weekday cards with each day's total, worklog count, and a progress bar (a full bar is 8 hours). Today is marked, and weekend cards have a subtle background.
 - Summary cards for the week total, the selected day's total, and the connected Jira account and edition.
+- Below the cards, the selected day's panel lists its worklogs. Click its header (or the day's total) to collapse or expand them; the date, count, and total stay in view. The panel starts collapsed, and your choice applies to every day and is remembered.
 - Totals are calculated in whole seconds, so the week total always equals the sum of the daily totals, and each daily total equals the sum of that day's worklogs.
 
 **Worklog cards** (for the selected day, in start-time order)
@@ -124,7 +138,7 @@ On first install, the extension opens its page automatically so you can configur
 
 ## Configuration
 
-Open the **Connection Settings** tab.
+Click the cog in the header to open the **Connection Settings** drawer beside the timesheet. **Escape**, its close button, or the cog again closes it. The drawer always opens with your saved settings: changes you didn't save, including a different Jira edition, are discarded when you close it. Until your connection details are saved, the section's header reads **Configure Jira Connection** and the section starts expanded; after that, the header reads **Jira Connection** and the section starts collapsed. Click the header to expand or collapse it. Once **Save Settings** succeeds, the drawer stays open with **Jira Connection** collapsed (click its header to reopen it) and a toast confirms that the settings were saved; if saving fails, Jira Connection stays expanded with the error and your entries.
 
 ### Jira Cloud
 
@@ -150,8 +164,8 @@ The instance URL must use HTTPS and can't contain a username or password, a quer
 
 The extension has no access to any website when you install it. The first time you click **Test Connection** or **Save Settings** for a Jira site, your browser asks whether to allow Timesheet for Jira to access that one site (for example `https://jira.your-company.com/*`). The browser doesn't ask again for a site you've already allowed.
 
-- If you decline, settings are still saved, and the **Weekly Worklogs** tab shows an **Allow Access** button instead of loading worklogs.
-- If you remove the extension's access to the site later (Chrome: the extension's **Site access** settings; Firefox: the **Permissions** tab in the Add-ons Manager), the **Weekly Worklogs** tab offers **Allow Access** again.
+- If you decline, settings are still saved, and the weekly timesheet shows an **Allow Access** button instead of loading worklogs.
+- If you remove the extension's access to the site later (Chrome: the extension's **Site access** settings; Firefox: the **Permissions** tab in the Add-ons Manager), the weekly timesheet offers **Allow Access** again.
 - When you save a different instance URL, access to Jira sites that are no longer in your settings is removed. The Jira Cloud and Data Center / Server sites are both kept, so switching edition doesn't ask again.
 - Access is per host, on any port: Firefox doesn't support ports in permission patterns, so `https://jira.internal:8443` is requested as `https://jira.internal/*`.
 
@@ -159,7 +173,7 @@ The extension has no access to any website when you install it. The first time y
 
 ### Viewing your week
 
-The **Weekly Worklogs** tab loads the current week. Use the arrows to move between weeks, **This Week** to return, and **Sync** to reload from Jira. Click a weekday card to list that day's worklogs. Selecting a day doesn't change any totals.
+The weekly timesheet loads the current week. Use the arrows to move between weeks, **Today** to return, and **Sync** to reload from Jira. To go to any week, click the date range between the arrows and choose a day in the calendar: that day's week opens with the day selected. In the calendar, the arrow keys move between days, **Page Up** and **Page Down** change the month, and **Escape** closes it. Click a weekday card to list that day's worklogs. Selecting a day doesn't change any totals.
 
 The timesheet shows worklogs that you authored. It finds them with the JQL query `worklogAuthor = currentUser() AND worklogDate >= … AND worklogDate <= …`, then keeps only worklogs whose start falls in the week in your browser's time zone.
 
@@ -190,7 +204,7 @@ The issue search finds issues by key only, not by summary. For `ABC-3` it asks J
 
 ### Panel layout and keyboard
 
-On wide windows the panel sits beside the timesheet. On medium windows it covers the right side of the timesheet, and below 720 px it fills the window. **Escape** closes the panel (asking first if there are unsaved changes). Save buttons are disabled while a request is in progress, so a form can't be submitted twice.
+The panel slides in over the right side of the timesheet, like the Connection Settings and keyboard shortcuts drawers, without moving it; below 720 px it fills the window. **Escape** closes the panel (asking first if there are unsaved changes). Save buttons are disabled while a request is in progress, so a form can't be submitted twice.
 
 ### Errors
 
@@ -275,12 +289,13 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `WeeklyWorklogService.test.js` | Week ranges across a daylight-saving change, loading a week, and recalculating day and week totals after creating, editing, or deleting a worklog |
 | `WeeklyWorklogIntegration.test.js` | Total invariants, chronological order within days, week navigation boundaries, and day selection not changing totals |
 | `SettingsStore.test.js` | Per-edition URLs and tokens, settings saved by older versions, the "configured" rule, the Cloud email, and the last connection test result |
+| `SettingsDraft.test.js` | The Connection Settings form's unsaved values: a copy of the saved settings, switching editions without losing either edition's values, and saving or discarding them |
 | `CompositionAndPlatform.test.js` | The Jira client factory, worklog author matching, and the platform adapter (extension APIs and the non-extension fallback) |
 | `BackgroundMessages.test.js` | The background script's `TEST_CONNECTION` and `FETCH_WORKLOGS` message handlers |
 
 ## Architecture and project structure
 
-The entry points (`options.js` and `background.js`) compose small ES modules and pass dependencies in explicitly, so the logic runs in Node tests without a browser. The options page calls Jira directly through `JiraClient`. The background script opens the page from the toolbar icon and on first install. It also handles `TEST_CONNECTION`, `GET_SETTINGS`, and `FETCH_WORKLOGS` messages, which the current page doesn't use.
+The entry points (`options.js` and `background.js`) compose small ES modules and pass dependencies in explicitly, so the logic runs in Node tests without a browser. The options page calls Jira directly through `JiraClient`. The background script (`src/background/launch.js`) opens the page from the toolbar icon, from the icon's right-click **Settings** item (with the Connection Settings drawer open), and on first install; when the timesheet is already open in a tab, it brings that tab forward instead of opening another. It also handles `TEST_CONNECTION`, `GET_SETTINGS`, and `FETCH_WORKLOGS` messages, which the current page doesn't use.
 
 ```mermaid
 graph TD
@@ -344,6 +359,8 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── JiraAuthProvider.js        # Auth provider contract
 │   │   ├── JiraCloudTokenProvider.js  # Basic auth (email + API token)
 │   │   └── JiraPatProvider.js         # Bearer auth (PAT)
+│   ├── background/
+│   │   └── launch.js                  # Opens the timesheet: toolbar icon, its Settings item, first install
 │   ├── compat/
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/
@@ -351,6 +368,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── issueKeySearch.js          # Partial issue keys: JQL and matching
 │   │   └── createJiraClient.js        # Builds a client from connection settings
 │   ├── settings/
+│   │   ├── settingsDraft.js           # Unsaved Connection Settings form values
 │   │   └── settingsStore.js           # Settings and credential persistence
 │   ├── ui/
 │   │   ├── dom.js                     # Builds elements without parsing HTML
@@ -371,6 +389,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   ├── store-listing/             # Store listing drafts; common/privacy-policy.md is the privacy policy
 │   ├── store-assets/chrome/       # Chrome Web Store promo tiles
 │   └── screenshots/               # Screenshots used in this README and the store listings
+│       └── source/                # How the screenshots are captured (capture.py)
 ├── package.json                  # Metadata and the test script
 ├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License
@@ -379,6 +398,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 
 ## Known limitations
 
+- **Day shortcuts on macOS.** Previous Day and Next Day are Ctrl + ← / → on Windows and Linux, where no browser uses them, and ⌘ + ← / → on macOS. On a Mac, Chrome, Edge, and Firefox normally use ⌘ + ← / → for Back and Forward; on the timesheet page the day shortcuts take those over (in text fields the keys still move the caret). The week and sync shortcuts (Ctrl/⌘ + Shift + ← → ↑ ↓) aren't browser shortcuts on any platform. Whether every browser lets a page take over ⌘ + ← / → hasn't been tested on a Mac.
 - **Issue search is by key only.** The Log work panel finds issues by key (such as `ABC-12`), not by words in their summary, and only after a digit of the number is typed. Each search covers the typed key and keys one digit longer; type more digits to reach longer keys.
 - **Firefox and Jira's XSRF check.** Jira rejects a `POST` that has a browser User-Agent unless its `Origin` is the Jira site itself, and Firefox's extension requests don't pass that check, so logging work failed in Firefox with a 403. Creating, editing, and deleting worklogs therefore send `User-Agent: Timesheet-for-Jira`, Atlassian's documented workaround (Firefox honors it; Chrome ignores it and doesn't need it). Search uses GET for the same reason. If a proxy or a future Jira change still rejects a request, the panel shows Jira's reason, for example "XSRF check failed".
 - **Remaining estimate.** When you log, edit, or delete work, Jira adjusts the issue's remaining estimate automatically (Jira's default), as it does in Jira itself.

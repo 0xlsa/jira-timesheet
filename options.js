@@ -18,6 +18,7 @@ import {
   getLocalDateKey,
   getWeekRange,
   formatWeekRange,
+  formatWorklogDate,
   buildEmptyWeek
 } from './src/worklog/worklogUtils.js';
 import {
@@ -28,15 +29,35 @@ import {
   replaceWorklogInWeek,
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
-import { createSettingsStore, normalizeSettings, isConfigured } from './src/settings/settingsStore.js';
-import { createPlatform } from './src/compat/browser-api.js';
-import { h } from './src/ui/dom.js';
+import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite } from './src/settings/settingsStore.js';
+import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
+import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
+import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
+import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek } from './src/ui/weekView.js';
-import { openWorklogEditor } from './src/ui/worklogEditor.js';
-import { openDeleteWorklogDialog } from './src/ui/deleteWorklogDialog.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays } from './src/ui/weekView.js';
+import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
+import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
+import { createShortcutRegistry } from './src/ui/shortcuts.js';
+import { openShortcutsDrawer } from './src/ui/shortcutsDrawer.js';
+import { showPanel, hidePanel } from './src/ui/panel.js';
+import { openDeleteWorklogDialog, describeWorklogForDeletion } from './src/ui/deleteWorklogDialog.js';
+import { DISCARD_PENDING_WORDING, formatPendingDuration, siteBaseUrl } from './src/ui/pendingWorklogs.js';
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
+import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
+import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus } from './src/timer/timeTrackingStore.js';
+import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
+import { createTimerController } from './src/timer/timerController.js';
+import { loadAboutInfo, renderAboutSection } from './src/ui/aboutSection.js';
+import { createNagerDateClient } from './src/holidays/nagerDateClient.js';
+import { createHolidayCache } from './src/holidays/holidayCache.js';
+import { createPublicHolidays } from './src/holidays/publicHolidays.js';
+import { createPublicHolidaysSettings } from './src/ui/publicHolidaysSettings.js';
+import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSettings.js';
+import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
+import { createWeekPicker } from './src/ui/weekPicker.js';
+import { dateFromKey, renderNextHolidayBanner } from './src/ui/nextHolidayBanner.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -45,17 +66,18 @@ const settingsStore = createSettingsStore(platform.storage);
 // DOM Element References
 // ============================================================================
 
-// Navigation Tabs
-const tabWeekly = document.getElementById('tabWeekly');
-const tabSettings = document.getElementById('tabSettings');
-const weeklySection = document.getElementById('weeklySection');
-const settingsSection = document.getElementById('settingsSection');
+// Connection Settings drawer, opened from the header's cog
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsDrawerRoot = document.getElementById('settingsDrawer');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 
 // Weekly View Navigation Controls
 const prevWeekBtn = document.getElementById('prevWeekBtn');
 const thisWeekBtn = document.getElementById('thisWeekBtn');
 const nextWeekBtn = document.getElementById('nextWeekBtn');
 const weekDateRangeText = document.getElementById('weekDateRangeText');
+const weekPickerBtn = document.getElementById('weekPickerBtn');
+const nextHolidayBanner = document.getElementById('nextHolidayBanner');
 const refreshWorklogsBtn = document.getElementById('refreshWorklogsBtn');
 
 // Weekly Stats Elements
@@ -83,6 +105,8 @@ const grantSiteAccessBtn = document.getElementById('grantSiteAccessBtn');
 const emptyWeekBanner = document.getElementById('emptyWeekBanner');
 const daysContainer = document.getElementById('daysContainer');
 const worklogEditorRoot = document.getElementById('worklogEditor');
+const shortcutsDrawerRoot = document.getElementById('shortcutsDrawer');
+const shortcutsHelpBtn = document.getElementById('shortcutsHelpBtn');
 const deleteWorklogDialog = document.getElementById('deleteWorklogDialog');
 const appToast = document.getElementById('appToast');
 
@@ -109,6 +133,24 @@ const testConnectionBtn = document.getElementById('testConnectionBtn');
 const testSpinner = document.getElementById('testSpinner');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 const themeToggleBtn = document.getElementById('themeToggleBtn');
+const connectionSectionEl = document.getElementById('connectionSection');
+const connectionToggle = document.getElementById('connectionToggle');
+const connectionBody = document.getElementById('connectionBody');
+const connectionTitle = document.getElementById('connectionTitle');
+const connectionSetupHint = document.getElementById('connectionSetupHint');
+
+// Public Holidays section of the Connection Settings form
+const publicHolidaysToggle = document.getElementById('publicHolidaysEnabled');
+const publicHolidaysCountry = document.getElementById('publicHolidaysCountry');
+const publicHolidaysStatus = document.getElementById('publicHolidaysStatus');
+const publicHolidaysError = document.getElementById('publicHolidaysError');
+const publicHolidaysShowNext = document.getElementById('publicHolidaysShowNext');
+
+// Additional Assignment Fields section of the Settings form
+const assignmentFieldsList = document.getElementById('assignmentFieldsList');
+const assignmentFieldsAddBtn = document.getElementById('assignmentFieldsAddBtn');
+const assignmentFieldsMenu = document.getElementById('assignmentFieldsMenu');
+const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus');
 
 // ============================================================================
 // State
@@ -116,6 +158,23 @@ const themeToggleBtn = document.getElementById('themeToggleBtn');
 
 let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
+// Whether the selected day's panel shows its worklogs: one state for every day, remembered across
+// sessions as My Active Issues' is; collapsed until the user expands it.
+let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'true';
+
+// The date range opens a calendar; the chosen day's week is shown with that day selected, through
+// the same state as the buttons around it.
+const weekPicker = createWeekPicker({
+  trigger: weekPickerBtn,
+  container: document.body,
+  getSelection: () => ({ monday: currentMonday, selectedDateKey }),
+  onSelect: (date) => {
+    currentMonday = getMondayOfWeek(date);
+    selectedDateKey = getLocalDateKey(date);
+    loadAndRenderWorklogs();
+  }
+});
+
 let currentAggregatedData = null;
 let isBusyFetching = false;
 
@@ -123,10 +182,25 @@ let isBusyFetching = false;
 let currentClient = null;
 let currentBaseUrl = '';
 
+// My Active Issues section (see src/ui/weekView.js): what it shows (null hides it, when there is no
+// Jira to ask) and whether it's expanded: collapsed until the user expands it, then as they last
+// left it. The loader (src/worklog/workingIssuesLoader.js) is created with the section's renderer below.
+let workingIssuesState = null;
+let isWorkingIssuesExpanded = localStorage.getItem('jts-working-issues-expanded') === 'true';
+// The section's tab when expanded, kept like the expanded state: 'active' or 'pending'.
+let workingIssuesTab = localStorage.getItem('jts-working-issues-tab') === 'pending' ? 'pending' : 'active';
+
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
 // True while the delete worklog confirmation is open.
 let isDeleteDialogOpen = false;
+// Open keyboard shortcuts drawer (see src/ui/shortcutsDrawer.js), or null.
+let shortcutsDrawer = null;
+// While the Connection Settings drawer is open: where focus returns, and whether it covers the
+// worklog panel. Null when it's closed.
+let settingsDrawerState = null;
+// Every keyboard shortcut, for running them and for the shortcuts drawer (registered below).
+const shortcuts = createShortcutRegistry();
 let toastTimer = null;
 
 // Show / hide for the API token field; starts masked and is never persisted.
@@ -137,16 +211,144 @@ const tokenVisibility = createTokenVisibilityToggle({
   hideIcon: eyeOffIcon
 });
 
-// Settings form values kept per Jira edition, so Cloud and Data Center / Server
-// instance URLs and tokens never overwrite each other when switching editions.
-const baseUrlsByType = { cloud: '', server: '' };
-const tokensByType = { cloud: '', server: '' };
+// The Jira Connection section of the form (URL, email, token): collapsible, collapsed when it
+// opens with everything saved, and headed by a setup prompt until then.
+const connectionSection = createConnectionSection({
+  section: connectionSectionEl,
+  toggle: connectionToggle,
+  body: connectionBody,
+  title: connectionTitle,
+  setupHint: connectionSetupHint
+});
+
+// The last saved settings (the active configuration), as loaded from the settings store; null
+// until they have loaded. The Connection Settings form is refilled from them each time it opens.
+let savedSettings = null;
+// The form's unsaved values (src/settings/settingsDraft.js), including the instance URL and token
+// of each Jira edition, so Cloud and Data Center / Server values never overwrite each other when
+// switching editions. Only a successful save writes them to the store.
+let settingsDraft = createSettingsDraft(normalizeSettings({}));
 
 // Connection test bookkeeping. Bumping the id invalidates any in-flight test, so a
 // late result cannot mark changed settings as connected. `hasUntestedChanges`
 // records edits made since the last successful test.
 let connectionTestId = 0;
 let hasUntestedChanges = false;
+
+// Public holidays (src/holidays/): Nager.Date data cached in storage, the indicators shown on the
+// weekday cards, and the settings section. Display only: nothing here touches worklogs.
+const holidayCache = createHolidayCache(platform.storage, { api: createNagerDateClient() });
+const publicHolidays = createPublicHolidays({
+  cache: holidayCache,
+  // Data that arrives after the week was rendered is added to its weekday cards in place, and the
+  // Next Public Holiday banner follows it (and any change of settings).
+  onChange: () => {
+    if (currentAggregatedData) updateHolidays(daysContainer, currentAggregatedData, holidaysForWeek(currentAggregatedData));
+    showNextHoliday();
+  }
+});
+const publicHolidaysSettings = createPublicHolidaysSettings({
+  toggle: publicHolidaysToggle,
+  select: publicHolidaysCountry,
+  status: publicHolidaysStatus,
+  error: publicHolidaysError,
+  showNext: publicHolidaysShowNext
+}, holidayCache, {
+  // The section applies at once, without Save Settings: saved on its own, then the weekday cards'
+  // holidays and the banner follow (configure() loads what's needed and calls their onChange).
+  async onChange(values) {
+    try {
+      await settingsStore.savePublicHolidays(values);
+      savedSettings = await settingsStore.load();
+    } catch (err) {
+      console.warn('Could not save the Public Holidays settings:', err);
+      return;
+    }
+    publicHolidays.configure(savedSettings.publicHolidays);
+  },
+  async onShowNextChange(showNext) {
+    try {
+      await settingsStore.saveShowNextHoliday(showNext);
+      savedSettings = await settingsStore.load();
+    } catch (err) {
+      console.warn('Could not save the Show Next Public Holiday setting:', err);
+      return;
+    }
+    showNextHoliday();
+  }
+});
+
+/**
+ * Shows the next public holiday from today in the banner under the week navigation, when the
+ * feature is on with its banner switch; otherwise hides it. Doesn't depend on the week displayed.
+ */
+function showNextHoliday() {
+  const todayKey = getLocalDateKey(new Date());
+  const holiday = savedSettings?.publicHolidays.showNext ? publicHolidays.nextHoliday(todayKey) : null;
+  renderNextHolidayBanner(nextHolidayBanner, holiday, todayKey);
+}
+
+// Additional Assignment Fields (src/jira/assignmentFields.js): Jira user fields that also count as
+// assigning an issue to the user in My Active Issues, per Jira site. Saved as they change.
+const assignmentFieldsSettings = createAssignmentFieldsSettings({
+  list: assignmentFieldsList,
+  addButton: assignmentFieldsAddBtn,
+  menu: assignmentFieldsMenu,
+  status: assignmentFieldsStatus
+}, {
+  async onChange(site, fields) {
+    await settingsStore.saveAssignmentFields(site, fields);
+    savedSettings = await settingsStore.load();
+    refreshActiveIssues();
+  }
+});
+
+/**
+ * Show Recently Logged Issues (the switch on My Active Issues' tab row): saved as it changes, then
+ * My Active Issues loads again with or without the issues only logged recently.
+ * @param {boolean} show
+ */
+async function setShowRecentlyLoggedIssues(show) {
+  try {
+    await settingsStore.saveShowRecentlyLoggedIssues(show);
+    savedSettings = await settingsStore.load();
+  } catch (err) {
+    console.warn('Could not save the Show Recently Logged Issues setting:', err);
+    return;
+  }
+  refreshActiveIssues();
+}
+
+/** The Additional Assignment Fields of a client's Jira site, from the saved settings. */
+function assignmentFieldsFor(client, settings = savedSettings) {
+  return client ? assignmentFieldsForSite(settings, siteId(client.deploymentType, client.baseUrl)) : [];
+}
+
+/**
+ * Shows the saved connection's Additional Assignment Fields in Settings, with its Jira site's
+ * fields to choose from (loaded when the menu first opens). Without a saved connection, none.
+ */
+function showAssignmentFieldsSettings() {
+  const { client } = isConfigured(savedSettings ?? {}) ? createJiraClient({
+    baseUrl: savedSettings.jiraBaseUrl,
+    deploymentType: savedSettings.deploymentType,
+    email: savedSettings.email,
+    token: savedSettings.token
+  }) : { client: null };
+  assignmentFieldsSettings.show(client && {
+    site: siteId(client.deploymentType, client.baseUrl),
+    fields: assignmentFieldsFor(client),
+    loadFields: () => client.getUserPickerFields()
+  });
+}
+
+/**
+ * The public holidays to show on a week's cards; loads the week's years when needed.
+ * @param {{ weekDays?: Array<{ dateKey: string }> }} week
+ */
+function holidaysForWeek(week) {
+  return publicHolidays.indicatorsFor((week.weekDays || []).map((day) => day.dateKey));
+}
 
 // ============================================================================
 // Theme Toggle
@@ -179,37 +381,81 @@ themeToggleBtn.addEventListener('click', () => {
 initTheme();
 
 // ============================================================================
-// Tab Navigation
+// Side Drawers (Connection Settings and keyboard shortcuts)
 // ============================================================================
 
 /**
- * Switches the active tab view between Weekly Worklogs and Settings.
- * @param {'weekly' | 'settings'} tabId
+ * Slides an open worklog panel out of the way, without closing it, so nothing typed in it is
+ * lost while a drawer is open in its place.
+ * @returns {boolean} True when there was a panel to cover; pass it to uncoverWorklogEditor()
  */
-function switchTab(tabId) {
-  // The editor belongs to the weekly view; leaving it asks about unsaved changes first.
-  if (tabId !== 'weekly' && worklogEditor && !worklogEditor.requestClose()) return;
+function coverWorklogEditor() {
+  if (!worklogEditor) return false;
+  worklogEditorRoot.classList.add('is-closed');
+  worklogEditorRoot.setAttribute('inert', '');
+  return true;
+}
 
-  // A revealed token never outlives a visit to Settings.
+/**
+ * Brings back a worklog panel that coverWorklogEditor() covered, if it's still open.
+ * @param {boolean} covered
+ */
+function uncoverWorklogEditor(covered) {
+  if (!covered || !worklogEditor) return;
+  worklogEditorRoot.classList.remove('is-closed');
+  worklogEditorRoot.removeAttribute('inert');
+}
+
+/**
+ * Closes the panel on the right through its usual close action, the one on top first: the keyboard
+ * shortcuts or Connection Settings drawer, else the worklog panel (which asks first when there are
+ * unsaved changes).
+ * @returns {boolean} False when nothing is open, so Escape keeps its default
+ */
+function closeOpenPanel() {
+  if (shortcutsDrawer) shortcutsDrawer.close();
+  else if (settingsDrawerState) closeSettings();
+  else if (worklogEditor) worklogEditor.requestClose();
+  else return false;
+  return true;
+}
+
+/**
+ * Opens the Connection Settings drawer, with the form showing the saved settings (anything
+ * changed but not saved on an earlier visit is discarded). The keyboard shortcuts drawer closes,
+ * since only one drawer is open at a time.
+ */
+function openSettings() {
+  if (settingsDrawerState) return;
+  // Unsaved changes from an earlier visit are discarded: the form shows the saved settings.
+  if (savedSettings) fillSettingsForm(savedSettings);
+  showAssignmentFieldsSettings();
+  // Connection details already saved: collapsed, out of the way. Missing: expanded, to fill in,
+  // under the setup prompt.
+  const isConnectionCollapsed = shouldCollapseConnection(savedSettings);
+  connectionSection.setConfigured(isConnectionCollapsed);
+  connectionSection.setExpanded(!isConnectionCollapsed);
+  shortcutsDrawer?.close();
+  settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
+  showPanel(settingsDrawerRoot);
+  settingsBtn.setAttribute('aria-expanded', 'true');
+  (isConnectionCollapsed ? connectionToggle : jiraBaseUrlInput).focus();
+}
+
+/** Closes the Connection Settings drawer. Unsaved changes are discarded when it next opens. */
+function closeSettings() {
+  if (!settingsDrawerState) return;
+  const { returnFocus, coversEditor } = settingsDrawerState;
+  settingsDrawerState = null;
+  // A revealed token never outlives a visit to Settings, and neither does a test result.
   tokenVisibility.mask();
-
-  if (tabId === 'weekly') {
-    tabWeekly.classList.add('active');
-    tabWeekly.setAttribute('aria-selected', 'true');
-    tabSettings.classList.remove('active');
-    tabSettings.setAttribute('aria-selected', 'false');
-
-    weeklySection.classList.remove('hidden');
-    settingsSection.classList.add('hidden');
-  } else {
-    tabSettings.classList.add('active');
-    tabSettings.setAttribute('aria-selected', 'true');
-    tabWeekly.classList.remove('active');
-    tabWeekly.setAttribute('aria-selected', 'false');
-
-    settingsSection.classList.remove('hidden');
-    weeklySection.classList.add('hidden');
-  }
+  hideConnectionStatus();
+  assignmentFieldsSettings.close();
+  hidePanel(settingsDrawerRoot, { keepContents: true });
+  settingsBtn.setAttribute('aria-expanded', 'false');
+  uncoverWorklogEditor(coversEditor);
+  // Back to where the user was, if it's still there.
+  if (returnFocus?.isConnected && returnFocus !== document.body) returnFocus.focus();
 }
 
 // ============================================================================
@@ -268,7 +514,330 @@ function renderDays(aggregatedData, baseUrl = '') {
     onEditWorklog: aggregatedData.sourceWorklogs ? openEditor : undefined,
     onLogWork: aggregatedData.sourceWorklogs ? startLogWork : undefined,
     onDeleteWorklog: aggregatedData.sourceWorklogs ? confirmDeleteWorklog : undefined,
-    editingWorklogId: worklogEditor?.worklogId
+    editingWorklogId: worklogEditor?.worklogId,
+    workingIssues: workingIssuesOptions(),
+    holidays: holidaysForWeek(aggregatedData),
+    dayExpanded: isDayPanelExpanded,
+    onToggleDay: (expanded) => {
+      isDayPanelExpanded = expanded;
+      localStorage.setItem('jts-day-panel-expanded', String(expanded));
+    }
+  });
+}
+
+// ============================================================================
+// My Active Issues
+// ============================================================================
+
+/**
+ * Options for the My Active Issues section, or undefined to leave it out.
+ * @returns {object | undefined}
+ */
+function workingIssuesOptions() {
+  if (!workingIssuesState) return undefined;
+  return {
+    state: workingIssuesState,
+    expanded: isWorkingIssuesExpanded,
+    onToggle: (expanded) => {
+      isWorkingIssuesExpanded = expanded;
+      localStorage.setItem('jts-working-issues-expanded', String(expanded));
+    },
+    onRetry: refreshActiveIssues,
+    // Like the worklog cards' + buttons: once the week has loaded.
+    onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined,
+    timer: timerOptions(),
+    pending: pendingOptions(),
+    recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues }
+  };
+}
+
+/**
+ * Shows a new My Active Issues state, updating the section in place when it's on the page.
+ * @param {object | null} state
+ */
+function setWorkingIssuesState(state) {
+  workingIssuesState = state;
+  const section = daysContainer.querySelector('#workingIssues');
+  if (state && section) {
+    renderWorkingIssues(section, { ...workingIssuesOptions(), baseUrl: currentBaseUrl });
+  } else if (!state) {
+    section?.remove();
+  }
+}
+
+// ============================================================================
+// Timer
+// ============================================================================
+
+// The timer's state comes from storage (src/timer/timeTrackingStore.js), shared by every open
+// Timesheet for Jira tab; this page only shows it and asks the store for changes.
+const timer = createTimerController({
+  createStore: () => createTimeTrackingStore(platform.storage, { lock: createTimeTrackingLock() }),
+  watchStorage: (listener) => platform.watchStorage(listener),
+  // Start, Stop, the header indicator, and the Log work panel's timer button follow the new state;
+  // another tab's change arrives here too.
+  onChange: () => {
+    setWorkingIssuesState(workingIssuesState);
+    worklogEditor?.refreshTimer();
+  },
+  // Only the elapsed times change each second, in place.
+  onTick: () => {
+    const section = daysContainer.querySelector('#workingIssues');
+    if (section) updateWorkingIssuesTimer(section, Date.now());
+  },
+  onError: (message) => showToast(message, { durationMs: 8000 })
+});
+
+/**
+ * Timer options for My Active Issues, or undefined (no timer controls) before the timer has loaded
+ * or while no Jira site is connected.
+ * @returns {object | undefined}
+ */
+function timerOptions() {
+  const state = timer.getState();
+  if (state.status === 'loading' || !currentClient) return undefined;
+
+  const site = siteId(currentClient.deploymentType, currentClient.baseUrl);
+  return {
+    site,
+    running: state.tracking?.running ?? null,
+    now: Date.now(),
+    busy: state.busy,
+    unavailable: state.status === 'unavailable' ? state.message : '',
+    onStart: (issue) => timer.start(timedIssue(issue)),
+    onStop: () => timer.stop(),
+    onPause: () => timer.pause(),
+    onResume: () => timer.resume()
+  };
+}
+
+/**
+ * The timer's issue for a Jira issue on the connected site: the same site ID and identifiers
+ * wherever a timer starts (an Active Issues row or the Log work panel).
+ * @param {{ issueId?: string, issueKey: string, issueSummary?: string }} issue
+ */
+function timedIssue(issue) {
+  return {
+    site: siteId(currentClient.deploymentType, currentClient.baseUrl),
+    issueId: issue.issueId,
+    issueKey: issue.issueKey,
+    issueSummary: issue.issueSummary
+  };
+}
+
+/**
+ * Pending tab options for My Active Issues (which then shows its Active Issues and Pending tabs),
+ * or undefined while the timer's state isn't known.
+ * @returns {object | undefined}
+ */
+function pendingOptions() {
+  const state = timer.getState();
+  if (!state.tracking || !currentClient) return undefined;
+  return {
+    entries: state.tracking.pending,
+    site: siteId(currentClient.deploymentType, currentClient.baseUrl),
+    tab: workingIssuesTab,
+    onTabChange: (tab) => {
+      workingIssuesTab = tab;
+      localStorage.setItem('jts-working-issues-tab', tab);
+    },
+    now: Date.now(),
+    onEdit: startEditPending,
+    onDiscard: confirmDiscardPending,
+    onSubmit: submitPending
+  };
+}
+
+/**
+ * Submits a pending worklog to Jira (its row's Submit button), through the connected site's client.
+ * It leaves Pending only once Jira has the worklog, which then joins the displayed week like work
+ * logged by hand. A refusal keeps it as not submitted; no answer keeps it as possibly in Jira, and
+ * submitting it again checks Jira before sending anything (src/worklog/pendingSubmission.js).
+ * @param {string} id
+ */
+async function submitPending(id) {
+  const entry = findPendingWorklog(id);
+  const client = currentClient;
+  if (!entry || !client) return;
+
+  let result;
+  try {
+    result = await submitPendingWorklog({
+      timer,
+      client,
+      id,
+      site: siteId(client.deploymentType, client.baseUrl),
+      // What the user saw when choosing to submit: a change made meanwhile in another tab is refused.
+      expected: { startedAt: entry.startedAt, timeSpentSeconds: entry.timeSpentSeconds, comment: entry.comment },
+      author: currentAggregatedData?.user
+    });
+  } catch (err) {
+    // Refused before anything was sent: says why (too short, another site, already being submitted).
+    showToast(err.message, { durationMs: 8000 });
+    return;
+  }
+
+  if (result.status === 'failed' || result.status === 'uncertain') {
+    showToast(result.message, { durationMs: 10000 });
+    return;
+  }
+
+  // In Jira: show it in the displayed week (no reload), as after logging work by hand.
+  const startedOn = new Date(result.worklog.started);
+  if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === getLocalDateKey(startedOn))) {
+    showWeek(replaceWorklogInWeek(currentAggregatedData, result.worklog), currentBaseUrl);
+  }
+  refreshActiveIssues();
+  showToast(result.status === 'already-in-jira' ? `${entry.issueKey} was already in Jira` : `Submitted ${entry.issueKey}`, {
+    success: true,
+    subtitle: result.message || formatWorklogDate(startedOn),
+    durationMs: result.message ? 10000 : 5000
+  });
+}
+
+/**
+ * The Log work panel's timer button (beside the issue's key): its state for an issue, and Start and
+ * Stop through the timer, as an Active Issues row's buttons. Neither logs work in Jira.
+ * @returns {object}
+ */
+function logWorkTimerOptions() {
+  return {
+    stateOf(issue) {
+      const state = timer.getState();
+      if (!state.tracking || state.status === 'unavailable' || !currentClient) return null;
+      return { running: Boolean(state.tracking.running) && isSameIssue(state.tracking.running, timedIssue(issue)) };
+    },
+    async onStart(issue) {
+      if (!currentClient) return false;
+      const started = await timer.start(timedIssue(issue));
+      if (started) showToast(`Timer started on ${issue.issueKey}`, { success: true, subtitle: 'Stop it in My Active Issues' });
+      return started;
+    },
+    async onStop() {
+      const stopped = await timer.stop();
+      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Pending' });
+      return stopped;
+    }
+  };
+}
+
+/**
+ * The pending worklog with this ID, as last read from storage.
+ * @param {string} id
+ * @returns {object | undefined}
+ */
+function findPendingWorklog(id) {
+  return timer.getState().tracking?.pending.find((entry) => entry.id === id);
+}
+
+/** Focuses a pending worklog's button, or the Pending tab once the worklog is gone. */
+function focusPendingWorklog(id, buttonClass) {
+  (daysContainer.querySelector(`.${buttonClass}[data-pending-id="${CSS.escape(id)}"]`) ||
+    daysContainer.querySelector('#workingIssuesTab-pending') || selectedDayFocusTarget())?.focus();
+}
+
+/**
+ * Opens a pending worklog in the worklog panel, to change its date, start time, duration, or
+ * comment in this browser. Nothing is sent to Jira: saving changes only the pending worklog, and
+ * only if no other tab changed it meanwhile.
+ * @param {string} id
+ */
+function startEditPending(id) {
+  shortcutsDrawer?.close();
+  closeSettings();
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  const entry = findPendingWorklog(id);
+  if (!entry) return;
+  // Not while it's being submitted, nor once Jira may have it: an edit could then add it twice.
+  const status = submissionStatus(entry);
+  if (status === 'submitting' || status === 'uncertain') {
+    showToast(status === 'submitting'
+      ? `${entry.issueKey}'s worklog is being submitted, so it can't be edited now.`
+      : `Jira may already have ${entry.issueKey}'s worklog, so it can't be edited. Submit it again to check Jira, or discard it.`,
+    { durationMs: 8000 });
+    return;
+  }
+  // What the edit starts from: saving is refused if another tab changed these meanwhile.
+  const expected = { startedAt: entry.startedAt, timeSpentSeconds: entry.timeSpentSeconds, comment: entry.comment };
+
+  worklogEditor = openWorklogEditor(worklogEditorRoot, {
+    mode: 'pending',
+    worklog: {
+      id: entry.id,
+      issueId: entry.issueId,
+      issueKey: entry.issueKey,
+      issueSummary: entry.issueSummary,
+      started: new Date(entry.startedAt).toISOString(),
+      timeSpentSeconds: entry.timeSpentSeconds,
+      comment: entry.comment
+    },
+    baseUrl: siteBaseUrl(entry.site),
+    onSave: async (changes) => {
+      await timer.updatePending(id, {
+        startedAt: changes.started?.getTime(),
+        timeSpentSeconds: changes.timeSpentSeconds,
+        comment: changes.comment
+      }, expected);
+      showToast(`Saved pending worklog for ${entry.issueKey}`, { success: true, subtitle: 'Kept in this browser until you submit it' });
+    },
+    onClose: () => {
+      worklogEditor = null;
+      if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+      focusPendingWorklog(id, 'pending-edit-btn');
+    }
+  });
+
+  if (currentAggregatedData) renderDays(currentAggregatedData, currentBaseUrl);
+}
+
+/**
+ * Asks to confirm discarding a pending worklog (its trash button), naming its issue and duration.
+ * Discarding removes only that pending worklog, from this browser; nothing is deleted in Jira.
+ * @param {string} id
+ */
+function confirmDiscardPending(id) {
+  shortcutsDrawer?.close();
+  closeSettings();
+  if (isDeleteDialogOpen) return;
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  const entry = findPendingWorklog(id);
+  if (!entry) return;
+
+  isDeleteDialogOpen = true;
+  openDeleteWorklogDialog(deleteWorklogDialog, {
+    details: {
+      ...describeWorklogForDeletion({ ...entry, started: new Date(entry.startedAt) }),
+      duration: formatPendingDuration(entry.timeSpentSeconds)
+    },
+    wording: DISCARD_PENDING_WORDING,
+    onDelete: async () => {
+      await timer.discardPending(id);
+      showToast('Pending worklog discarded.');
+    },
+    onClose: () => {
+      isDeleteDialogOpen = false;
+      focusPendingWorklog(id, 'pending-discard-btn');
+    }
+  });
+}
+
+// Loads the My Active Issues section's contents on its own: the worklogs load and show whatever
+// happens there. Asked with every week load, but it doesn't depend on the week, so it only loads
+// again on Sync, a change of settings, or a worklog change; a newer load cancels an older one.
+const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
+
+/**
+ * Reloads My Active Issues: Retry, a change of Issue Selection settings, and after a worklog is
+ * logged, edited, or deleted, which can add a recently logged issue or remove one.
+ */
+function refreshActiveIssues() {
+  if (!currentClient) return;
+  workingIssues.refresh(currentClient, {
+    force: true,
+    assignmentFields: assignmentFieldsFor(currentClient),
+    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues === true
   });
 }
 
@@ -296,11 +865,38 @@ function showWeek(aggregated, baseUrl) {
 /**
  * Shows a short confirmation message at the bottom of the page.
  * @param {string} message
+ * @param {object} [options]
+ * @param {boolean} [options.success=false] - Success style: a check icon and a close button
+ * @param {string} [options.subtitle] - Success style: a second, muted line under the message
+ * @param {number} [options.durationMs=4000] - Time before it's dismissed automatically
  */
-function showToast(message) {
+function showToast(message, { success = false, subtitle = '', durationMs = 4000 } = {}) {
   clearTimeout(toastTimer);
-  appToast.textContent = message;
-  toastTimer = setTimeout(() => { appToast.textContent = ''; }, 4000);
+  appToast.classList.toggle('app-toast--success', success);
+  appToast.replaceChildren(...(success
+    ? [
+      svg('svg', { class: 'app-toast-icon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
+        svg('circle', { cx: '12', cy: '12', r: '10' }),
+        svg('polyline', { points: '7.5 12.5 10.5 15.5 16.5 9' })),
+      h('span', { class: 'app-toast-text' },
+        h('span', { class: 'app-toast-message' }, message),
+        // Keeps the two lines apart when read aloud ("Saved ABC-1, 28 Oct…", not "ABC-128 Oct…").
+        subtitle && h('span', { class: 'sr-only' }, ', '),
+        subtitle && h('span', { class: 'app-toast-subtitle' }, subtitle)),
+      h('button', { type: 'button', class: 'app-toast-close', 'aria-label': 'Dismiss notification', title: 'Dismiss' },
+        svg('svg', { class: 'icon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'aria-hidden': 'true' },
+          svg('line', { x1: '18', y1: '6', x2: '6', y2: '18' }),
+          svg('line', { x1: '6', y1: '6', x2: '18', y2: '18' })))
+    ]
+    : [message]));
+  toastTimer = setTimeout(hideToast, durationMs);
+}
+
+/** Removes the toast, after its time or from its close button. */
+function hideToast() {
+  clearTimeout(toastTimer);
+  appToast.replaceChildren();
+  appToast.classList.remove('app-toast--success');
 }
 
 /**
@@ -329,6 +925,9 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
     worklog: issue,
     baseUrl: client.baseUrl,
     initialForm: toNewWorklogForm({ dateKey }),
+    // Shown beside the issue's key once there's an issue and the timer's state is known; choosing an
+    // issue never starts a timer.
+    timer: logWorkTimerOptions(),
     searchIssues: (query, options) => client.suggestIssuesByKey(query, options),
     onDateChange: (enteredDateKey) => {
       // Select the entered day in the calendar when it's in the displayed week.
@@ -346,10 +945,10 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
       if (currentAggregatedData?.sourceWorklogs && currentAggregatedData.weekDays.some((d) => d.dateKey === createdDateKey)) {
         selectedDateKey = createdDateKey;
         showWeek(replaceWorklogInWeek(currentAggregatedData, created), currentBaseUrl);
-        showToast(`Work logged on ${loggedIssue.issueKey}.`);
-      } else {
-        showToast(`Work logged on ${loggedIssue.issueKey} for ${startedOn.toLocaleDateString()}.`);
       }
+      refreshActiveIssues();
+      // The issue key and the worklog's own (logged) date, as Jira stored them.
+      showToast(`Saved ${loggedIssue.issueKey}`, { success: true, subtitle: formatWorklogDate(startedOn), durationMs: 5000 });
     },
     onClose: () => {
       worklogEditor = null;
@@ -368,6 +967,8 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
  * @param {string} worklogId - A worklog on the issue to log work against
  */
 function startLogWork(worklogId) {
+  shortcutsDrawer?.close();
+  closeSettings();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const source = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
@@ -387,11 +988,36 @@ function startLogWork(worklogId) {
 }
 
 /**
+ * Opens the Log work panel for an issue in My Active Issues (the row's + button). Like a worklog
+ * card's + button, the date defaults to the selected day and the start time to now.
+ * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }} issue
+ */
+function startLogWorkOnIssue(issue) {
+  shortcutsDrawer?.close();
+  closeSettings();
+  if (worklogEditor && !worklogEditor.requestClose()) return;
+
+  openLogWork({
+    issue: {
+      issueId: issue.issueId,
+      issueKey: issue.issueKey,
+      issueSummary: issue.issueSummary,
+      issueStatus: issue.issueStatus
+    },
+    dateKey: selectedDateKey,
+    // Back to the + button it was opened from
+    returnFocusTo: () => daysContainer.querySelector(`.working-issue-log-btn[data-issue-key="${CSS.escape(issue.issueKey)}"]`)
+  });
+}
+
+/**
  * Opens the Log work panel on a day (the + button in the selected day's panel). The date
  * starts on that day, and the user finds the issue in the panel by its key.
  * @param {string} dateKey - YYYY-MM-DD
  */
 function startLogWorkOnDay(dateKey) {
+  shortcutsDrawer?.close();
+  closeSettings();
   if (worklogEditor && !worklogEditor.requestClose()) return;
   if (!currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
 
@@ -416,6 +1042,7 @@ async function deleteWorklogAndRefresh(client, worklog) {
   if (currentAggregatedData?.sourceWorklogs) {
     showWeek(removeWorklogFromWeek(currentAggregatedData, String(worklog.id)), currentBaseUrl);
   }
+  refreshActiveIssues();
   showToast('Worklog deleted.');
 }
 
@@ -425,6 +1052,8 @@ async function deleteWorklogAndRefresh(client, worklog) {
  * @param {string} worklogId
  */
 function confirmDeleteWorklog(worklogId) {
+  shortcutsDrawer?.close();
+  closeSettings();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -451,6 +1080,8 @@ function confirmDeleteWorklog(worklogId) {
  * @param {string} worklogId
  */
 function openEditor(worklogId) {
+  shortcutsDrawer?.close();
+  closeSettings();
   if (worklogEditor) {
     if (worklogEditor.worklogId === worklogId) {
       worklogEditor.focus();
@@ -472,6 +1103,7 @@ function openEditor(worklogId) {
       if (currentAggregatedData?.sourceWorklogs?.some((wl) => String(wl.id) === worklogId)) {
         showWeek(replaceWorklogInWeek(currentAggregatedData, updated), currentBaseUrl);
       }
+      refreshActiveIssues();
       const movedTo = new Date(updated.started);
       const stillInWeek = currentAggregatedData.weekDays.some((d) => d.dateKey === getLocalDateKey(movedTo));
       showToast(stillInWeek ? 'Worklog updated.' : `Worklog updated and moved to ${movedTo.toLocaleDateString()}.`);
@@ -566,7 +1198,7 @@ function showSiteAccessNeeded(baseUrl) {
  * Fetches worklogs from Jira for the current week and updates all views.
  *
  * @param {object} [options]
- * @param {boolean} [options.force=false]
+ * @param {boolean} [options.force=false] - Also reload My Active Issues when the week is already shown (Sync, Retry, new settings)
  */
 async function loadAndRenderWorklogs(options = {}) {
   if (isBusyFetching) return;
@@ -587,6 +1219,7 @@ async function loadAndRenderWorklogs(options = {}) {
   siteAccessAlert.classList.add('hidden');
 
   if (!isConfigured(settings)) {
+    workingIssues.clear();
     unconfiguredAlert.classList.remove('hidden');
     worklogErrorAlert.classList.add('hidden');
     emptyWeekBanner.classList.add('hidden');
@@ -619,6 +1252,7 @@ async function loadAndRenderWorklogs(options = {}) {
     token: settings.token
   });
   if (!client) {
+    workingIssues.clear();
     showWorklogError('Invalid Jira Configuration', error);
     return;
   }
@@ -640,9 +1274,17 @@ async function loadAndRenderWorklogs(options = {}) {
     // Without access to the Jira site every request fails, so ask for it instead. Access is
     // missing if it was never granted for this site, or the user removed it in the browser.
     if (!(await platform.hostAccess.has(JiraUrlValidator.validate(client.baseUrl).originPattern))) {
+      workingIssues.clear();
       showSiteAccessNeeded(client.baseUrl);
       return;
     }
+
+    // Not awaited: the worklogs don't wait for the issues, nor fail with them.
+    workingIssues.refresh(client, {
+      force: Boolean(options.force),
+      assignmentFields: assignmentFieldsFor(client, settings),
+      includeRecentlyLogged: settings.showRecentlyLoggedIssues
+    });
 
     const aggregated = await loadWeek(client, { monday, sunday });
 
@@ -689,6 +1331,9 @@ function setWorklogBusy(isBusy) {
   prevWeekBtn.disabled = isBusy;
   thisWeekBtn.disabled = isBusy;
   nextWeekBtn.disabled = isBusy;
+  weekPickerBtn.disabled = isBusy;
+  nextHolidayBanner.disabled = isBusy;
+  if (isBusy) weekPicker.close();
   refreshWorklogsBtn.disabled = isBusy;
 
   if (isBusy) {
@@ -757,14 +1402,17 @@ function setDeploymentType(type) {
  * @param {'cloud' | 'server'} type
  */
 function switchDeploymentType(type) {
-  const previousType = type === 'cloud' ? 'server' : 'cloud';
-  baseUrlsByType[previousType] = jiraBaseUrlInput.value.trim();
-  tokensByType[previousType] = jiraTokenInput.value.trim();
+  const { baseUrl, token } = switchDraftEdition(settingsDraft, type, {
+    baseUrl: jiraBaseUrlInput.value.trim(),
+    token: jiraTokenInput.value.trim()
+  });
   setDeploymentType(type);
-  jiraBaseUrlInput.value = baseUrlsByType[type];
-  jiraTokenInput.value = tokensByType[type];
+  jiraBaseUrlInput.value = baseUrl;
+  jiraTokenInput.value = token;
   updateOpenInstanceBtn();
   invalidateConnectionStatus();
+  // An edition without its URL or token yet shows the fields to fill in.
+  if (!baseUrl || !token) connectionSection.setExpanded(true);
 }
 
 /**
@@ -797,6 +1445,11 @@ function updateOpenInstanceBtn() {
 function invalidateConnectionStatus() {
   connectionTestId++;
   hasUntestedChanges = true;
+  hideConnectionStatus();
+}
+
+/** Hides and empties the connection status card. The saved test result is kept. */
+function hideConnectionStatus() {
   statusArea.className = 'status-container hidden';
   statusArea.replaceChildren();
 }
@@ -850,6 +1503,8 @@ function validateForm() {
   }
 
   if (!isValid) {
+    // The errors are in the Jira Connection section: show them.
+    connectionSection.setExpanded(true);
     return { isValid: false, values: null };
   }
 
@@ -927,13 +1582,18 @@ async function onTestConnection() {
  */
 async function onSaveSettings(event) {
   event.preventDefault();
+  // Not while a save or connection test is running (Enter in a field submits too).
+  if (saveSettingsBtn.disabled) return;
 
   const formValidation = validateForm();
-  if (!formValidation.isValid || !formValidation.values) {
+  // Public Holidays can't be turned on without a country; then nothing is saved.
+  const holidaysValidation = publicHolidaysSettings.validate();
+  if (!formValidation.isValid || !formValidation.values || !holidaysValidation.isValid) {
     return;
   }
 
   const { baseUrl, deploymentType, email, token } = formValidation.values;
+  const publicHolidaysValues = holidaysValidation.value;
 
   // Before any await, so the browser still treats it as part of the submit. Settings are
   // saved even if access is refused; the weekly view then offers to allow it.
@@ -948,10 +1608,11 @@ async function onSaveSettings(event) {
   try {
     const hasSiteAccess = await siteAccess;
 
+    const { baseUrlsByType, tokensByType } = settingsDraft;
     baseUrlsByType[deploymentType] = baseUrl;
     tokensByType[deploymentType] = token;
 
-    await settingsStore.save({ deploymentType, email, baseUrlsByType, tokensByType });
+    await settingsStore.save({ deploymentType, email, baseUrlsByType, tokensByType, publicHolidays: publicHolidaysValues });
 
     // Don't show the previous "Connection Successful" on next load for settings
     // that were changed and saved without being tested.
@@ -959,23 +1620,35 @@ async function onSaveSettings(event) {
       await settingsStore.clearTestResult();
     }
 
+    // The saved settings are now the active configuration, and what the form shows when it
+    // next opens.
+    savedSettings = await settingsStore.load();
+    // Turning the feature on loads the current year's holidays now; turning it off hides them.
+    publicHolidays.configure(savedSettings.publicHolidays);
+
     await removeUnusedSiteAccess([baseUrlsByType.cloud, baseUrlsByType.server]);
 
-    renderStatus('info', hasSiteAccess
-      ? {
-        title: 'Settings Saved',
-        message: 'Your Jira configuration has been successfully saved to local browser storage.'
-      }
-      : {
-        title: 'Settings Saved Without Site Access',
-        message: `Your Jira configuration has been saved. ${siteAccessDeniedMessage(baseUrl)}`
-      });
+    // Saved: the drawer stays open with Jira Connection collapsed (the form keeps its values), and
+    // a toast confirms it. Focus moves to the header, since Save Settings is now hidden. Without
+    // site access, the timesheet offers Allow Access.
+    connectionSection.setConfigured(shouldCollapseConnection(savedSettings));
+    connectionSection.setExpanded(false);
+    connectionToggle.focus();
+    showToast('Settings saved', {
+      success: true,
+      subtitle: hasSiteAccess ? '' : `Allow access to ${getSiteHost(baseUrl)} to load your worklogs`,
+      durationMs: 5000
+    });
 
     // Refresh worklog view with updated settings
     loadAndRenderWorklogs({ force: true });
   } catch (err) {
+    // The drawer stays open with everything as entered, and Jira Connection expanded to show the
+    // error, so saving can be retried.
+    connectionSection.setExpanded(true);
     renderStatus('error', {
-      error: `Failed to save settings: ${err.message || 'Storage error'}`
+      title: 'Settings Not Saved',
+      error: `Your settings could not be saved: ${err.message || 'Storage error'}. Your entries are kept; try again.`
     });
   } finally {
     setBusy(false);
@@ -997,32 +1670,47 @@ function setBusy(isBusy) {
 }
 
 /**
+ * Fills the Connection Settings form from saved settings, discarding any unsaved changes: the
+ * edition, each edition's instance URL and token, and the email. The connection status starts
+ * hidden (the saved test result isn't shown), and a connection test still running is ignored when
+ * it finishes.
+ * @param {ReturnType<typeof normalizeSettings>} settings
+ */
+function fillSettingsForm(settings) {
+  settingsDraft = createSettingsDraft(settings);
+  const { deploymentType } = settingsDraft;
+
+  setDeploymentType(deploymentType);
+  jiraBaseUrlInput.value = settingsDraft.baseUrlsByType[deploymentType];
+  updateOpenInstanceBtn();
+  jiraEmailInput.value = settingsDraft.email;
+  jiraTokenInput.value = settingsDraft.tokensByType[deploymentType];
+  publicHolidaysSettings.fill(settings.publicHolidays);
+
+  // The connection status starts hidden: a test result shows only during the visit that ran it.
+  invalidateConnectionStatus();
+  hasUntestedChanges = false;
+}
+
+/**
  * Loads saved settings from the browser extension storage when the page opens.
  * Works with both chrome.storage.local (Chrome MV3) and browser.storage.local (Firefox MV3).
  */
 async function loadSavedSettings() {
   try {
     const settings = await settingsStore.load();
+    savedSettings = settings;
+    fillSettingsForm(settings);
+    publicHolidays.configure(settings.publicHolidays);
 
-    Object.assign(baseUrlsByType, settings.baseUrlsByType);
-    Object.assign(tokensByType, settings.tokensByType);
-
-    setDeploymentType(settings.deploymentType);
-    jiraBaseUrlInput.value = baseUrlsByType[settings.deploymentType];
-    updateOpenInstanceBtn();
-    jiraEmailInput.value = settings.email;
-    jiraTokenInput.value = tokensByType[settings.deploymentType];
-
-    if (settings.lastTestResult && settings.lastTestResult.success) {
-      renderStatus('success', settings.lastTestResult);
-    }
-
-    // If no settings exist yet, default to settings tab, otherwise show weekly view
+    // Open Connection Settings when the page was opened for them (the toolbar icon's Settings menu
+    // item) or nothing is configured yet. The hash is dropped at once, so a reload or a later
+    // visit shows just the timesheet.
     const hasConfig = Boolean(settings.jiraBaseUrl && settings.token);
-    if (!hasConfig && window.location.hash !== '#weekly') {
-      switchTab('settings');
-    } else {
-      switchTab('weekly');
+    const openedForSettings = window.location.hash === SETTINGS_HASH;
+    if (openedForSettings) history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (openedForSettings || (!hasConfig && window.location.hash !== '#weekly')) {
+      openSettings();
     }
 
     // Load worklogs for initial view
@@ -1037,10 +1725,17 @@ async function loadSavedSettings() {
 // Event Listeners
 // ============================================================================
 
-// Tab Switching
-tabWeekly.addEventListener('click', () => switchTab('weekly'));
-tabSettings.addEventListener('click', () => switchTab('settings'));
-goToSettingsBtn.addEventListener('click', () => switchTab('settings'));
+// View Switching
+// The cog opens or closes the Connection Settings drawer; Escape and its close button close it.
+settingsBtn.addEventListener('click', () => (settingsDrawerState ? closeSettings() : openSettings()));
+closeSettingsBtn.addEventListener('click', closeSettings);
+settingsDrawerRoot.addEventListener('keydown', (event) => {
+  if (!settingsDrawerState || event.key !== 'Escape') return;
+  event.preventDefault();
+  event.stopPropagation();
+  closeSettings();
+});
+goToSettingsBtn.addEventListener('click', openSettings);
 
 // Week Navigation
 prevWeekBtn.addEventListener('click', () => {
@@ -1050,6 +1745,17 @@ prevWeekBtn.addEventListener('click', () => {
 
 nextWeekBtn.addEventListener('click', () => {
   currentMonday.setDate(currentMonday.getDate() + 7);
+  loadAndRenderWorklogs();
+});
+
+// The Next Public Holiday banner shows the holiday's week, with the holiday selected, like a day
+// chosen in the week picker.
+nextHolidayBanner.addEventListener('click', () => {
+  const { date } = nextHolidayBanner.dataset;
+  if (!date) return;
+  weekPicker.close();
+  currentMonday = getMondayOfWeek(dateFromKey(date));
+  selectedDateKey = date;
   loadAndRenderWorklogs();
 });
 
@@ -1095,6 +1801,8 @@ radioServer.addEventListener('change', () => switchDeploymentType('server'));
 // the token while the user is still working with it.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') tokenVisibility.mask();
+  // The timer keeps running from its stored start; only the on-screen clock pauses while hidden.
+  timer.setActive(document.visibilityState === 'visible');
 });
 window.addEventListener('pagehide', () => tokenVisibility.mask());
 
@@ -1141,6 +1849,208 @@ jiraTokenInput.addEventListener('input', () => {
 testConnectionBtn.addEventListener('click', onTestConnection);
 form.addEventListener('submit', onSaveSettings);
 
+// The toast's close button (rebuilt with each toast, so the listener is on the toast itself)
+appToast.addEventListener('click', (event) => {
+  if (event.target.closest('.app-toast-close')) hideToast();
+});
+
+// ============================================================================
+// Keyboard Shortcuts
+// ============================================================================
+
+/**
+ * Opens the keyboard shortcuts drawer, listing the shortcuts available where the user is.
+ * An open worklog panel slides out of the way without closing, so nothing typed in it is
+ * lost, and comes back when the drawer closes.
+ */
+function openShortcuts() {
+  closeSettings();
+  const returnFocus = document.activeElement;
+  const available = shortcuts.list();
+  const coversEditor = coverWorklogEditor();
+
+  shortcutsHelpBtn.setAttribute('aria-expanded', 'true');
+  shortcutsDrawer = openShortcutsDrawer(shortcutsDrawerRoot, {
+    shortcuts: available,
+    onClose: () => {
+      shortcutsDrawer = null;
+      shortcutsHelpBtn.setAttribute('aria-expanded', 'false');
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, if it's still there.
+      if (returnFocus?.isConnected && returnFocus !== document.body) returnFocus.focus();
+    }
+  });
+}
+
+/** Opens the shortcuts drawer, or closes it when it's open: the ? key and the header's help button. */
+function toggleShortcuts() {
+  if (shortcutsDrawer) shortcutsDrawer.close();
+  else openShortcuts();
+}
+
+shortcuts.register({
+  id: 'shortcuts.toggle',
+  key: '?',
+  keys: [['?']],
+  description: 'Show keyboard shortcuts',
+  category: 'General',
+  when: () => !isDeleteDialogOpen,
+  handler: toggleShortcuts
+});
+
+shortcutsHelpBtn.addEventListener('click', toggleShortcuts);
+
+// Esc closes the open panel wherever focus is: after clicking a worklog, focus is on the page, so
+// the panels' own Escape listeners (which handle Esc while typing in their fields) never see it.
+shortcuts.register({
+  id: 'shortcuts.close',
+  key: 'Escape',
+  keys: [['Esc']],
+  description: 'Close panel',
+  category: 'General',
+  when: () => !isDeleteDialogOpen,
+  handler: closeOpenPanel
+});
+
+// ⌘ , on macOS, Ctrl , elsewhere: opens the Connection Settings drawer, like the cog. Already open,
+// it stays as it is (nothing typed is lost); the cog's second click is what closes it.
+shortcuts.register({
+  id: 'settings.open',
+  key: ',',
+  mod: true,
+  description: 'Open settings',
+  category: 'General',
+  when: () => !isDeleteDialogOpen,
+  handler: openSettings
+});
+
+// Days, weeks, and sync: Ctrl + ← / → (previous or next day), Ctrl + Shift + ← / → (previous or next
+// week), Ctrl + Shift + ↑ (today), and Ctrl + Shift + ↓ (sync) on Windows and Linux; ⌘ instead
+// of Ctrl on macOS. Each does what its control does, through the control itself (disabled while
+// worklogs load, so repeated presses don't stack requests). Not while a drawer or dialog covers the
+// page, and not while typing in a field (where these keys move the caret or select text). On Windows
+// and Linux no browser binds them (Back and Forward are Alt + ← / →). On macOS, ⌘ + ← / → are Back
+// and Forward in Chrome, Edge, and Firefox: on this page the day shortcuts take those over.
+const weekNavigationAvailable = () => !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState;
+
+// Previous or next day selects that weekday card by clicking it (so the selection, the day's
+// worklogs, and the totals update as on a click). Past Monday or Sunday, the previous or next week
+// loads with its Sunday or Monday selected, through the week arrow buttons. Nothing happens while a
+// week is loading.
+/**
+ * Selects the day before (-1) or after (+1) the selected one, crossing into the adjacent week.
+ * @param {-1 | 1} step
+ */
+function selectAdjacentDay(step) {
+  const days = currentAggregatedData?.weekDays;
+  if (!days?.length || isBusyFetching) return;
+  const index = Math.max(0, days.findIndex((day) => day.dateKey === selectedDateKey));
+  const target = days[index + step];
+  if (target) {
+    daysContainer.querySelector(`.day-card[data-date-key="${target.dateKey}"]`)?.click();
+    return;
+  }
+  const edge = new Date((step < 0 ? days[0] : days[days.length - 1]).date);
+  edge.setDate(edge.getDate() + step);
+  selectedDateKey = getLocalDateKey(edge);
+  (step < 0 ? prevWeekBtn : nextWeekBtn).click();
+}
+shortcuts.register({
+  id: 'day.previous',
+  key: 'ArrowLeft',
+  mod: true,
+  description: 'Previous Day',
+  category: 'Day Navigation',
+  when: weekNavigationAvailable,
+  handler: () => selectAdjacentDay(-1)
+});
+shortcuts.register({
+  id: 'day.next',
+  key: 'ArrowRight',
+  mod: true,
+  description: 'Next Day',
+  category: 'Day Navigation',
+  when: weekNavigationAvailable,
+  handler: () => selectAdjacentDay(1)
+});
+shortcuts.register({
+  id: 'week.previous',
+  key: 'ArrowLeft',
+  mod: true,
+  shift: true,
+  description: 'Previous Week',
+  category: 'Week Navigation',
+  when: weekNavigationAvailable,
+  handler: () => prevWeekBtn.click()
+});
+shortcuts.register({
+  id: 'week.next',
+  key: 'ArrowRight',
+  mod: true,
+  shift: true,
+  description: 'Next Week',
+  category: 'Week Navigation',
+  when: weekNavigationAvailable,
+  handler: () => nextWeekBtn.click()
+});
+shortcuts.register({
+  id: 'week.this-week',
+  key: 'ArrowUp',
+  mod: true,
+  shift: true,
+  description: 'Go to Today',
+  category: 'Week Navigation',
+  when: weekNavigationAvailable,
+  handler: () => thisWeekBtn.click()
+});
+// `+` does what the + beside the selected day's total does. Only with no panel, drawer, or
+// dialog open; the button is missing until the week has loaded.
+shortcuts.register({
+  id: 'worklogs.log-work',
+  key: '+',
+  keys: [['+']],
+  description: 'Log work',
+  category: 'Worklogs',
+  when: () => !settingsDrawerState && !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer &&
+    Boolean(daysContainer.querySelector('.day-add-btn')),
+  handler: () => daysContainer.querySelector('.day-add-btn').click()
+});
+
+// Sync Worklogs: not while a worklog is being edited or logged.
+shortcuts.register({
+  id: 'worklogs.sync',
+  key: 'ArrowDown',
+  mod: true,
+  shift: true,
+  description: 'Sync Worklogs',
+  category: 'Worklogs',
+  when: () => !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState,
+  handler: () => refreshWorklogsBtn.click()
+});
+
+for (const shortcut of WORKLOG_FORM_SHORTCUTS) {
+  shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditor) });
+}
+for (const shortcut of ISSUE_PICKER_SHORTCUTS) {
+  shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditorRoot.querySelector('#worklogIssueSearch')) });
+}
+
+shortcuts.listen(document);
+
+// The toolbar icon and its Settings menu item bring this page forward instead of opening another
+// one (src/background/launch.js): answer with this tab, opening Connection Settings when asked.
+if (isExtensionContext() && ext.runtime?.onMessage) {
+  ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || message.action !== SHOW_TIMESHEET) return false;
+    if (message.settings && !isDeleteDialogOpen) openSettings();
+    Promise.resolve(ext.tabs?.getCurrent?.()).then(
+      (tab) => sendResponse(tab ? { tabId: tab.id, windowId: tab.windowId } : {}),
+      () => sendResponse({})
+    );
+    return true;
+  });
+}
+
 // Warn before leaving the page with unsaved worklog edits
 window.addEventListener('beforeunload', (event) => {
   if (worklogEditor?.isDirty) {
@@ -1149,5 +2059,10 @@ window.addEventListener('beforeunload', (event) => {
   }
 });
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', loadSavedSettings);
+// Initialize on page load. The timer loads on its own, from storage, whatever happens with Jira.
+document.addEventListener('DOMContentLoaded', () => {
+  timer.setActive(document.visibilityState === 'visible');
+  timer.init();
+  loadSavedSettings();
+  loadAboutInfo().then((info) => renderAboutSection(document.getElementById('aboutSection'), { manifest: platform.getManifest(), info }));
+});

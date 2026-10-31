@@ -1,4 +1,5 @@
 import { getWeekRange, getWeekDays, aggregateWorklogsByWeek } from './worklogUtils.js';
+import { recentlyLoggedWindow } from '../jira/activeIssues.js';
 
 /**
  * Fetches the current user's worklogs for one week and aggregates them by day.
@@ -19,6 +20,29 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
   const aggregated = aggregateWorklogsByWeek(result.worklogs, getWeekDays(range.monday, now));
 
   return { user: result.user, sourceWorklogs: result.worklogs, ...aggregated };
+}
+
+/**
+ * Fetches the issues for My Active Issues: those assigned to the current user that are in
+ * progress, and, with Show Recently Logged Issues on, those the user logged work on in the last
+ * 14 days (recentlyLoggedWindow(), ending now). Doesn't depend on the week displayed, and is
+ * independent of loadWeek(): one failing doesn't affect the other.
+ *
+ * @param {{ getActiveIssues: Function }} client - JiraClient (or a test double)
+ * @param {object} [options]
+ * @param {Date} [options.now=new Date()] - End of the recently logged window
+ * @param {AbortSignal} [options.signal] - Cancels the requests
+ * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields; none by default
+ * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues
+ * @returns {Promise<Array<object>>} From JiraClient.getActiveIssues()
+ */
+export async function loadActiveIssues(client, { now = new Date(), signal, assignmentFields = [], includeRecentlyLogged = true } = {}) {
+  const { since, until } = recentlyLoggedWindow(now);
+  return client.getActiveIssues(since, until, {
+    signal,
+    ...(assignmentFields.length && { assignmentFields }),
+    ...(!includeRecentlyLogged && { includeLogged: false })
+  });
 }
 
 /**

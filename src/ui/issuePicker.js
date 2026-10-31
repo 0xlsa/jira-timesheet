@@ -13,6 +13,14 @@ import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery } from '../jira/issueKeySear
 
 export const ISSUE_SEARCH_DEBOUNCE_MS = 300;
 
+// Keys the Issue field handles itself (see its keydown listener), for the keyboard
+// shortcuts drawer (see src/ui/shortcuts.js).
+export const ISSUE_PICKER_SHORTCUTS = [
+  { id: 'issue-picker.move', description: 'Move through issue suggestions', category: 'Worklog form', keys: [['↑'], ['↓']] },
+  { id: 'issue-picker.choose', description: 'Choose the highlighted issue', category: 'Worklog form', keys: [['Enter']] },
+  { id: 'issue-picker.dismiss', description: 'Close the issue suggestions', category: 'Worklog form', keys: [['Esc']] }
+];
+
 const IDLE = Object.freeze({ status: 'idle', query: '', issues: [], error: '' });
 
 /**

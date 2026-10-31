@@ -1,8 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Timesheet for Jira",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Your Weekly Timesheet, at a Glance.",
+  "homepage_url": "https://github.com/0xlsa/jira-timesheet",
+  "developer": {
+    "name": "0xlsa",
+    "url": "https://github.com/0xlsa"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "timesheet-for-jira@0xlsa",
@@ -19,7 +24,8 @@
     "128": "icons/icon128.png"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "contextMenus"
   ],
   "optional_host_permissions": [
     "https://*/*"
@@ -37,10 +43,6 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
-  },
-  "options_ui": {
-    "page": "options.html",
-    "open_in_tab": true
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"

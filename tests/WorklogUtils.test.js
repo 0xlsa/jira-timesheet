@@ -5,6 +5,7 @@ import {
   getLocalDateKey,
   getWeekDays,
   formatWeekRange,
+  formatWorklogDate,
   formatDuration,
   parseWorklogComment,
   aggregateWorklogsByWeek
@@ -282,5 +283,26 @@ describe('WorklogUtils - Worklog duration badge', () => {
       result.weekDays[0].worklogs.map((wl) => wl.formattedDuration),
       ['1h 00m', '0h 45m', '1h 30m', '0h 05m', '12h 45m', '0h 00m']
     );
+  });
+});
+
+describe('WorklogUtils - formatWorklogDate', () => {
+  it('formats the local date as "DD Mon YYYY · Weekday"', () => {
+    assert.equal(formatWorklogDate(new Date(2026, 9, 28, 17, 47)), '28 Oct 2026 · Wednesday');
+    assert.equal(formatWorklogDate(new Date(2026, 9, 20, 9, 15)), '20 Oct 2026 · Tuesday');
+  });
+
+  it('pads the day and uses the extension\'s month and weekday names (Sep, not Sept)', () => {
+    assert.equal(formatWorklogDate(new Date(2026, 8, 6)), '06 Sep 2026 · Sunday');
+    assert.equal(formatWorklogDate(new Date(2027, 0, 1)), '01 Jan 2027 · Friday');
+  });
+
+  it('uses the local day for a time just before midnight', () => {
+    assert.equal(formatWorklogDate(new Date(2026, 9, 25, 23, 59)), '25 Oct 2026 · Sunday');
+  });
+
+  it('returns an empty string for an invalid date', () => {
+    assert.equal(formatWorklogDate(new Date('not a date')), '');
+    assert.equal(formatWorklogDate(undefined), '');
   });
 });

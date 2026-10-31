@@ -40,3 +40,6 @@ coverage/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Python bytecode (docs/screenshots/source/capture.py)
+__pycache__/

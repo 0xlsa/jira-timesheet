@@ -1,6 +1,6 @@
 /**
  * Timesheet for Jira - Background Service Worker (Manifest V3)
- * Handles extension lifecycle, action clicks, and runtime messaging.
+ * Handles extension lifecycle, the toolbar icon and its menu, and runtime messaging.
  * Compatible with Chrome (MV3) and Firefox (MV3, 140+).
  */
 
@@ -9,31 +9,13 @@ import { getMondayOfWeek } from './src/worklog/worklogUtils.js';
 import { loadWeek } from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore } from './src/settings/settingsStore.js';
 import { ext, isExtensionContext, createPlatform } from './src/compat/browser-api.js';
+import { setUpTimesheetLaunchers } from './src/background/launch.js';
 
 // Extension lifecycle and messaging listeners
 if (isExtensionContext()) {
-  // Open options page when clicking the extension action toolbar button
-  if (ext.action && ext.action.onClicked) {
-    ext.action.onClicked.addListener(async () => {
-      try {
-        await ext.runtime.openOptionsPage();
-      } catch (err) {
-        console.error('Failed to open Timesheet for Jira options page:', err);
-      }
-    });
-  }
-
-  // Extension installation or update listener
-  // Note: details.reason is a string ('install', 'update', 'browser_update')
-  // in both Chrome and Firefox — we use the string literal for cross-browser safety.
-  if (ext.runtime && ext.runtime.onInstalled) {
-    ext.runtime.onInstalled.addListener((details) => {
-      if (details.reason === 'install') {
-        // Open options page on initial install to guide the user through setup
-        ext.runtime.openOptionsPage().catch(() => {});
-      }
-    });
-  }
+  // The toolbar icon, its "Settings" menu item, and the first install open the timesheet
+  // (src/background/launch.js).
+  setUpTimesheetLaunchers(ext);
 
   // Listen for runtime messages from the options page or future popup/content scripts
   if (ext.runtime && ext.runtime.onMessage) {

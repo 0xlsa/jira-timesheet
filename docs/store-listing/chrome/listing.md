@@ -66,13 +66,15 @@ English (United States)
 
 **Proposed screenshots** (in this order; 5 is the maximum):
 
-1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet
-2. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet, with the next public holiday and a running timer
+2. `docs/screenshots/timer-and-pending-worklogs.png`: the timer and a pending worklog
 3. `docs/screenshots/worklog-log-work.png`: logging work
-4. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
-5. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
+4. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+5. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
 
-All 5 screenshots exist, 1280×800 PNG, taken in Chrome (the extension looks the same in Firefox). The weekly timesheet and logging work screenshots show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The connection settings screenshots have blank fields.
+Also available, for the README or to swap in: `connection-settings-data-center.png` (Jira Data Center / Server), `public-holidays-settings.png`, and `keyboard-shortcuts.png`.
+
+The screenshots are 1280×800 PNG, captured in Chrome from the real options page with demonstration data by `docs/screenshots/source/capture.py` (the extension looks the same in Firefox). They show the KAN sample worklogs, the account name "Luciano de Sa", and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The timer and pending worklog are seeded demonstration state, and Public Holidays is set to Italy, so the banner shows its next holiday, All Saints' Day on Nov 1. The connection settings screenshots have blank fields, and the Public Holidays one shows Jira Connection collapsed, so no email or token appears.
 
 ### Additional fields
 
@@ -94,6 +96,7 @@ All 5 screenshots exist, 1280×800 PNG, taken in Chrome (the extension looks the
 | Permission | Justification |
 | --- | --- |
 | `storage` | Saves the user's Jira connection settings in chrome.storage.local so they don't have to be re-entered: the selected Jira edition, the Jira instance URL for Jira Cloud and for Jira Data Center / Server, the Atlassian account email (Jira Cloud), the API token (Jira Cloud) or personal access token (Data Center / Server), the result of the last successful connection test (Jira display name, username, account ID or user key, email address, and, on Data Center / Server, the Jira version, deployment type, and server title), and the time the settings were last saved. No worklog or issue data is stored. Storage is local to the browser profile and isn't synced or sent anywhere. |
+| `contextMenus` | Adds one item, "Settings", to the right-click menu of the extension's toolbar icon. It opens the timesheet with the Jira connection settings showing. The extension adds no items to web pages' context menus and reads nothing through this permission. |
 | Optional host permission `https://*/*` | The extension has no host access at install time. It reads and writes the user's worklogs through the Jira REST API of the instance the user enters, which can be any HTTPS address: a Jira Cloud site on *.atlassian.net or a self-hosted Jira Data Center / Server on the organization's own domain, so it can't be listed in advance. `https://*/*` is declared only in optional_host_permissions. When the user clicks Test Connection, Save Settings, or Allow Access, the extension calls chrome.permissions.request for that one site (for example `https://jira.example.com/*`). The extension sends requests only to that site's origin, has no content scripts, and doesn't read or modify web pages. When the user saves a different instance URL, it removes access to sites that are no longer configured. |
 
 ### Remote code

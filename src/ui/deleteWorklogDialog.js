@@ -14,6 +14,15 @@ import { formatDuration } from '../worklog/worklogUtils.js';
 const WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-GB', { weekday: 'long' });
 const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
+// What the dialog says. The default deletes a worklog from Jira; other confirmations (discarding a
+// pending worklog kept in this browser) pass their own.
+export const DELETE_WORDING = {
+  title: 'Delete worklog?',
+  text: "This permanently deletes the worklog from Jira. It can't be undone.",
+  confirm: 'Delete worklog',
+  busy: 'Deleting…'
+};
+
 /**
  * Describes a worklog for the confirmation, in the browser's local time zone.
  *
@@ -75,15 +84,16 @@ export function createDeleteWorklogSession(onDelete) {
  * Builds the dialog contents.
  *
  * @param {ReturnType<typeof describeWorklogForDeletion>} details
+ * @param {typeof DELETE_WORDING} [wording] - What the dialog says (deleting from Jira by default)
  * @returns {HTMLElement} The dialog body
  */
-export function renderDeleteWorklogDialog(details) {
+export function renderDeleteWorklogDialog(details, wording = DELETE_WORDING) {
   const issue = details.issueSummary ? `${details.issueKey} · ${details.issueSummary}` : details.issueKey;
   const date = details.startTime ? `${details.date}, started ${details.startTime}` : details.date;
 
   return h('div', { class: 'confirm-dialog-body' },
-    h('h2', { class: 'confirm-dialog-title', id: 'deleteWorklogTitle' }, 'Delete worklog?'),
-    h('p', { class: 'confirm-dialog-text', id: 'deleteWorklogText' }, "This permanently deletes the worklog from Jira. It can't be undone."),
+    h('h2', { class: 'confirm-dialog-title', id: 'deleteWorklogTitle' }, wording.title),
+    h('p', { class: 'confirm-dialog-text', id: 'deleteWorklogText' }, wording.text),
     h('dl', { class: 'confirm-dialog-details' },
       h('dt', {}, 'Issue'),
       h('dd', {}, issue),
@@ -97,7 +107,7 @@ export function renderDeleteWorklogDialog(details) {
       h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-action': 'cancel' }, 'Cancel'),
       h('button', { type: 'button', class: 'btn btn-danger btn-sm', 'data-action': 'delete' },
         h('span', { class: 'btn-spinner hidden', 'data-delete-spinner': true }),
-        h('span', { 'data-delete-label': true }, 'Delete worklog')))
+        h('span', { 'data-delete-label': true }, wording.confirm)))
   );
 }
 
@@ -108,14 +118,17 @@ export function renderDeleteWorklogDialog(details) {
  * @param {HTMLDialogElement} dialog
  * @param {object} options
  * @param {object} options.worklog - Source worklog
+ * @param {ReturnType<typeof describeWorklogForDeletion>} [options.details] - What to show instead of
+ *   describing `worklog` (for example a pending worklog's own duration format)
+ * @param {typeof DELETE_WORDING} [options.wording] - What the dialog says (deleting from Jira by default)
  * @param {() => Promise<void>} options.onDelete - Deletes the worklog; rejects with a user-facing Error
  * @param {(reason: 'deleted' | 'cancelled') => void} options.onClose - Called once the dialog has closed
  */
-export function openDeleteWorklogDialog(dialog, { worklog, onDelete, onClose }) {
+export function openDeleteWorklogDialog(dialog, { worklog, details, wording = DELETE_WORDING, onDelete, onClose }) {
   const session = createDeleteWorklogSession(onDelete);
   let isFinished = false;
 
-  dialog.replaceChildren(renderDeleteWorklogDialog(describeWorklogForDeletion(worklog)));
+  dialog.replaceChildren(renderDeleteWorklogDialog(details ?? describeWorklogForDeletion(worklog), wording));
   dialog.setAttribute('aria-labelledby', 'deleteWorklogTitle');
   dialog.setAttribute('aria-describedby', 'deleteWorklogText');
 
@@ -130,7 +143,7 @@ export function openDeleteWorklogDialog(dialog, { worklog, onDelete, onClose }) 
     cancelBtn.disabled = busy;
     deleteBtn.disabled = busy;
     body.querySelector('[data-delete-spinner]').classList.toggle('hidden', !busy);
-    body.querySelector('[data-delete-label]').textContent = busy ? 'Deleting…' : 'Delete worklog';
+    body.querySelector('[data-delete-label]').textContent = busy ? wording.busy : wording.confirm;
     body.querySelector('[data-delete-error]').textContent = error;
     body.querySelector('.confirm-dialog-error').classList.toggle('hidden', !error);
     dialog.setAttribute('aria-busy', busy ? 'true' : 'false');
@@ -156,7 +169,10 @@ export function openDeleteWorklogDialog(dialog, { worklog, onDelete, onClose }) 
   }
 
   function onDialogClose() {
-    // Fallback for a close we didn't start.
+    // Fallback for a close we didn't start. The `close` event of an earlier, already finished
+    // confirmation can arrive after this one opened (it's queued for a later task); the dialog is
+    // open then, and it isn't this confirmation's close.
+    if (dialog.open) return;
     finish('cancelled');
   }
 

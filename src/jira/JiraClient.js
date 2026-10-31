@@ -3,6 +3,8 @@ import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
 import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
+import { buildActiveIssuesJql, isInProgress, hasWorklogBetween } from './activeIssues.js';
+import { parseUserPickerFields } from './assignmentFields.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -20,31 +22,43 @@ export function isWorklogByUser(worklog, user) {
     return true;
   }
 
-  const author = worklog.author;
+  return isSameUser(worklog.author, user);
+}
+
+/**
+ * Checks whether a Jira user object (a worklog author, an issue assignee) is the given user, by
+ * the strongest identifier both sides have, as isWorklogByUser() does.
+ *
+ * @param {object | null | undefined} person
+ * @param {{ accountId?: string, name?: string, key?: string, displayName?: string, emailAddress?: string }} user
+ * @returns {boolean}
+ */
+export function isSameUser(person, user) {
+  if (!person || !user) return false;
 
   // Cloud: Match by accountId
-  if (user.accountId && author.accountId) {
-    return author.accountId === user.accountId;
+  if (user.accountId && person.accountId) {
+    return person.accountId === user.accountId;
   }
 
   // Server/DC: Match by username
-  if (user.name && author.name) {
-    return author.name.toLowerCase() === user.name.toLowerCase();
+  if (user.name && person.name) {
+    return person.name.toLowerCase() === user.name.toLowerCase();
   }
 
   // Server/DC: Match by user key
-  if (user.key && author.key) {
-    return author.key === user.key;
+  if (user.key && person.key) {
+    return person.key === user.key;
   }
 
   // Display Name match fallback
-  if (user.displayName && author.displayName) {
-    return author.displayName.trim().toLowerCase() === user.displayName.trim().toLowerCase();
+  if (user.displayName && person.displayName) {
+    return person.displayName.trim().toLowerCase() === user.displayName.trim().toLowerCase();
   }
 
   // Email match fallback
-  if (user.emailAddress && author.emailAddress) {
-    return author.emailAddress.trim().toLowerCase() === user.emailAddress.trim().toLowerCase();
+  if (user.emailAddress && person.emailAddress) {
+    return person.emailAddress.trim().toLowerCase() === user.emailAddress.trim().toLowerCase();
   }
 
   return false;
@@ -82,6 +96,8 @@ export class JiraClient {
   #fetchFn;
   #timeoutMs;
   #currentUser = null;
+  // The identity request in flight, shared by concurrent getCurrentUser() calls.
+  #currentUserRequest = null;
 
   /**
    * @param {string} baseUrl - Validated Jira base URL (e.g. https://company.atlassian.net)
@@ -502,15 +518,21 @@ export class JiraClient {
       return this.#currentUser;
     }
 
-    const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
+    // The week's worklogs and My Active Issues load at the same time: one request serves both.
+    this.#currentUserRequest ??= (async () => {
+      const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
 
-    if (!response.ok) {
-      const err = await this.#handleHttpError(response, new Date().toISOString());
-      throw new Error(err.error || 'Failed to retrieve authenticated Jira user profile.');
-    }
+      if (!response.ok) {
+        const err = await this.#handleHttpError(response, new Date().toISOString());
+        throw new Error(err.error || 'Failed to retrieve authenticated Jira user profile.');
+      }
 
-    this.#currentUser = this.#toUser(await this.#parseJson(response, path));
-    return this.#currentUser;
+      this.#currentUser = this.#toUser(await this.#parseJson(response, path));
+      return this.#currentUser;
+    })().finally(() => {
+      this.#currentUserRequest = null;
+    });
+    return this.#currentUserRequest;
   }
 
   /**
@@ -683,6 +705,7 @@ export class JiraClient {
    * @param {object} [options]
    * @param {number} [options.startAt=0]
    * @param {number} [options.maxResults=100]
+   * @param {AbortSignal} [options.signal] - Cancels the request
    * @returns {Promise<{
    *   startAt: number,
    *   maxResults: number,
@@ -700,12 +723,15 @@ export class JiraClient {
 
     // Fallback from v3 to v2 if 404
     const { response, path: endpoint } = await this.#requestWithV2Fallback(
-      this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`)
+      this.#apiPath(`issue/${encodeURIComponent(issueIdOrKey)}/worklog?startAt=${startAt}&maxResults=${maxResults}`),
+      { signal: options.signal }
     );
 
     if (!response.ok) {
       const err = await this.#handleHttpError(response, new Date().toISOString());
-      throw new Error(err.error || `Failed to fetch worklogs for issue ${issueIdOrKey}`);
+      const error = new Error(err.error || `Failed to fetch worklogs for issue ${issueIdOrKey}`);
+      error.status = response.status;
+      throw error;
     }
 
     return await this.#parseJson(response, endpoint);
@@ -905,7 +931,7 @@ export class JiraClient {
 
     if (status === 401) {
       errorType = 'AUTH_INVALID';
-      message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Connection Settings.';
+      message = 'Jira rejected your credentials. Your token may have expired or been revoked; update it in Settings.';
     } else if (status === 403 && /xsrf/i.test(serverMessage)) {
       errorType = 'XSRF';
       message = withDetail("Jira's cross-site request (XSRF) protection rejected the request, so nothing was changed.");
@@ -941,16 +967,18 @@ export class JiraClient {
    * Useful when an issue has more than 20 worklogs, which exceeds the search API limit.
    *
    * @param {string} issueIdOrKey
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the requests
    * @returns {Promise<Array<object>>}
    */
-  async getAllIssueWorklogs(issueIdOrKey) {
+  async getAllIssueWorklogs(issueIdOrKey, { signal } = {}) {
     const allWorklogs = [];
     let startAt = 0;
     const maxResults = 100;
     let total = 0;
 
     do {
-      const data = await this.getIssueWorklogs(issueIdOrKey, { startAt, maxResults });
+      const data = await this.getIssueWorklogs(issueIdOrKey, { startAt, maxResults, signal });
       if (!data || !Array.isArray(data.worklogs) || data.worklogs.length === 0) {
         break;
       }
@@ -968,9 +996,10 @@ export class JiraClient {
    *
    * @param {string} jql
    * @param {string[]} fields
+   * @param {AbortSignal} [signal] - Cancels the requests
    * @returns {Promise<Array<object>>}
    */
-  async #searchAllIssues(jql, fields) {
+  async #searchAllIssues(jql, fields, signal) {
     const isCloud = this.deploymentType === 'cloud';
     const issues = [];
     let startAt = 0;
@@ -983,7 +1012,8 @@ export class JiraClient {
         startAt,
         nextPageToken,
         maxResults,
-        fields
+        fields,
+        signal
       });
 
       if (!searchResult || !Array.isArray(searchResult.issues) || searchResult.issues.length === 0) {
@@ -1003,6 +1033,184 @@ export class JiraClient {
     } while (hasMore);
 
     return issues;
+  }
+
+  /**
+   * Lists the Jira fields that can be additional assignment fields: searchable single-user custom
+   * fields (see src/jira/assignmentFields.js). `GET /field` (v3 on Cloud, with the v2 fallback;
+   * v2 on Data Center / Server) returns every field the user can see, in one response.
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<Array<{ id: string, name: string }>>} Sorted by name. Rejects with a
+   *   user-facing Error (with `status` for HTTP errors) when the fields can't be read; a failure is
+   *   never reported as an empty list
+   */
+  async getUserPickerFields({ signal } = {}) {
+    try {
+      const { response, path } = await this.#requestWithV2Fallback(this.#apiPath('field'), { signal });
+      if (!response.ok) {
+        const err = await this.#handleHttpError(response, new Date().toISOString());
+        const error = new Error(err.error || `Jira fields request failed with status ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return parseUserPickerFields(await this.#parseJson(response, path));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Retrieves the issues assigned to the authenticated user that are in progress (status
+   * category "In Progress"), and the issues the user logged work on between two instants (a
+   * worklog that started then), whoever they're assigned to and whatever their status. One
+   * paginated search finds both. Only the user's own worklogs count, for every issue, so an
+   * in-progress issue with the user's work logged in the range has both flags.
+   *
+   * Additional assignment fields count as assigned too: an issue in progress whose Assignee or any
+   * of those fields is the user. An issue matching several of them is still listed once.
+   *
+   * Without `includeLogged` (Show Recently Logged Issues turned off), only the assigned issues are
+   * searched, and no worklogs are read.
+   *
+   * @param {Date | string} startDate - Start of the range, included (e.g. Monday 00:00, or 14 days ago)
+   * @param {Date | string} endDate - End of the range, included (e.g. Sunday 23:59:59.999, or now)
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
+   * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields (custom
+   *   field IDs, from normalizeAssignmentFields()); none by default
+   * @param {boolean} [options.includeLogged=true] - Also list the issues the user logged work on in the range
+   * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null,
+   *   inProgress: boolean, loggedInRange: boolean }>>} Each issue once (by issue ID), with at least one
+   *   flag: in-progress issues first, then the others, each group most recently updated first.
+   *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
+   */
+  async getActiveIssues(startDate, endDate, { signal, assignmentFields = [], includeLogged = true } = {}) {
+    const range = this.#worklogSearchRange(startDate, endDate);
+    const fieldIds = assignmentFields.map((field) => field.id);
+    try {
+      const [currentUser, issues] = await Promise.all([
+        this.getCurrentUser(),
+        this.#searchAllIssues(
+          buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate, fieldIds, { includeLogged }),
+          ['summary', 'status', 'assignee', ...fieldIds, ...(includeLogged ? ['worklog'] : [])], signal)
+      ]);
+
+      // A page boundary can move while paging, so an issue may come back twice: keep it once.
+      const seen = new Set();
+      const inProgress = [];
+      const loggedOnly = [];
+      for (const issue of issues) {
+        const issueKey = String(issue.key ?? '');
+        const id = String(issue.id ?? issueKey);
+        if (!issueKey || seen.has(id)) continue;
+        seen.add(id);
+
+        const issueStatus = toIssueStatus(issue.fields?.status);
+        const active = {
+          issueId: String(issue.id ?? ''),
+          issueKey,
+          issueSummary: issue.fields?.summary || '',
+          issueStatus,
+          // Only while it's the user's: an issue found through the user's worklogs may be in
+          // progress for someone else. Without the field, the search's assignee clause decides.
+          inProgress: isInProgress(issueStatus) &&
+            (issue.fields?.assignee === undefined || isSameUser(issue.fields.assignee, currentUser) ||
+              fieldIds.some((fieldId) => isSameUser(issue.fields?.[fieldId], currentUser))),
+          // Found through the buffered worklog dates, or in progress: either way, only the user's
+          // worklog in the range itself counts. Not checked at all when it doesn't count.
+          loggedInRange: includeLogged && await this.#hasWorklogInRange(issue, range, currentUser, signal)
+        };
+        if (active.inProgress) inProgress.push(active);
+        else if (active.loggedInRange) loggedOnly.push(active);
+      }
+      return [...inProgress, ...loggedOnly];
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Returns the local date keys of a range of days and the dates to search worklogs by. The search
+   * adds a day before and after the range, so worklogs near midnight in the user's time zone aren't
+   * missed when Jira's server is in another one; worklogs are then filtered by their local date.
+   *
+   * @param {Date | string} startDate
+   * @param {Date | string} endDate
+   * @returns {{ start: Date, end: Date, startKey: string, endKey: string, jqlStartDate: string, jqlEndDate: string }}
+   */
+  #worklogSearchRange(startDate, endDate) {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error('Valid startDate and endDate are required.');
+    }
+
+    const bufferStart = new Date(start);
+    bufferStart.setDate(bufferStart.getDate() - 1);
+    const bufferEnd = new Date(end);
+    bufferEnd.setDate(bufferEnd.getDate() + 1);
+
+    return {
+      start,
+      end,
+      startKey: getLocalDateKey(start),
+      endKey: getLocalDateKey(end),
+      jqlStartDate: getLocalDateKey(bufferStart),
+      jqlEndDate: getLocalDateKey(bufferEnd)
+    };
+  }
+
+  /**
+   * Checks whether any of an issue's worklogs by the user starts in the range (both ends
+   * included). The worklogs the search included are checked first; the issue's full list is
+   * fetched only when those don't settle it (none in the range, and the issue has more).
+   *
+   * @param {object} issue - From a search with the `worklog` field
+   * @param {{ start: Date, end: Date }} range - From #worklogSearchRange()
+   * @param {object} user - From getCurrentUser()
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<boolean>}
+   */
+  async #hasWorklogInRange(issue, range, user, signal) {
+    const inRange = (worklogs) =>
+      hasWorklogBetween(worklogs.filter((wl) => isWorklogByUser(wl, user)), range.start, range.end);
+    const included = issue.fields?.worklog?.worklogs;
+    if (Array.isArray(included) && inRange(included)) return true;
+    return inRange(await this.#issueWorklogs(issue, signal));
+  }
+
+  /**
+   * Returns all of an issue's worklogs. The search embeds up to 20; the full list is fetched only
+   * when the issue has more, or when the search didn't include them.
+   *
+   * @param {object} issue - From a search with the `worklog` field
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<Array<object>>}
+   */
+  async #issueWorklogs(issue, signal) {
+    const worklogField = issue.fields?.worklog;
+    if (worklogField && Array.isArray(worklogField.worklogs) && !(worklogField.total > worklogField.worklogs.length)) {
+      return worklogField.worklogs;
+    }
+    return this.getAllIssueWorklogs(issue.key, { signal });
+  }
+
+  /**
+   * Gives timeouts and network failures a user-facing message and an `errorType` code. HTTP
+   * errors (with `status`) and cancellations are returned unchanged.
+   *
+   * @param {Error} err
+   * @returns {Error}
+   */
+  #toUserFacingError(err) {
+    if (err.name === 'AbortError' || err.status) return err;
+    const { error, errorType } = this.#handleException(err, '');
+    const wrapped = new Error(error);
+    wrapped.errorType = errorType;
+    return wrapped;
   }
 
   /**
@@ -1026,31 +1234,13 @@ export class JiraClient {
    * }>}
    */
   async getWorklogsForDateRange(startDate, endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    // 1. Local date keys (YYYY-MM-DD), and the dates to search by: a day before and after the
+    // range, so worklogs near midnight aren't lost to time zone differences. Strict local time
+    // zone filtering is then performed client-side.
+    const { startKey, endKey, jqlStartDate, jqlEndDate } = this.#worklogSearchRange(startDate, endDate);
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      throw new Error('Valid startDate and endDate are required.');
-    }
-
-    // 1. Resolve current user identity
+    // 2. Resolve current user identity
     const currentUser = await this.getCurrentUser();
-
-    // 2. Format local date keys (YYYY-MM-DD)
-    const startKey = getLocalDateKey(start);
-    const endKey = getLocalDateKey(end);
-
-    // Add a 1-day buffer before and after the range in the JQL query.
-    // This guarantees that any worklog near midnight in the user's local timezone
-    // is not excluded by Jira server timezone differences. Strict local timezone
-    // filtering is then performed client-side.
-    const bufferStart = new Date(start);
-    bufferStart.setDate(bufferStart.getDate() - 1);
-    const bufferEnd = new Date(end);
-    bufferEnd.setDate(bufferEnd.getDate() + 1);
-
-    const jqlStartDate = getLocalDateKey(bufferStart);
-    const jqlEndDate = getLocalDateKey(bufferEnd);
 
     const jql = `worklogAuthor = currentUser() AND worklogDate >= "${jqlStartDate}" AND worklogDate <= "${jqlEndDate}" order by updated desc`;
 
@@ -1067,20 +1257,8 @@ export class JiraClient {
       const issueId = issue.id;
       const issueStatus = toIssueStatus(issue.fields?.status);
 
-      let rawWorklogs = [];
-      const worklogField = issue.fields?.worklog;
-
-      // Jira search API embeds up to 20 worklogs directly.
-      // If an issue has more worklogs (total > worklogs.length), fetch the full list.
-      if (worklogField && Array.isArray(worklogField.worklogs)) {
-        if (worklogField.total > worklogField.worklogs.length) {
-          rawWorklogs = await this.getAllIssueWorklogs(issueKey);
-        } else {
-          rawWorklogs = worklogField.worklogs;
-        }
-      } else {
-        rawWorklogs = await this.getAllIssueWorklogs(issueKey);
-      }
+      // Jira search API embeds up to 20 worklogs; issues with more have their full list fetched.
+      const rawWorklogs = await this.#issueWorklogs(issue);
 
       for (const wl of rawWorklogs) {
         const wlId = wl.id ? String(wl.id) : null;

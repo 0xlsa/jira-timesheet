@@ -572,8 +572,23 @@ describe('WorklogEditor panel - closing', () => {
   let restoreDocument;
   beforeEach(() => {
     restoreDocument = installFakeDocument();
+    mock.timers.enable({ apis: ['setTimeout'] });
   });
-  afterEach(() => restoreDocument());
+  afterEach(() => {
+    mock.timers.reset();
+    restoreDocument();
+  });
+
+  // Closing: inert and sliding out at once, then hidden and emptied once the slide has ended.
+  const assertClosing = (root) => {
+    assert.equal(root.hasAttribute('inert'), true, 'a closing panel takes no focus or clicks');
+    assert.equal(root.classList.contains('is-closed'), true);
+    assert.equal(root.classList.contains('hidden'), false, 'still on screen while it slides out');
+    mock.timers.tick(200);
+    assert.equal(root.classList.contains('hidden'), true);
+    assert.equal(root.children.length, 0);
+    assert.equal(root.hasAttribute('inert'), false);
+  };
 
   const issue = { issueId: '100', issueKey: 'EKB-30804', issueSummary: 'Summary', issueStatus: null };
   const open = (options) => {
@@ -598,11 +613,93 @@ describe('WorklogEditor panel - closing', () => {
         const { root, closed } = openPanel();
         close(root);
         assert.deepEqual(closed, ['closed']);
-        assert.equal(root.classList.contains('hidden'), true);
-        assert.equal(document.documentElement.classList.contains('has-worklog-editor'), false);
+        assertClosing(root);
       }
     });
   }
+
+  it('closes completely once logging work from a card is saved, and stays open when Jira refuses it', async () => {
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+    const submit = async (onSave) => {
+      const { root, closed } = open({ mode: 'create', worklog: issue, initialForm: toNewWorklogForm({ dateKey: '2026-10-21' }), onSave });
+      const hours = root.querySelector('#worklogEditHours');
+      hours.value = '2';
+      hours.dispatchEvent({ type: 'input' });
+      root.querySelector('.editor-form').dispatchEvent({ type: 'submit' });
+      await flush();
+      return { root, closed };
+    };
+
+    const saved = await submit(async () => {});
+    assert.deepEqual(saved.closed, ['saved']);
+    assertClosing(saved.root);
+
+    const refused = await submit(async () => { throw new Error("You don't have permission to log work on this issue in Jira."); });
+    assert.deepEqual(refused.closed, []);
+    mock.timers.tick(1000);
+    assert.equal(refused.root.classList.contains('hidden'), false);
+    assert.equal(refused.root.classList.contains('is-closed'), false);
+    assert.equal(refused.root.hasAttribute('inert'), false);
+    assert.equal(refused.root.querySelector('[data-submit-error]').textContent, "You don't have permission to log work on this issue in Jira.");
+  });
+
+  it('closes once an edited worklog is saved', async () => {
+    const { root, closed } = panels['editing a worklog']();
+    const hours = root.querySelector('#worklogEditHours');
+    hours.value = '3';
+    hours.dispatchEvent({ type: 'input' });
+    root.querySelector('.editor-form').dispatchEvent({ type: 'submit' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(closed, ['saved']);
+  });
+
+  it('slides a hidden panel in: shown, not closed, not inert', () => {
+    const { root } = panels['editing a worklog']();
+    assert.equal(root.classList.contains('hidden'), false);
+    assert.equal(root.classList.contains('is-closed'), false);
+    assert.equal(root.hasAttribute('inert'), false);
+  });
+
+  it('switches to another worklog in place, without sliding out and back in', () => {
+    const root = h('aside', { class: 'worklog-editor hidden' });
+    const first = openWorklogEditor(root, { worklog, baseUrl: '', onSave: async () => {}, onClose: () => {} });
+    // The page closes the open worklog, then opens the next one, in the same task.
+    assert.equal(first.requestClose(), true);
+    openWorklogEditor(root, { mode: 'create', worklog: issue, baseUrl: '', initialForm: toNewWorklogForm({ dateKey: '2026-10-21' }), onSave: async () => {}, onClose: () => {} });
+
+    assert.equal(root.classList.contains('is-closed'), false);
+    assert.equal(root.hasAttribute('inert'), false);
+    assert.equal(root.querySelector('#worklogEditorTitle').textContent, 'Log work');
+    mock.timers.tick(1000);
+    assert.equal(root.classList.contains('hidden'), false, 'the first panel\'s pending hide was cancelled');
+    assert.equal(root.querySelectorAll('.editor-form').length, 1);
+  });
+
+  it('stays consistent when reopened while still sliding out', () => {
+    const { root } = panels['editing a worklog']();
+    root.querySelector('[data-action="cancel"]').click();
+    mock.timers.tick(100); // halfway through the slide-out
+    openWorklogEditor(root, { worklog, baseUrl: '', onSave: async () => {}, onClose: () => {} });
+    mock.timers.tick(1000);
+
+    assert.equal(root.classList.contains('hidden'), false);
+    assert.equal(root.classList.contains('is-closed'), false);
+    assert.equal(root.hasAttribute('inert'), false);
+    assert.equal(root.querySelectorAll('.editor-form').length, 1);
+  });
+
+  it('hides at once when reduced motion is requested', () => {
+    const previous = globalThis.matchMedia;
+    globalThis.matchMedia = (query) => ({ matches: query === '(prefers-reduced-motion: reduce)' });
+    try {
+      const { root } = panels['editing a worklog']();
+      root.querySelector('[data-action="cancel"]').click();
+      mock.timers.tick(0);
+      assert.equal(root.classList.contains('hidden'), true);
+    } finally {
+      globalThis.matchMedia = previous;
+    }
+  });
 
   it('closes after discarding unsaved changes', () => {
     const { root, closed } = panels['editing a worklog']();
