@@ -215,7 +215,7 @@ describe('My Active Issues - tabs', () => {
     renderWorkingIssues(section, { ...options, state: { status: 'loading' } });
     assert.match(panel(section, 'active').textContent, /Retrieving issues from Jira/);
     renderWorkingIssues(section, { ...options, state: { status: 'ready', issues: [] } });
-    assert.match(panel(section, 'active').textContent, /No issues in progress or logged this week/);
+    assert.match(panel(section, 'active').textContent, /No issues in progress or logged in the last 14 days/);
   });
 
   it('keeps the old layout without pending options', () => {

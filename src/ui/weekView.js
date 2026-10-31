@@ -26,6 +26,12 @@ const WORKING_ISSUES_SUBTITLES = {
   ready: 'In progress and recently logged',
   error: "Couldn't retrieve issues from Jira"
 };
+// Ready, with Show Recently Logged Issues turned off.
+const WORKING_ISSUES_ASSIGNED_ONLY = 'In progress';
+
+/** The section's subtitle for a state. */
+const workingIssuesSubtitle = (state) =>
+  (state.status === 'ready' && state.includeRecentlyLogged === false ? WORKING_ISSUES_ASSIGNED_ONLY : WORKING_ISSUES_SUBTITLES[state.status]) || '';
 
 // Jira status category keys with a dedicated badge color; anything else (custom or `undefined`) is neutral.
 const STATUS_CATEGORY_CLASSES = {
@@ -183,7 +189,7 @@ function isTimedIssue(issue, timer) {
 
 /**
  * The rows to list: Jira's issues, with the running timer's issue first when Jira didn't return it
- * (a timer started from the Log work panel on an issue that isn't in progress or logged this week),
+ * (a timer started from the Log work panel on an issue that isn't in progress or recently logged),
  * so it can always be stopped from the list. It's built from the timer's own record (site, issue
  * ID, key, and summary; no status), with no Jira request, and is never listed twice: Jira's row is
  * the same issue when it has the same site and issue ID (key without an ID).
@@ -344,9 +350,9 @@ function uniqueIssues(issues) {
  *
  * @param {HTMLElement} section
  * @param {object} options
- * @param {{ status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string }} options.state -
- *   `issues` when ready (JiraClient.getActiveIssues(): each with `inProgress` and `loggedThisWeek`),
- *   `message` for an error
+ * @param {{ status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string, includeRecentlyLogged?: boolean }} options.state -
+ *   `issues` when ready (JiraClient.getActiveIssues(): each with `inProgress` and `loggedInRange`),
+ *   and whether recently logged issues were included (Show Recently Logged Issues); `message` for an error
  * @param {boolean} options.expanded
  * @param {string} [options.baseUrl] - Jira instance URL used for issue links
  * @param {(expanded: boolean) => void} [options.onToggle] - Called after the header expands or collapses the section
@@ -373,8 +379,12 @@ function uniqueIssues(issues) {
  * @param {(id: string) => void} options.pending.onDiscard - Called with a pending worklog's ID from its Discard button
  * @param {(id: string) => void} [options.pending.onSubmit] - Called with a pending worklog's ID from its Submit button
  * @param {number} [options.pending.now] - For a submission left running too long
+ * @param {object} [options.recentlyLogged] - The Show Recently Logged Issues switch, at the right of
+ *   the tab row (so only with `pending`); no switch without it
+ * @param {boolean} options.recentlyLogged.checked - Whether it's on
+ * @param {(checked: boolean) => void} options.recentlyLogged.onChange - Called when the user flips it
  */
-export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending }) {
+export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, recentlyLogged }) {
   let toggle = section.querySelector('.working-issues-toggle');
   if (!toggle) {
     toggle = h('button', { type: 'button', class: 'working-issues-toggle', 'aria-controls': 'workingIssuesBody' },
@@ -401,7 +411,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   section.className = `working-issues is-${state.status}`;
 
   // When ready, the subtitle leads with how many issues are listed ("9 issues · In progress and …").
-  const subtitle = WORKING_ISSUES_SUBTITLES[state.status] || '';
+  const subtitle = workingIssuesSubtitle(state);
   toggle.querySelector('.working-issues-subtitle').textContent = state.status === 'ready'
     ? `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} · ${subtitle}`
     : subtitle;
@@ -451,7 +461,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
   const errorMessage = state.status === 'error' && h('div', { class: 'working-issues-message', role: 'status' },
-    h('p', {}, state.message || WORKING_ISSUES_SUBTITLES[state.status]),
+    h('p', {}, state.message || workingIssuesSubtitle(state)),
     retryButton);
 
   const body = section.querySelector('.working-issues-body');
@@ -462,7 +472,9 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
         list,
         errorMessage,
         state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
-        state.status === 'ready' && !list && h('p', { class: 'working-issues-empty' }, 'No issues in progress or logged this week.'))));
+        state.status === 'ready' && !list && h('p', { class: 'working-issues-empty' },
+          state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.')),
+      recentlyLogged));
   } else {
     body.replaceChildren(fragment(list, errorMessage));
   }
@@ -513,9 +525,11 @@ const TAB_UNSELECTED_CLASS = 'btn-secondary';
  * @param {number} activeCount - Rows in the Active Issues list (0 while Jira's issues load or
  *   failed, unless the running timer's issue is listed)
  * @param {DocumentFragment} activeContent - The Active Issues panel's contents
+ * @param {{ checked: boolean, onChange: (checked: boolean) => void }} [recentlyLogged] - The Show
+ *   Recently Logged Issues switch, at the right of the tabs; none without it
  * @returns {DocumentFragment}
  */
-function renderWorkingIssuesTabs(pending, activeCount, activeContent) {
+function renderWorkingIssuesTabs(pending, activeCount, activeContent, recentlyLogged) {
   const selected = pending.tab === 'pending' ? 'pending' : 'active';
   const counts = { active: activeCount, pending: pending.entries.length };
   const tabButtons = TABS.map(({ id, label }) => h('button', {
@@ -541,6 +555,9 @@ function renderWorkingIssuesTabs(pending, activeCount, activeContent) {
   })));
 
   const tablist = h('div', { class: 'working-issues-tabs', role: 'tablist', 'aria-label': 'My Active Issues' }, tabButtons);
+  // The tabs on the left; the Show Recently Logged Issues switch, when given, on the right (outside
+  // the tablist, which holds only tabs).
+  const tabbar = h('div', { class: 'working-issues-tabbar' }, tablist, recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged));
 
   const select = (id, { focus = false } = {}) => {
     for (const tab of tabButtons) {
@@ -570,7 +587,38 @@ function renderWorkingIssuesTabs(pending, activeCount, activeContent) {
     select(tabButtons[(next + tabButtons.length) % tabButtons.length].dataset.tab, { focus: true });
   });
 
-  return fragment(tablist, panels);
+  return fragment(tabbar, panels);
+}
+
+const RECENTLY_LOGGED_HINT = "Also show issues where you've logged work in the last 14 days, even if they're not currently assigned to you.";
+
+/**
+ * The Show Recently Logged Issues switch for the tab row: the Settings switch's look, smaller, with
+ * its label on the left. Keeps focus across re-renders (its focus key), and reports a flip through
+ * `onChange`.
+ *
+ * @param {{ checked: boolean, onChange: (checked: boolean) => void }} recentlyLogged
+ */
+function renderRecentlyLoggedSwitch({ checked, onChange }) {
+  const input = h('input', {
+    type: 'checkbox',
+    id: 'recentlyLoggedSwitch',
+    class: 'switch-input',
+    role: 'switch',
+    'aria-describedby': 'recentlyLoggedHint',
+    'data-focus-key': 'recently-logged'
+  });
+  input.checked = Boolean(checked);
+  input.addEventListener('change', (event) => {
+    event.stopPropagation();
+    onChange(input.checked);
+  });
+  // The checkbox stays just before the drawn switch: `.switch-input:checked + .switch` styles it.
+  return h('label', { class: 'switch-row working-issues-recent', for: 'recentlyLoggedSwitch', title: RECENTLY_LOGGED_HINT },
+    h('span', {}, 'Show recently logged'),
+    input,
+    h('span', { class: 'switch', 'aria-hidden': 'true' }),
+    h('span', { id: 'recentlyLoggedHint', class: 'sr-only' }, RECENTLY_LOGGED_HINT));
 }
 
 /**
@@ -683,7 +731,7 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
   container.appendChild(strip);
 
-  // 2. My Active Issues: the user's issues in progress or with work logged this week
+  // 2. My Active Issues: the user's issues in progress or with work logged recently
   if (workingIssues) {
     const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Active Issues' });
     renderWorkingIssues(section, { ...workingIssues, baseUrl });

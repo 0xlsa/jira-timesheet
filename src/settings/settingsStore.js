@@ -18,6 +18,8 @@
  *   chose; it's kept when the feature is turned off.
  * - publicHolidaysShowNext: the Show Next Public Holiday switch (the dashboard banner). Missing
  *   (saved before the switch existed) reads as on; it's kept when the feature is turned off.
+ * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Active Issues). Missing
+ *   (saved before the switch existed) reads as on, as the list was before. Saved on its own.
  * - assignmentFieldsBySite: Additional Assignment Fields, per Jira site, so one site's fields never
  *   apply to another: { [site]: [{ id, name }] }, `site` being `${deploymentType}|${baseUrl}`
  *   (siteId() in src/timer/timeTrackingStore.js), `id` the custom field ID, and `name` its name when
@@ -40,6 +42,7 @@ const STORAGE_KEYS = [
   'publicHolidaysEnabled',
   'publicHolidaysCountry',
   'publicHolidaysShowNext',
+  'showRecentlyLoggedIssues',
   'assignmentFieldsBySite'
 ];
 
@@ -59,6 +62,7 @@ const STORAGE_KEYS = [
  *   tokensByType: { cloud: string, server: string },
  *   lastTestResult: object | null,
  *   publicHolidays: { enabled: boolean, countryCode: string, showNext: boolean },
+ *   showRecentlyLoggedIssues: boolean,
  *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>
  * }}
  */
@@ -80,6 +84,7 @@ export function normalizeSettings(raw = {}) {
     tokensByType: forEdition(raw.cloudToken, raw.serverToken, activeToken),
     lastTestResult: raw.lastTestResult || null,
     publicHolidays: normalizePublicHolidays(raw),
+    showRecentlyLoggedIssues: raw.showRecentlyLoggedIssues !== false,
     assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite)
   };
 }
@@ -179,6 +184,15 @@ export function createSettingsStore(storageArea) {
         publicHolidaysCountry: countryCode,
         publicHolidaysShowNext: Boolean(showNext)
       });
+    },
+
+    /**
+     * Saves the Show Recently Logged Issues switch on its own, as it changes; the other settings
+     * are kept.
+     * @param {boolean} show
+     */
+    async saveShowRecentlyLoggedIssues(show) {
+      await storageArea.set({ showRecentlyLoggedIssues: Boolean(show) });
     },
 
     /**

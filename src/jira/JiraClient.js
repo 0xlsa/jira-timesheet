@@ -3,7 +3,7 @@ import { JiraAuthProvider } from '../auth/JiraAuthProvider.js';
 import { getLocalDateKey } from '../worklog/worklogUtils.js';
 import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
-import { buildActiveIssuesJql, isInProgress, hasWorklogInWeek } from './activeIssues.js';
+import { buildActiveIssuesJql, isInProgress, hasWorklogBetween } from './activeIssues.js';
 import { parseUserPickerFields } from './assignmentFields.js';
 
 /**
@@ -1063,35 +1063,38 @@ export class JiraClient {
 
   /**
    * Retrieves the issues assigned to the authenticated user that are in progress (status
-   * category "In Progress"), and the issues the user logged work on, on a day of the given range
-   * in local time, whoever they're assigned to and whatever their status. One paginated search
-   * finds both. Which worklogs count is checked as getWorklogsForDateRange() does (the user's,
-   * by local start date), for every issue, so an in-progress issue with the user's work logged in
-   * the range has both flags.
+   * category "In Progress"), and the issues the user logged work on between two instants (a
+   * worklog that started then), whoever they're assigned to and whatever their status. One
+   * paginated search finds both. Only the user's own worklogs count, for every issue, so an
+   * in-progress issue with the user's work logged in the range has both flags.
    *
    * Additional assignment fields count as assigned too: an issue in progress whose Assignee or any
    * of those fields is the user. An issue matching several of them is still listed once.
    *
-   * @param {Date | string} startDate - First day of the range (e.g. Monday)
-   * @param {Date | string} endDate - Last day of the range, inclusive (e.g. Sunday)
+   * Without `includeLogged` (Show Recently Logged Issues turned off), only the assigned issues are
+   * searched, and no worklogs are read.
+   *
+   * @param {Date | string} startDate - Start of the range, included (e.g. Monday 00:00, or 14 days ago)
+   * @param {Date | string} endDate - End of the range, included (e.g. Sunday 23:59:59.999, or now)
    * @param {object} [options]
    * @param {AbortSignal} [options.signal] - Cancels the requests; the promise then rejects with an AbortError
    * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields (custom
    *   field IDs, from normalizeAssignmentFields()); none by default
+   * @param {boolean} [options.includeLogged=true] - Also list the issues the user logged work on in the range
    * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null,
-   *   inProgress: boolean, loggedThisWeek: boolean }>>} Each issue once (by issue ID), with at least one
+   *   inProgress: boolean, loggedInRange: boolean }>>} Each issue once (by issue ID), with at least one
    *   flag: in-progress issues first, then the others, each group most recently updated first.
    *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
    */
-  async getActiveIssues(startDate, endDate, { signal, assignmentFields = [] } = {}) {
+  async getActiveIssues(startDate, endDate, { signal, assignmentFields = [], includeLogged = true } = {}) {
     const range = this.#worklogSearchRange(startDate, endDate);
     const fieldIds = assignmentFields.map((field) => field.id);
     try {
       const [currentUser, issues] = await Promise.all([
         this.getCurrentUser(),
         this.#searchAllIssues(
-          buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate, fieldIds),
-          ['summary', 'status', 'assignee', ...fieldIds, 'worklog'], signal)
+          buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate, fieldIds, { includeLogged }),
+          ['summary', 'status', 'assignee', ...fieldIds, ...(includeLogged ? ['worklog'] : [])], signal)
       ]);
 
       // A page boundary can move while paging, so an issue may come back twice: keep it once.
@@ -1116,11 +1119,11 @@ export class JiraClient {
             (issue.fields?.assignee === undefined || isSameUser(issue.fields.assignee, currentUser) ||
               fieldIds.some((fieldId) => isSameUser(issue.fields?.[fieldId], currentUser))),
           // Found through the buffered worklog dates, or in progress: either way, only the user's
-          // worklog in the range itself counts.
-          loggedThisWeek: await this.#hasWorklogInRange(issue, range, currentUser, signal)
+          // worklog in the range itself counts. Not checked at all when it doesn't count.
+          loggedInRange: includeLogged && await this.#hasWorklogInRange(issue, range, currentUser, signal)
         };
         if (active.inProgress) inProgress.push(active);
-        else if (active.loggedThisWeek) loggedOnly.push(active);
+        else if (active.loggedInRange) loggedOnly.push(active);
       }
       return [...inProgress, ...loggedOnly];
     } catch (err) {
@@ -1135,7 +1138,7 @@ export class JiraClient {
    *
    * @param {Date | string} startDate
    * @param {Date | string} endDate
-   * @returns {{ startKey: string, endKey: string, jqlStartDate: string, jqlEndDate: string }}
+   * @returns {{ start: Date, end: Date, startKey: string, endKey: string, jqlStartDate: string, jqlEndDate: string }}
    */
   #worklogSearchRange(startDate, endDate) {
     const start = new Date(startDate);
@@ -1151,6 +1154,8 @@ export class JiraClient {
     bufferEnd.setDate(bufferEnd.getDate() + 1);
 
     return {
+      start,
+      end,
       startKey: getLocalDateKey(start),
       endKey: getLocalDateKey(end),
       jqlStartDate: getLocalDateKey(bufferStart),
@@ -1159,19 +1164,19 @@ export class JiraClient {
   }
 
   /**
-   * Checks whether any of an issue's worklogs by the user starts on a day of the range, in local
-   * time. The worklogs the search included are checked first; the issue's full list is fetched
-   * only when those don't settle it (none in the range, and the issue has more).
+   * Checks whether any of an issue's worklogs by the user starts in the range (both ends
+   * included). The worklogs the search included are checked first; the issue's full list is
+   * fetched only when those don't settle it (none in the range, and the issue has more).
    *
    * @param {object} issue - From a search with the `worklog` field
-   * @param {{ startKey: string, endKey: string }} range - From #worklogSearchRange()
+   * @param {{ start: Date, end: Date }} range - From #worklogSearchRange()
    * @param {object} user - From getCurrentUser()
    * @param {AbortSignal} [signal]
    * @returns {Promise<boolean>}
    */
   async #hasWorklogInRange(issue, range, user, signal) {
     const inRange = (worklogs) =>
-      hasWorklogInWeek(worklogs.filter((wl) => isWorklogByUser(wl, user)), range.startKey, range.endKey);
+      hasWorklogBetween(worklogs.filter((wl) => isWorklogByUser(wl, user)), range.start, range.end);
     const included = issue.fields?.worklog?.worklogs;
     if (Array.isArray(included) && inRange(included)) return true;
     return inRange(await this.#issueWorklogs(issue, signal));

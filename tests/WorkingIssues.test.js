@@ -4,7 +4,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument, toHtml } from './support/fakeDom.js';
-import { buildActiveIssuesJql, isInProgress, hasWorklogInWeek } from '../src/jira/activeIssues.js';
+import { buildActiveIssuesJql, isInProgress, hasWorklogBetween, recentlyLoggedWindow, RECENTLY_LOGGED_DAYS } from '../src/jira/activeIssues.js';
 import { JiraClient } from '../src/jira/JiraClient.js';
 import { JiraCloudTokenProvider } from '../src/auth/JiraCloudTokenProvider.js';
 import { JiraPatProvider } from '../src/auth/JiraPatProvider.js';
@@ -38,8 +38,36 @@ describe('Active issues - query and checks', () => {
     assert.equal(isInProgress(null), false);
   });
 
+  it('searches only the assigned issues without recently logged ones', () => {
+    assert.equal(buildActiveIssuesJql('2026-10-25', '2026-11-02', [], { includeLogged: false }),
+      'assignee = currentUser() AND statusCategory = "In Progress" ORDER BY updated DESC');
+    assert.equal(buildActiveIssuesJql('2026-10-25', '2026-11-02', ['customfield_10050'], { includeLogged: false }),
+      '(assignee = currentUser() OR cf[10050] = currentUser()) AND statusCategory = "In Progress" ORDER BY updated DESC');
+  });
+
+  it('recently logged is the last 14 days to the millisecond, ending now, not calendar weeks', () => {
+    assert.equal(RECENTLY_LOGGED_DAYS, 14);
+    const now = new Date('2026-11-13T15:30:00.000Z');
+    const { since, until } = recentlyLoggedWindow(now);
+    assert.equal(since.toISOString(), '2026-10-30T15:30:00.000Z');
+    assert.equal(until.toISOString(), '2026-11-13T15:30:00.000Z');
+    // Across the end of summer time (25 October in London): still exactly 14 × 24 hours.
+    assert.equal(recentlyLoggedWindow(new Date('2026-11-01T10:00:00.000Z')).since.toISOString(), '2026-10-18T10:00:00.000Z');
+  });
+
+  it('counts a worklog that started at either end of the range, and none outside it', () => {
+    const since = new Date('2026-10-30T15:30:00.000Z');
+    const until = new Date('2026-11-13T15:30:00.000Z');
+    const at = (started) => hasWorklogBetween([{ started }], since, until);
+    assert.equal(at('2026-10-30T15:30:00.000Z'), true, 'exactly 14 days ago');
+    assert.equal(at('2026-10-30T15:29:59.999Z'), false, 'a millisecond earlier');
+    assert.equal(at('2026-10-30T16:30:00.000+0100'), true, 'the same instant in another offset');
+    assert.equal(at('2026-11-13T15:30:00.000Z'), true, 'now');
+    assert.equal(at('2026-11-13T15:30:00.001Z'), false, 'after now');
+  });
+
   it('checks worklogs by their local start date, inclusive at both ends of the week', () => {
-    const inWeek = (started) => hasWorklogInWeek([{ started }], '2026-10-26', '2026-11-01');
+    const inWeek = (started) => hasWorklogBetween([{ started }], WEEK.monday, WEEK.sunday);
     assert.equal(inWeek('2026-10-26T00:00:00.000+0000'), true, 'Monday at midnight');
     assert.equal(inWeek('2026-11-01T23:59:00.000+0000'), true, 'Sunday just before midnight');
     assert.equal(inWeek('2026-10-25T23:59:00.000+0000'), false, 'the Sunday before');
@@ -51,9 +79,9 @@ describe('Active issues - query and checks', () => {
   });
 
   it('ignores worklogs without a usable start, and needs only one worklog in the week', () => {
-    assert.equal(hasWorklogInWeek([{}, { started: 'not a date' }], '2026-10-26', '2026-11-01'), false);
-    assert.equal(hasWorklogInWeek([], '2026-10-26', '2026-11-01'), false);
-    assert.equal(hasWorklogInWeek([{ started: '2026-10-20T09:00:00.000+0100' }, { started: '2026-10-28T09:00:00.000+0000' }], '2026-10-26', '2026-11-01'), true);
+    assert.equal(hasWorklogBetween([{}, { started: 'not a date' }], WEEK.monday, WEEK.sunday), false);
+    assert.equal(hasWorklogBetween([], WEEK.monday, WEEK.sunday), false);
+    assert.equal(hasWorklogBetween([{ started: '2026-10-20T09:00:00.000+0100' }, { started: '2026-10-28T09:00:00.000+0000' }], WEEK.monday, WEEK.sunday), true);
   });
 });
 
@@ -110,10 +138,11 @@ function fakeJira({ issues = [], pageSize = 50, searchStatus = 200, worklogStatu
 
     if (searchStatus !== 200) return jsonResponse(searchStatus, { errorMessages: ['Search failed'] });
     const jql = url.searchParams.get('jql');
-    const [, from, to] = /worklogDate >= "([\d-]+)" AND worklogDate <= "([\d-]+)"/.exec(jql);
+    // Without the worklog clause (Show Recently Logged Issues off), only the assigned issues.
+    const [, from, to] = /worklogDate >= "([\d-]+)" AND worklogDate <= "([\d-]+)"/.exec(jql) ?? [];
     const matching = issues.filter((item) =>
       (item.assignee === ME && STATUSES[item.status] === 'indeterminate') ||
-      item.worklogs.some((wl) => wl.author === ME && wl.started.slice(0, 10) >= from && wl.started.slice(0, 10) <= to));
+      (from && item.worklogs.some((wl) => wl.author === ME && wl.started.slice(0, 10) >= from && wl.started.slice(0, 10) <= to)));
 
     const startAt = Number(url.searchParams.get('startAt') || url.searchParams.get('nextPageToken') || 0);
     const page = matching.slice(startAt, startAt + pageSize);
@@ -156,7 +185,7 @@ describe('JiraClient - active issues', () => {
       issueSummary: 'Summary of KAN-12',
       issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' },
       inProgress: true,
-      loggedThisWeek: false
+      loggedInRange: false
     }]);
     assert.equal(worklogRequests(jira).length, 0);
   });
@@ -175,7 +204,7 @@ describe('JiraClient - active issues', () => {
     });
     const found = await activeIssues(serverClient(jira));
     assert.deepEqual(keysOf(found), ['KAN-8', 'KAN-14']);
-    assert.ok(found.every((i) => i.inProgress === false && i.loggedThisWeek === true));
+    assert.ok(found.every((i) => i.inProgress === false && i.loggedInRange === true));
   });
 
   it('leaves out issues whose worklogs are all outside the week, unless they are in progress', async () => {
@@ -206,14 +235,14 @@ describe('JiraClient - active issues', () => {
     const found = await activeIssues(cloudClient(jira));
     assert.deepEqual(keysOf(found), ['KAN-12']);
     assert.equal(found[0].inProgress, true);
-    assert.equal(found[0].loggedThisWeek, true);
+    assert.equal(found[0].loggedInRange, true);
   });
 
   it('marks an in-progress issue with worklogs only outside the week as not logged this week', async () => {
     const jira = fakeJira({ issues: [issue('KAN-13', 'In Progress', { worklogs: [worklog('2026-10-20'), worklog('2026-11-02')] })] });
     const [found] = await activeIssues(cloudClient(jira));
     assert.equal(found.inProgress, true);
-    assert.equal(found.loggedThisWeek, false);
+    assert.equal(found.loggedInRange, false);
   });
 
   it('reads an issue\'s full worklog list only when the search\'s 20 don\'t include one in the week', async () => {
@@ -229,7 +258,7 @@ describe('JiraClient - active issues', () => {
       ]
     });
     const found = await activeIssues(cloudClient(jira));
-    assert.deepEqual(found.map((i) => [i.issueKey, i.inProgress, i.loggedThisWeek]),
+    assert.deepEqual(found.map((i) => [i.issueKey, i.inProgress, i.loggedInRange]),
       [['KAN-12', true, true], ['KAN-13', true, true], ['KAN-8', false, true]]);
     assert.deepEqual(worklogRequests(jira).map((r) => r.url.pathname), ['/rest/api/3/issue/KAN-12/worklog']);
   });
@@ -265,7 +294,7 @@ describe('JiraClient - active issues', () => {
     const found = await activeIssues(cloudClient(jira));
     assert.deepEqual(keysOf(found), ['EKB-30899', 'EKB-30900', 'EKB-30901']);
     // In progress for someone else isn't the user's in progress: listed for the worklog only.
-    assert.ok(found.every((i) => i.inProgress === false && i.loggedThisWeek === true));
+    assert.ok(found.every((i) => i.inProgress === false && i.loggedInRange === true));
   });
 
   it('doesn\'t count work logged by someone else, even on an issue assigned to the user', async () => {
@@ -278,7 +307,7 @@ describe('JiraClient - active issues', () => {
     });
     const found = await activeIssues(cloudClient(jira));
     assert.deepEqual(keysOf(found), ['KAN-12']);
-    assert.equal(found[0].loggedThisWeek, false);
+    assert.equal(found[0].loggedInRange, false);
   });
 
   it('checks the authors of the search\'s worklogs, not only the search: the user\'s worklog in the week must be one worklog', async () => {
@@ -385,14 +414,24 @@ describe('JiraClient - active issues', () => {
 });
 
 describe('Weekly service - loadActiveIssues', () => {
-  it('asks for the selected week, Monday to the end of Sunday', async () => {
+  const recordingClient = (calls) => ({ getActiveIssues: async (start, end, options) => { calls.push({ start, end, options }); return []; } });
+
+  it('asks for the last 14 days, ending now, whatever week is displayed', async () => {
     const calls = [];
-    const client = { getActiveIssues: async (start, end, options) => { calls.push({ start, end, options }); return []; } };
     const signal = new AbortController().signal;
-    assert.deepEqual(await loadActiveIssues(client, { monday: new Date(2026, 9, 19), signal }), []);
-    assert.equal(calls[0].start.getTime(), new Date(2026, 9, 19).getTime());
-    assert.equal(calls[0].end.getTime(), new Date(2026, 9, 25, 23, 59, 59, 999).getTime());
-    assert.equal(calls[0].options.signal, signal);
+    const now = new Date('2026-11-13T15:30:00.000Z');
+    assert.deepEqual(await loadActiveIssues(recordingClient(calls), { now, signal }), []);
+    assert.equal(calls[0].start.toISOString(), '2026-10-30T15:30:00.000Z');
+    assert.equal(calls[0].end.toISOString(), '2026-11-13T15:30:00.000Z');
+    assert.deepEqual(calls[0].options, { signal });
+  });
+
+  it('passes the Additional Assignment Fields, and leaves recently logged issues out when they\'re turned off', async () => {
+    const calls = [];
+    const fields = [{ id: 'customfield_10050' }];
+    await loadActiveIssues(recordingClient(calls), { now: new Date(), assignmentFields: fields, includeRecentlyLogged: false });
+    assert.equal(calls[0].options.assignmentFields, fields);
+    assert.equal(calls[0].options.includeLogged, false);
   });
 });
 
@@ -420,21 +459,20 @@ describe('Active issues loader', () => {
     await tick();
     client.pending[0].resolve([{ issueKey: 'KAN-12', inProgress: true }]);
     await done;
-    assert.deepEqual(states, [{ status: 'loading' }, { status: 'ready', issues: [{ issueKey: 'KAN-12', inProgress: true }] }]);
+    assert.deepEqual(states, [{ status: 'loading' }, { status: 'ready', issues: [{ issueKey: 'KAN-12', inProgress: true }], includeRecentlyLogged: true }]);
   });
 
-  it('never lets an older week\'s load replace a newer one', async () => {
+  it('never lets an older load replace a newer one', async () => {
     const states = [];
     const client = controllableClient();
     const loader = quietLoader(states);
 
-    const first = loader.refresh(client, LAST_WEEK);
+    const first = loader.refresh(client, {});
     await tick();
-    const second = loader.refresh(client, WEEK);
+    const second = loader.refresh(client, { includeRecentlyLogged: false });
     await tick();
 
     assert.equal(client.pending[0].signal.aborted, true, 'the older load is cancelled');
-    assert.equal(client.pending[1].start.getDate(), 26);
     client.pending[1].resolve([{ issueKey: 'NEW-1' }]);
     // The cancelled load answering late changes nothing.
     client.pending[0].resolve([{ issueKey: 'OLD-1' }]);
@@ -464,16 +502,19 @@ describe('Active issues loader', () => {
     client.pending[1].resolve([]);
     await forced;
 
-    const otherWeek = loader.refresh(client, LAST_WEEK);
+    await loader.refresh(client, LAST_WEEK);
+    assert.equal(client.pending.length, 2, 'another week: the list doesn\'t depend on it');
+
+    const turnedOff = loader.refresh(client, { includeRecentlyLogged: false });
     await tick();
-    assert.equal(client.pending.length, 3, 'another week');
+    assert.equal(client.pending.length, 3, 'Show Recently Logged Issues changed');
     client.pending[2].resolve([]);
-    await otherWeek;
+    await turnedOff;
 
     const otherSite = controllableClient('https://other.atlassian.net');
     const onOtherSite = loader.refresh(otherSite, LAST_WEEK);
     await tick();
-    assert.equal(otherSite.pending.length, 1, 'the same week on another site');
+    assert.equal(otherSite.pending.length, 1, 'another site');
     otherSite.pending[0].resolve([]);
     await onOtherSite;
   });
@@ -494,7 +535,7 @@ describe('Active issues loader', () => {
     assert.equal(client.pending.length, 2);
     client.pending[1].resolve([]);
     await again;
-    assert.deepEqual(states.at(-1), { status: 'ready', issues: [] });
+    assert.deepEqual(states.at(-1), { status: 'ready', issues: [], includeRecentlyLogged: true });
   });
 
   it('cancels a load in flight when cleared, reports nothing for it, and loads again afterwards', async () => {
@@ -587,78 +628,144 @@ describe('My Active Issues - across weeks', () => {
     const kan2 = found.filter((i) => i.issueKey === 'KAN-2');
     assert.equal(kan2.length, 1);
     assert.equal(kan2[0].inProgress, true);
-    assert.equal(kan2[0].loggedThisWeek, true);
+    assert.equal(kan2[0].loggedInRange, true);
   });
+});
 
-  it('refreshes the list for each week navigated to, with the badge counting the rows', async () => {
-    const jira = fakeJira({ issues: sampleIssues() });
+// My Active Issues through the loader, as the page shows it: the in-progress issues assigned to the
+// user, and (with Show Recently Logged Issues on) those the user logged work on in the 14 days
+// before "now", whatever week is displayed. "Now" is Friday 13 November 2026, 15:30 UTC.
+describe('My Active Issues - recently logged issues', () => {
+  let restoreDocument;
+  before(() => {
+    restoreDocument = installFakeDocument();
+  });
+  after(() => restoreDocument());
+
+  const NOW = new Date('2026-11-13T15:30:00.000Z');
+  const at = (started, author = ME) => ({ id: String(nextWorklogId++), started, timeSpentSeconds: 3600, author });
+
+  /** Loads the list as the page does; returns the keys shown, the requests, and the states. */
+  async function load(issues, options = {}, { pageSize, searchStatus, worklogStatus } = {}) {
+    const jira = fakeJira({ issues, pageSize, searchStatus, worklogStatus });
     const states = [];
-    const loader = createWorkingIssuesLoader((state) => states.push(state), { logError: () => {} });
-    const client = cloudClient(jira);
+    const loader = createWorkingIssuesLoader((state) => states.push(state), { logError: () => {}, now: () => NOW });
+    await loader.refresh(cloudClient(jira), options);
+    const state = states.at(-1);
+    return { keys: state.issues ? keysOf(state.issues) : null, state, jira, loader };
+  }
 
-    const expected = [
-      [OCTOBER, ['KAN-1', 'KAN-2', 'KAN-3', 'KAN-4']],
-      [NOVEMBER, ['KAN-1', 'KAN-2', 'KAN-4', 'KAN-5']],
-      [REPORTED, ['KAN-1', 'KAN-2']],
-      [OCTOBER, ['KAN-1', 'KAN-2', 'KAN-3', 'KAN-4']]
-    ];
-    for (const [week, keys] of expected) {
-      await loader.refresh(client, week);
-      const state = states.at(-1);
-      assert.equal(state.status, 'ready');
-      assert.deepEqual(panel(state), { keys, count: String(keys.length) });
-    }
-    // One search per week navigated to, each by that week's days.
-    const searched = jira.requests.map((r) => /worklogDate >= "([\d-]+)"/.exec(r.url.searchParams.get('jql') || '')?.[1]).filter(Boolean);
-    assert.deepEqual(searched, ['2026-10-18', '2026-11-08', '2026-11-29', '2026-10-18']);
+  const ISSUES = () => [
+    issue('KAN-1', 'In Progress'),
+    issue('KAN-2', 'Done', { assignee: OTHER, worklogs: [at('2026-11-10T09:00:00.000Z')] }),
+    issue('KAN-3', 'In Review', { worklogs: [at('2026-11-12T09:00:00.000Z')] }),
+    issue('KAN-4', 'To Do', { assignee: OTHER, worklogs: [at('2026-11-11T09:00:00.000Z', OTHER)] }),
+    issue('KAN-5', 'Done', { assignee: OTHER, worklogs: [at('2026-10-20T09:00:00.000Z')] })
+  ];
+
+  it('includes assigned in-progress issues and unassigned issues the user logged work on recently', async () => {
+    const { keys, state } = await load(ISSUES());
+    assert.deepEqual(keys, ['KAN-1', 'KAN-3', 'KAN-2']);
+    assert.equal(state.includeRecentlyLogged, true);
   });
 
-  it('drops an issue the user logged work on in one week when another week is selected, and keeps the in-progress ones', async () => {
-    const jira = fakeJira({
-      issues: [
-        issue('EKB-30835', 'In Progress'),
-        issue('EKB-30899', 'In Review', { assignee: OTHER, worklogs: [{ ...worklog('2026-10-26'), timeSpentSeconds: 5400 }] }),
-        issue('EKB-30900', 'Done', { assignee: OTHER, worklogs: [worklog('2026-10-27', OTHER)] })
-      ]
-    });
-    const states = [];
-    const loader = createWorkingIssuesLoader((state) => states.push(state), { logError: () => {} });
-    const client = cloudClient(jira);
-    const nextWeek = getWeekRange(new Date(2026, 10, 2));
-
-    await loader.refresh(client, WEEK);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835', 'EKB-30899'], count: '2' });
-    await loader.refresh(client, nextWeek);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835'], count: '1' });
-    await loader.refresh(client, WEEK);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['EKB-30835', 'EKB-30899'], count: '2' });
+  it('is on when nothing says otherwise', async () => {
+    assert.deepEqual((await load(ISSUES(), {})).keys, ['KAN-1', 'KAN-3', 'KAN-2']);
   });
 
-  it('never shows an earlier week\'s issues once another week is selected, however late they arrive', async () => {
-    const jira = fakeJira({ issues: sampleIssues() });
-    // Holds the October search until released, so it answers after the newer week's.
-    let releaseOctober;
-    const octoberHeld = new Promise((resolve) => { releaseOctober = resolve; });
-    const client = new JiraClient('https://acme.atlassian.net', new JiraCloudTokenProvider('dev@example.com', 'token'), {
-      fetchFn: async (url, options) => {
-        if (String(url).includes(encodeURIComponent('"2026-10-18"'))) await octoberHeld;
-        return jira.fetchFn(url, options);
+  it('turned off, leaves out issues only logged recently, and keeps the assigned in-progress ones', async () => {
+    const { keys, jira, state } = await load(ISSUES(), { includeRecentlyLogged: false });
+    assert.deepEqual(keys, ['KAN-1', 'KAN-3'], 'KAN-3 is in progress and assigned, logged or not');
+    assert.equal(state.includeRecentlyLogged, false);
+    const jql = jira.requests[0].url.searchParams.get('jql');
+    assert.doesNotMatch(jql, /worklog/, 'no worklog clause in the search');
+    assert.doesNotMatch(jira.requests[0].url.searchParams.get('fields'), /worklog/, 'nor worklogs in the results');
+    assert.equal(worklogRequests(jira).length, 0, 'no worklog requests');
+  });
+
+  it('keeps issues assigned through Additional Assignment Fields when turned off', async () => {
+    const fieldJira = fakeJira({ issues: [issue('KAN-9', 'In Progress', { assignee: OTHER })] });
+    const fetchFn = async (url, options) => {
+      const parsed = new URL(url);
+      const jql = parsed.searchParams.get('jql');
+      if (jql && jql.includes('cf[10050] = currentUser()') && !/worklog/.test(jql)) {
+        return jsonResponse(200, { issues: [{ id: '10009', key: 'KAN-9', fields: { summary: 'Reviewed by me', status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } }, assignee: OTHER, customfield_10050: ME } }], isLast: true });
       }
-    });
+      return fieldJira.fetchFn(url, options);
+    };
+    const client = new JiraClient('https://acme.atlassian.net', new JiraCloudTokenProvider('dev@example.com', 'token'), { fetchFn });
     const states = [];
-    const loader = createWorkingIssuesLoader((state) => states.push(state), { logError: () => {} });
+    await createWorkingIssuesLoader((state) => states.push(state), { logError: () => {}, now: () => NOW })
+      .refresh(client, { includeRecentlyLogged: false, assignmentFields: [{ id: 'customfield_10050' }] });
+    assert.deepEqual(keysOf(states.at(-1).issues), ['KAN-9']);
+  });
 
-    const october = loader.refresh(client, OCTOBER);
-    const reported = loader.refresh(client, REPORTED);
-    await reported;
-    assert.ok(jira.requests.every((r) => !r.url.searchParams.get('jql')?.includes('"2026-10-18"')), 'October still unanswered');
-    releaseOctober();
-    await october;
+  it('lists an issue that is assigned, in progress, and recently logged once', async () => {
+    const { state } = await load(ISSUES());
+    const kan3 = state.issues.filter((i) => i.issueKey === 'KAN-3');
+    assert.equal(kan3.length, 1);
+    assert.equal(kan3[0].inProgress, true);
+    assert.equal(kan3[0].loggedInRange, true);
+  });
 
-    const ready = states.filter((s) => s?.status === 'ready');
-    assert.equal(ready.length, 1);
-    assert.deepEqual(panel(states.at(-1)), { keys: ['KAN-1', 'KAN-2'], count: '2' });
-    assert.ok(!states.some((s) => s?.status === 'error'), 'the cancelled load reports nothing');
+  it('doesn\'t count another user\'s worklogs', async () => {
+    assert.ok(!(await load(ISSUES())).keys.includes('KAN-4'));
+  });
+
+  it('doesn\'t count the user\'s worklogs from before the 14 days', async () => {
+    assert.ok(!(await load(ISSUES())).keys.includes('KAN-5'));
+  });
+
+  it('counts a worklog started exactly 14 days ago, and not one a minute earlier', async () => {
+    const { keys } = await load([
+      issue('KAN-6', 'Done', { assignee: OTHER, worklogs: [at('2026-10-30T15:30:00.000Z')] }),
+      issue('KAN-7', 'Done', { assignee: OTHER, worklogs: [at('2026-10-30T15:29:00.000Z')] })
+    ]);
+    assert.deepEqual(keys, ['KAN-6']);
+  });
+
+  it('doesn\'t depend on the week displayed: changing weeks doesn\'t search again', async () => {
+    const { jira, loader } = await load(ISSUES());
+    await loader.refresh(cloudClient(jira), { monday: new Date(2026, 9, 5) });
+    const searches = jira.requests.filter((r) => r.url.searchParams.get('jql'));
+    assert.equal(searches.length, 1);
+  });
+
+  it('turning it off and on again drops and brings back the recently logged issues', async () => {
+    const jira = fakeJira({ issues: ISSUES() });
+    const states = [];
+    const loader = createWorkingIssuesLoader((state) => states.push(state), { logError: () => {}, now: () => NOW });
+    const client = cloudClient(jira);
+    await loader.refresh(client, {});
+    assert.deepEqual(keysOf(states.at(-1).issues), ['KAN-1', 'KAN-3', 'KAN-2']);
+    await loader.refresh(client, { includeRecentlyLogged: false });
+    assert.deepEqual(keysOf(states.at(-1).issues), ['KAN-1', 'KAN-3']);
+    await loader.refresh(client, { includeRecentlyLogged: true });
+    assert.deepEqual(keysOf(states.at(-1).issues), ['KAN-1', 'KAN-3', 'KAN-2']);
+  });
+
+  it('collects every page of results', async () => {
+    const many = Array.from({ length: 7 }, (_, i) => issue(`KAN-${20 + i}`, 'Done', { assignee: OTHER, worklogs: [at('2026-11-09T09:00:00.000Z')] }));
+    const { keys, jira } = await load([issue('KAN-1', 'In Progress'), ...many], {}, { pageSize: 3 });
+    assert.equal(keys.length, 8);
+    assert.equal(jira.requests.filter((r) => r.url.searchParams.get('jql')).length, 3);
+  });
+
+  it('reports a failed search or worklog request as an error, not as a shorter list', async () => {
+    assert.equal((await load(ISSUES(), {}, { searchStatus: 500 })).state.status, 'error');
+    const manyWorklogs = Array.from({ length: 25 }, () => at('2026-09-01T09:00:00.000Z'));
+    const { state } = await load([issue('KAN-8', 'Done', { assignee: OTHER, worklogs: [...manyWorklogs, at('2026-11-12T09:00:00.000Z')] })], {}, { worklogStatus: 500 });
+    assert.equal(state.status, 'error');
+  });
+
+  it('says what the list holds, with or without recently logged issues', async () => {
+    const subtitle = (state) => {
+      const section = document.createElement('section');
+      renderWorkingIssues(section, { state, expanded: true });
+      return section.querySelector('.working-issues-subtitle').textContent;
+    };
+    assert.match(subtitle((await load(ISSUES())).state), /In progress and recently logged/);
+    assert.match(subtitle((await load(ISSUES(), { includeRecentlyLogged: false })).state), /In progress$/);
   });
 });
 
@@ -671,20 +778,20 @@ describe('WeekView - My Active Issues section', () => {
 
   const MONDAY = new Date(2026, 9, 26);
   const readyIssues = [
-    { issueId: '1', issueKey: 'KAN-12', issueSummary: 'Test <Chrome>', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' }, inProgress: true, loggedThisWeek: false },
-    { issueId: '2', issueKey: 'KAN-13', issueSummary: 'Write the README', issueStatus: null, inProgress: true, loggedThisWeek: false }
+    { issueId: '1', issueKey: 'KAN-12', issueSummary: 'Test <Chrome>', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' }, inProgress: true, loggedInRange: false },
+    { issueId: '2', issueKey: 'KAN-13', issueSummary: 'Write the README', issueStatus: null, inProgress: true, loggedInRange: false }
   ];
-  const doneIssue = { issueId: '3', issueKey: 'KAN-8', issueSummary: 'Build the weekly overview', issueStatus: { name: 'Done', categoryKey: 'done' }, inProgress: false, loggedThisWeek: true };
+  const doneIssue = { issueId: '3', issueKey: 'KAN-8', issueSummary: 'Build the weekly overview', issueStatus: { name: 'Done', categoryKey: 'done' }, inProgress: false, loggedInRange: true };
 
   /** Issues as getActiveIssues() returns them: `inProgress` in progress, the next `loggedOnly` only logged this week, and `both` of the in-progress ones also logged. */
   const activeList = ({ inProgress, loggedOnly, both = 0 }) => [
     ...Array.from({ length: inProgress }, (_, n) => ({
       issueId: String(100 + n), issueKey: `IP-${n + 1}`, issueSummary: 'In progress', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' },
-      inProgress: true, loggedThisWeek: n < both
+      inProgress: true, loggedInRange: n < both
     })),
     ...Array.from({ length: loggedOnly }, (_, n) => ({
       issueId: String(200 + n), issueKey: `LG-${n + 1}`, issueSummary: 'Logged', issueStatus: { name: 'Done', categoryKey: 'done' },
-      inProgress: false, loggedThisWeek: true
+      inProgress: false, loggedInRange: true
     }))
   ];
   const shown = (section) => ({

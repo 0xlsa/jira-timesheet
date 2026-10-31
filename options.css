@@ -1573,12 +1573,30 @@ body {
 /* Active Issues and Pending tabs, shown only while the section is expanded (they're in its body).
    They're the app's buttons (.btn, like Test Connection and Save Settings): primary when selected,
    secondary otherwise. */
-.working-issues-tabs {
+.working-issues-tabbar {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
   border-top: 1px solid var(--border-subtle);
   padding-top: 8px;
   margin-bottom: 4px;
+}
+
+.working-issues-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+/* Show Recently Logged Issues, at the right of the tabs: its label, then the Settings switch, with
+   smaller text. */
+.switch-row.working-issues-recent {
+  gap: 8px;
+  margin: 0 0 0 auto;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-subtle);
 }
 
 .working-issues-tab:focus-visible {

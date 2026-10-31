@@ -1,43 +1,46 @@
 /**
- * Loads the My Active Issues section's contents for a week and reports each state it goes
- * through. A newer load cancels an older one, so a slow answer never replaces a newer one (after
- * changing weeks or a Sync). Loading the week already shown, or already loading, does nothing
- * unless forced. No DOM: the page controller renders the states.
+ * Loads the My Active Issues section's contents and reports each state it goes through. A newer
+ * load cancels an older one, so a slow answer never replaces a newer one (after a Sync or a change
+ * of settings). The list doesn't depend on the week displayed: loading what's already shown (same
+ * Jira site, Additional Assignment Fields, and Show Recently Logged Issues), or already loading,
+ * does nothing unless forced. No DOM: the page controller renders the states.
  */
 
 import { loadActiveIssues } from './weeklyWorklogService.js';
-import { getLocalDateKey } from './worklogUtils.js';
 
 /**
- * @param {(state: { status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string } | null) => void}
+ * @param {(state: { status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string,
+ *   includeRecentlyLogged?: boolean } | null) => void}
  *   onChange - Called with each new state; null when there's nothing to show
  * @param {object} [options]
  * @param {(err: Error) => void} [options.logError=console.error] - Reports a failed load
- * @returns {{ refresh: (client: object, week: { monday: Date, sunday?: Date, force?: boolean }) => Promise<void>, clear: () => void }}
+ * @param {() => Date} [options.now] - The clock that ends the recently logged window
+ * @returns {{ refresh: (client: object, options?: { force?: boolean, assignmentFields?: Array<{ id: string }>,
+ *   includeRecentlyLogged?: boolean }) => Promise<void>, clear: () => void }}
  */
-export function createWorkingIssuesLoader(onChange, { logError = (err) => console.error('Failed to load active issues:', err) } = {}) {
+export function createWorkingIssuesLoader(onChange, { logError = (err) => console.error('Failed to load active issues:', err), now = () => new Date() } = {}) {
   // Load in flight, cancelled when a newer one starts: { controller, key }.
   let request = null;
-  // Site and week of the issues shown, once loaded; null while loading, after an error, or cleared.
+  // What the issues shown were loaded for, once loaded; null while loading, after an error, or cleared.
   let shownKey = null;
 
   return {
     /**
-     * Loads the week's issues from Jira, reporting `loading`, then `ready` or `error`. Nothing is
+     * Loads the issues from Jira, reporting `loading`, then `ready` or `error`. Nothing is
      * reported for a load a newer one replaced.
      *
      * @param {object} client - JiraClient (or a test double with baseUrl and deploymentType)
-     * @param {object} week
-     * @param {Date} week.monday
-     * @param {Date} [week.sunday]
-     * @param {boolean} [week.force=false] - Load even when the week is already shown or loading
-     *   (Sync, Retry, or a worklog change)
-     * @param {Array<{ id: string }>} [week.assignmentFields] - Additional assignment fields; a
-     *   different set loads again, like another week
+     * @param {object} [options]
+     * @param {boolean} [options.force=false] - Load even when the same list is already shown or
+     *   loading (Sync, Retry, or a worklog change)
+     * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields; a
+     *   different set loads again
+     * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues; a change
+     *   loads again
      */
-    async refresh(client, { monday, sunday, force = false, assignmentFields = [] }) {
+    async refresh(client, { force = false, assignmentFields = [], includeRecentlyLogged = true } = {}) {
       const fieldsKey = assignmentFields.map((field) => field.id).join(',');
-      const key = `${client.deploymentType}|${client.baseUrl}|${getLocalDateKey(monday)}${fieldsKey ? `|${fieldsKey}` : ''}`;
+      const key = `${client.deploymentType}|${client.baseUrl}|${includeRecentlyLogged ? 'logged' : 'assigned'}${fieldsKey ? `|${fieldsKey}` : ''}`;
       if (!force && (request?.key === key || (!request && shownKey === key))) return;
 
       request?.controller.abort();
@@ -47,10 +50,10 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
 
       onChange({ status: 'loading' });
       try {
-        const issues = await loadActiveIssues(client, { monday, sunday, signal: current.controller.signal, assignmentFields });
+        const issues = await loadActiveIssues(client, { now: now(), signal: current.controller.signal, assignmentFields, includeRecentlyLogged });
         if (current.controller.signal.aborted) return;
         shownKey = key;
-        onChange({ status: 'ready', issues });
+        onChange({ status: 'ready', issues, includeRecentlyLogged });
       } catch (err) {
         if (current.controller.signal.aborted) return;
         logError(err);

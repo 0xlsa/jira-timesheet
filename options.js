@@ -300,6 +300,22 @@ const assignmentFieldsSettings = createAssignmentFieldsSettings({
   }
 });
 
+/**
+ * Show Recently Logged Issues (the switch on My Active Issues' tab row): saved as it changes, then
+ * My Active Issues loads again with or without the issues only logged recently.
+ * @param {boolean} show
+ */
+async function setShowRecentlyLoggedIssues(show) {
+  try {
+    await settingsStore.saveShowRecentlyLoggedIssues(show);
+    savedSettings = await settingsStore.load();
+  } catch (err) {
+    console.warn('Could not save the Show Recently Logged Issues setting:', err);
+    return;
+  }
+  refreshActiveIssues();
+}
+
 /** The Additional Assignment Fields of a client's Jira site, from the saved settings. */
 function assignmentFieldsFor(client, settings = savedSettings) {
   return client ? assignmentFieldsForSite(settings, siteId(client.deploymentType, client.baseUrl)) : [];
@@ -522,7 +538,8 @@ function workingIssuesOptions() {
     // Like the worklog cards' + buttons: once the week has loaded.
     onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined,
     timer: timerOptions(),
-    pending: pendingOptions()
+    pending: pendingOptions(),
+    recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues !== false, onChange: setShowRecentlyLoggedIssues }
   };
 }
 
@@ -799,18 +816,21 @@ function confirmDiscardPending(id) {
 }
 
 // Loads the My Active Issues section's contents on its own: the worklogs load and show whatever
-// happens there. Refreshed with every week load (changing weeks, Sync); a newer load cancels an
-// older one.
+// happens there. Asked with every week load, but it doesn't depend on the week, so it only loads
+// again on Sync, a change of settings, or a worklog change; a newer load cancels an older one.
 const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
 
 /**
- * Reloads My Active Issues for the displayed week: Retry, and after a worklog is logged, edited,
- * or deleted, which can add an issue (its first worklog this week) or remove one (its last).
+ * Reloads My Active Issues: Retry, a change of Issue Selection settings, and after a worklog is
+ * logged, edited, or deleted, which can add a recently logged issue or remove one.
  */
 function refreshActiveIssues() {
   if (!currentClient) return;
-  const { monday, sunday } = getWeekRange(currentMonday);
-  workingIssues.refresh(currentClient, { monday, sunday, force: true, assignmentFields: assignmentFieldsFor(currentClient) });
+  workingIssues.refresh(currentClient, {
+    force: true,
+    assignmentFields: assignmentFieldsFor(currentClient),
+    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues !== false
+  });
 }
 
 /**
@@ -1252,7 +1272,11 @@ async function loadAndRenderWorklogs(options = {}) {
     }
 
     // Not awaited: the worklogs don't wait for the issues, nor fail with them.
-    workingIssues.refresh(client, { monday, sunday, force: Boolean(options.force), assignmentFields: assignmentFieldsFor(client, settings) });
+    workingIssues.refresh(client, {
+      force: Boolean(options.force),
+      assignmentFields: assignmentFieldsFor(client, settings),
+      includeRecentlyLogged: settings.showRecentlyLoggedIssues
+    });
 
     const aggregated = await loadWeek(client, { monday, sunday });
 

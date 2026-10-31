@@ -1,4 +1,5 @@
 import { getWeekRange, getWeekDays, aggregateWorklogsByWeek } from './worklogUtils.js';
+import { recentlyLoggedWindow } from '../jira/activeIssues.js';
 
 /**
  * Fetches the current user's worklogs for one week and aggregates them by day.
@@ -22,22 +23,26 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
 }
 
 /**
- * Fetches the issues for My Active Issues in one week: those assigned to the current user that
- * are in progress, or that have work logged in the week. Independent of loadWeek(): one failing
- * doesn't affect the other.
+ * Fetches the issues for My Active Issues: those assigned to the current user that are in
+ * progress, and, with Show Recently Logged Issues on, those the user logged work on in the last
+ * 14 days (recentlyLoggedWindow(), ending now). Doesn't depend on the week displayed, and is
+ * independent of loadWeek(): one failing doesn't affect the other.
  *
  * @param {{ getActiveIssues: Function }} client - JiraClient (or a test double)
- * @param {object} week
- * @param {Date} week.monday - First day of the week
- * @param {Date} [week.sunday] - Last day of the week (defaults to the Sunday after `monday`)
- * @param {AbortSignal} [week.signal] - Cancels the requests
- * @param {Array<{ id: string }>} [week.assignmentFields] - Additional assignment fields; none by default
+ * @param {object} [options]
+ * @param {Date} [options.now=new Date()] - End of the recently logged window
+ * @param {AbortSignal} [options.signal] - Cancels the requests
+ * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields; none by default
+ * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues
  * @returns {Promise<Array<object>>} From JiraClient.getActiveIssues()
  */
-export async function loadActiveIssues(client, { monday, sunday, signal, assignmentFields = [] }) {
-  const range = getWeekRange(monday);
-  return client.getActiveIssues(range.monday, sunday ?? range.sunday,
-    assignmentFields.length ? { signal, assignmentFields } : { signal });
+export async function loadActiveIssues(client, { now = new Date(), signal, assignmentFields = [], includeRecentlyLogged = true } = {}) {
+  const { since, until } = recentlyLoggedWindow(now);
+  return client.getActiveIssues(since, until, {
+    signal,
+    ...(assignmentFields.length && { assignmentFields }),
+    ...(!includeRecentlyLogged && { includeLogged: false })
+  });
 }
 
 /**
