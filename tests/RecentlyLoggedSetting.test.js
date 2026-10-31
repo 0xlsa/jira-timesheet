@@ -9,10 +9,11 @@ import { createMemoryStorageArea } from '../src/compat/browser-api.js';
 const jira = { deploymentType: 'cloud', email: 'a@b.co', baseUrlsByType: { cloud: 'https://acme.atlassian.net', server: '' }, tokensByType: { cloud: 't', server: '' } };
 
 describe('Show Recently Logged Issues - setting', () => {
-  it('is on when nothing was saved, as for existing installations', () => {
-    assert.equal(normalizeSettings({}).showRecentlyLoggedIssues, true);
-    assert.equal(normalizeSettings({ jiraBaseUrl: 'https://acme.atlassian.net', token: 't' }).showRecentlyLoggedIssues, true);
-    assert.equal(normalizeSettings({ showRecentlyLoggedIssues: false }).showRecentlyLoggedIssues, false);
+  it('is off unless turned on, including for existing installations', () => {
+    assert.equal(normalizeSettings({}).showRecentlyLoggedIssues, false);
+    assert.equal(normalizeSettings({ jiraBaseUrl: 'https://acme.atlassian.net', token: 't' }).showRecentlyLoggedIssues, false);
+    assert.equal(normalizeSettings({ showRecentlyLoggedIssues: 'yes' }).showRecentlyLoggedIssues, false);
+    assert.equal(normalizeSettings({ showRecentlyLoggedIssues: true }).showRecentlyLoggedIssues, true);
   });
 
   it('is saved on its own and restored, keeping everything else', async () => {
@@ -21,29 +22,29 @@ describe('Show Recently Logged Issues - setting', () => {
     await store.save({ ...jira, publicHolidays: { enabled: true, countryCode: 'IT', showNext: true } });
     await store.saveAssignmentFields('cloud|https://acme.atlassian.net', [{ id: 'customfield_10050', name: 'Reviewer' }]);
     const before = await store.load();
-    assert.equal(before.showRecentlyLoggedIssues, true);
+    assert.equal(before.showRecentlyLoggedIssues, false);
 
-    await store.saveShowRecentlyLoggedIssues(false);
+    await store.saveShowRecentlyLoggedIssues(true);
     const after = await store.load();
-    assert.equal(after.showRecentlyLoggedIssues, false);
-    assert.deepEqual({ ...after, showRecentlyLoggedIssues: true }, before, 'nothing else changed');
+    assert.equal(after.showRecentlyLoggedIssues, true);
+    assert.deepEqual({ ...after, showRecentlyLoggedIssues: false }, before, 'nothing else changed');
 
     // Save Settings doesn't touch it.
     await store.save(jira);
-    assert.equal((await store.load()).showRecentlyLoggedIssues, false);
-
-    await store.saveShowRecentlyLoggedIssues(true);
     assert.equal((await store.load()).showRecentlyLoggedIssues, true);
+
+    await store.saveShowRecentlyLoggedIssues(false);
+    assert.equal((await store.load()).showRecentlyLoggedIssues, false);
   });
 
   it('is independent of Additional Assignment Fields', async () => {
     const store = createSettingsStore(createMemoryStorageArea());
     const site = 'cloud|https://acme.atlassian.net';
     await store.saveAssignmentFields(site, [{ id: 'customfield_10050', name: 'Reviewer' }]);
-    await store.saveShowRecentlyLoggedIssues(false);
+    await store.saveShowRecentlyLoggedIssues(true);
     assert.deepEqual((await store.load()).assignmentFieldsBySite[site], [{ id: 'customfield_10050', name: 'Reviewer' }]);
     await store.saveAssignmentFields(site, []);
-    assert.equal((await store.load()).showRecentlyLoggedIssues, false);
+    assert.equal((await store.load()).showRecentlyLoggedIssues, true);
   });
 });
 
@@ -149,7 +150,7 @@ describe('Show Recently Logged Issues - page', () => {
   it('gives My Active Issues the switch, with the saved value', () => {
     const start = options.indexOf('function workingIssuesOptions()');
     const fn = options.slice(start, options.indexOf('\n}\n', start));
-    assert.match(fn, /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues !== false, onChange: setShowRecentlyLoggedIssues \}/);
+    assert.match(fn, /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues \}/);
   });
 
   it('saves a flip on its own, then loads My Active Issues again', () => {
@@ -163,7 +164,7 @@ describe('Show Recently Logged Issues - page', () => {
   it('loads My Active Issues with the saved value, every time', () => {
     const refreshes = [...options.matchAll(/workingIssues\.refresh\([^)]*\{([\s\S]*?)\}\);/g)].map((match) => match[1]);
     assert.equal(refreshes.length, 2);
-    assert.match(refreshes[0], /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues !== false/);
+    assert.match(refreshes[0], /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true/);
     assert.match(refreshes[1], /includeRecentlyLogged: settings\.showRecentlyLoggedIssues/);
   });
 });

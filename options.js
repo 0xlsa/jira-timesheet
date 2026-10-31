@@ -539,7 +539,7 @@ function workingIssuesOptions() {
     onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined,
     timer: timerOptions(),
     pending: pendingOptions(),
-    recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues !== false, onChange: setShowRecentlyLoggedIssues }
+    recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues }
   };
 }
 
@@ -829,7 +829,7 @@ function refreshActiveIssues() {
   workingIssues.refresh(currentClient, {
     force: true,
     assignmentFields: assignmentFieldsFor(currentClient),
-    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues !== false
+    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues === true
   });
 }
 

@@ -18,8 +18,8 @@
  *   chose; it's kept when the feature is turned off.
  * - publicHolidaysShowNext: the Show Next Public Holiday switch (the dashboard banner). Missing
  *   (saved before the switch existed) reads as on; it's kept when the feature is turned off.
- * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Active Issues). Missing
- *   (saved before the switch existed) reads as on, as the list was before. Saved on its own.
+ * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Active Issues). Off unless
+ *   turned on: missing reads as off. Saved on its own.
  * - assignmentFieldsBySite: Additional Assignment Fields, per Jira site, so one site's fields never
  *   apply to another: { [site]: [{ id, name }] }, `site` being `${deploymentType}|${baseUrl}`
  *   (siteId() in src/timer/timeTrackingStore.js), `id` the custom field ID, and `name` its name when
@@ -84,7 +84,7 @@ export function normalizeSettings(raw = {}) {
     tokensByType: forEdition(raw.cloudToken, raw.serverToken, activeToken),
     lastTestResult: raw.lastTestResult || null,
     publicHolidays: normalizePublicHolidays(raw),
-    showRecentlyLoggedIssues: raw.showRecentlyLoggedIssues !== false,
+    showRecentlyLoggedIssues: raw.showRecentlyLoggedIssues === true,
     assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite)
   };
 }
