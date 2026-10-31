@@ -392,6 +392,62 @@ body {
   color: var(--text-subtle);
 }
 
+/* Next Public Holiday: a compact full-width button under the week navigation bar (about 42px tall),
+  in the card colours. The negative margins bring the page's 16px gaps around it down to 10px. The
+  icon and text are centred together. */
+.next-holiday-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  margin: -6px 0;
+  padding: 8px 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition), border-color var(--transition);
+}
+
+.next-holiday-banner:hover:not(:disabled) {
+  background-color: var(--bg-card-highlight);
+  border-color: var(--text-muted);
+}
+
+.next-holiday-banner:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.next-holiday-banner:disabled {
+  cursor: default;
+}
+
+.next-holiday-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.next-holiday-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.next-holiday-name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
 /* The week picker's calendar: a small popover under the date range, placed by script in the
    viewport (position: fixed, in <body>, so nothing around it clips it). The shown week is a band
    in the primary tint, the selected day is filled, and today is outlined. */
@@ -3001,6 +3057,23 @@ select.is-invalid:focus {
 .switch-input:focus-visible + .switch {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
+}
+
+.switch-input:disabled + .switch {
+  opacity: 0.6;
+}
+
+.switch-row:has(.switch-input:disabled) {
+  cursor: default;
+}
+
+/* Show Next Public Holiday: its own switch under the country, with its description below it. */
+.holidays-show-next {
+  margin: 14px 0 2px;
+}
+
+.holidays-show-next-hint {
+  margin: 0 0 10px 44px;
 }
 
 .holidays-country-label {

@@ -41,6 +41,7 @@ The screenshots were taken in Chrome; the extension looks and works the same in 
 **Weekly timesheet**
 - Shows your worklogs for one week, Monday through Sunday, grouped by day in your browser's local time zone.
 - Previous week, next week, and **Today** navigation, plus a **Sync** button to reload from Jira.
+- With Public Holidays on, a banner under the week navigation shows the next public holiday from today in your selected country; click it to go to that week. Turn it off with **Show Next Public Holiday** in Settings.
 - Seven weekday cards with each day's total, worklog count, and a progress bar (a full bar is 8 hours). Today is marked, and weekend cards have a subtle background.
 - Summary cards for the week total, the selected day's total, and the connected Jira account and edition.
 - Totals are calculated in whole seconds, so the week total always equals the sum of the daily totals, and each daily total equals the sum of that day's worklogs.

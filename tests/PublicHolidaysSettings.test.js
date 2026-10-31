@@ -115,13 +115,13 @@ describe('Public Holidays settings', () => {
     // Choosing a country clears the error, and the settings can be saved.
     page.choose('IT');
     assert.equal(page.error.textContent, '');
-    assert.deepEqual(page.section.validate(), { isValid: true, value: { enabled: true, countryCode: 'IT' } });
+    assert.deepEqual(page.section.validate(), { isValid: true, value: { enabled: true, countryCode: 'IT', showNext: true } });
   });
 
   it('does not require a country while the feature is off', async () => {
     const page = setup();
     await page.section.fill({ enabled: false, countryCode: '' });
-    assert.deepEqual(page.section.validate(), { isValid: true, value: { enabled: false, countryCode: '' } });
+    assert.deepEqual(page.section.validate(), { isValid: true, value: { enabled: false, countryCode: '', showNext: true } });
   });
 
   it('restores the saved country, and keeps it when the feature is off', async () => {
@@ -133,7 +133,7 @@ describe('Public Holidays settings', () => {
     const off = setup(fakeCache({ cached: COUNTRIES }));
     await off.section.fill({ enabled: false, countryCode: 'IT' });
     assert.equal(off.select.value, 'IT');
-    assert.deepEqual(off.section.validate(), { isValid: true, value: { enabled: false, countryCode: 'IT' } });
+    assert.deepEqual(off.section.validate(), { isValid: true, value: { enabled: false, countryCode: 'IT', showNext: true } });
     assert.deepEqual(off.cache.calls, []);
   });
 
@@ -173,7 +173,7 @@ describe('Public Holidays settings', () => {
     const page = setup(fakeCache({ fail: true }));
     await page.section.fill({ enabled: true, countryCode: 'IT' });
     assert.equal(page.select.value, 'IT');
-    assert.deepEqual(page.section.validate(), { isValid: true, value: { enabled: true, countryCode: 'IT' } });
+    assert.deepEqual(page.section.validate(), { isValid: true, value: { enabled: true, countryCode: 'IT', showNext: true } });
   });
 });
 
@@ -183,25 +183,25 @@ describe('Public Holidays settings - storage', () => {
     const store = createSettingsStore(storage);
     const jira = { deploymentType: 'cloud', email: 'a@b.co', baseUrlsByType: { cloud: 'https://acme.atlassian.net', server: '' }, tokensByType: { cloud: 't', server: '' } };
 
-    assert.deepEqual((await store.load()).publicHolidays, { enabled: false, countryCode: '' });
+    assert.deepEqual((await store.load()).publicHolidays, { enabled: false, countryCode: '', showNext: true });
 
     await store.save({ ...jira, publicHolidays: { enabled: true, countryCode: 'IT' } });
-    assert.deepEqual((await store.load()).publicHolidays, { enabled: true, countryCode: 'IT' });
+    assert.deepEqual((await store.load()).publicHolidays, { enabled: true, countryCode: 'IT', showNext: true });
 
     // A new country replaces the old one; turning the feature off keeps it.
     await store.save({ ...jira, publicHolidays: { enabled: true, countryCode: 'AT' } });
     await store.save({ ...jira, publicHolidays: { enabled: false, countryCode: 'AT' } });
-    assert.deepEqual((await store.load()).publicHolidays, { enabled: false, countryCode: 'AT' });
+    assert.deepEqual((await store.load()).publicHolidays, { enabled: false, countryCode: 'AT', showNext: true });
 
     // Saving without them leaves them as they are.
     await store.save(jira);
-    assert.deepEqual((await store.load()).publicHolidays, { enabled: false, countryCode: 'AT' });
+    assert.deepEqual((await store.load()).publicHolidays, { enabled: false, countryCode: 'AT', showNext: true });
   });
 
   it('reads the feature as off when no valid country is stored', () => {
-    assert.deepEqual(normalizeSettings({ publicHolidaysEnabled: true }).publicHolidays, { enabled: false, countryCode: '' });
-    assert.deepEqual(normalizeSettings({ publicHolidaysEnabled: true, publicHolidaysCountry: 'Italy' }).publicHolidays, { enabled: false, countryCode: '' });
-    assert.deepEqual(normalizeSettings({ publicHolidaysEnabled: 'yes', publicHolidaysCountry: 'it' }).publicHolidays, { enabled: false, countryCode: 'IT' });
+    assert.deepEqual(normalizeSettings({ publicHolidaysEnabled: true }).publicHolidays, { enabled: false, countryCode: '', showNext: true });
+    assert.deepEqual(normalizeSettings({ publicHolidaysEnabled: true, publicHolidaysCountry: 'Italy' }).publicHolidays, { enabled: false, countryCode: '', showNext: true });
+    assert.deepEqual(normalizeSettings({ publicHolidaysEnabled: 'yes', publicHolidaysCountry: 'it' }).publicHolidays, { enabled: false, countryCode: 'IT', showNext: true });
   });
 
   it('saves nothing and loads no holidays when the section is invalid (options.js)', () => {

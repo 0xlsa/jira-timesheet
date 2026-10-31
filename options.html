@@ -158,6 +158,9 @@
         </div>
       </div>
 
+      <!-- Next Public Holiday (src/ui/nextHolidayBanner.js): goes to the holiday's week -->
+      <button type="button" id="nextHolidayBanner" class="next-holiday-banner hidden"></button>
+
       <!-- Alert / Notice Containers -->
       <div id="unconfiguredAlert" class="panel-alert alert-warning hidden">
         <svg class="alert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -434,7 +437,8 @@
 
             <hr class="settings-divider">
 
-            <!-- Public Holidays (src/ui/publicHolidaysSettings.js); saved with the other settings -->
+            <!-- Public Holidays (src/ui/publicHolidaysSettings.js); applied and saved as it changes, and with
+                 the other settings -->
             <fieldset class="form-group holidays-group">
               <legend class="form-label">Public Holidays</legend>
               <label class="switch-row" for="publicHolidaysEnabled">
@@ -448,6 +452,16 @@
               </select>
               <div id="publicHolidaysStatus" class="field-hint hidden" role="status"></div>
               <div id="publicHolidaysError" class="field-error" role="alert"></div>
+              <!-- The dashboard banner (src/ui/nextHolidayBanner.js); only with the switch above on -->
+              <label class="switch-row holidays-show-next" for="publicHolidaysShowNext">
+                <input type="checkbox" id="publicHolidaysShowNext" class="switch-input" role="switch"
+                  aria-describedby="publicHolidaysShowNextHint" checked disabled>
+                <span class="switch" aria-hidden="true"></span>
+                <span>Show Next Public Holiday</span>
+              </label>
+              <div id="publicHolidaysShowNextHint" class="field-hint holidays-show-next-hint">
+                Display the next upcoming public holiday on the dashboard.
+              </div>
               <div id="publicHolidaysHint" class="field-hint">
                 Official public holidays provided by <a href="https://nagerholidays.com/api" target="_blank" rel="noopener noreferrer">Nager.Date</a>.
               </div>

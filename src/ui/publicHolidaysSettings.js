@@ -1,5 +1,12 @@
 /**
- * The Public Holidays section of the Connection Settings form: an on/off switch and a country list.
+ * The Public Holidays section of the Connection Settings form: an on/off switch, a country list,
+ * and the Show Next Public Holiday switch (the dashboard banner). The banner switch can only be
+ * changed while the feature is on, and keeps its value while it's off.
+ *
+ * Everything applies as soon as it changes, without Save Settings (which saves it too): the
+ * feature switch and the country through `onChange`, once they're valid, and the banner switch on
+ * its own through `onShowNextChange`. Turning the feature on before a country is chosen saves
+ * nothing until one is.
  *
  * The country is only ever the one the user picks: nothing is preselected or guessed (no browser
  * or system locale, no location). The list comes from Nager.Date through the holiday cache, and
@@ -19,20 +26,20 @@ export const COUNTRIES_UNAVAILABLE_MESSAGE = "Couldn't load the list of countrie
 /**
  * Checks the section's values before saving.
  *
- * @param {{ enabled: boolean, countryCode: string }} values
+ * @param {{ enabled: boolean, countryCode: string, showNext?: boolean }} values
  * @param {object} context
  * @param {Array<{ countryCode: string }> | null} context.countries - The supported countries, when known
  * @param {string} [context.savedCountryCode] - Accepted while the list is unavailable: it was
  *   checked against the list when it was saved
- * @returns {{ isValid: true, value: { enabled: boolean, countryCode: string } } | { isValid: false, error: string }}
+ * @returns {{ isValid: true, value: { enabled: boolean, countryCode: string, showNext: boolean } } | { isValid: false, error: string }}
  */
-export function validatePublicHolidays({ enabled, countryCode }, { countries, savedCountryCode = '' }) {
+export function validatePublicHolidays({ enabled, countryCode, showNext = true }, { countries, savedCountryCode = '' }) {
   const code = normalizeCountryCode(countryCode);
   if (code && code !== savedCountryCode && !countries?.some((country) => country.countryCode === code)) {
     return { isValid: false, error: UNKNOWN_COUNTRY_MESSAGE };
   }
   if (enabled && !code) return { isValid: false, error: COUNTRY_REQUIRED_MESSAGE };
-  return { isValid: true, value: { enabled: Boolean(enabled), countryCode: code } };
+  return { isValid: true, value: { enabled: Boolean(enabled), countryCode: code, showNext: Boolean(showNext) } };
 }
 
 /**
@@ -41,11 +48,16 @@ export function validatePublicHolidays({ enabled, countryCode }, { countries, sa
  * @param {HTMLSelectElement} elements.select
  * @param {HTMLElement} elements.status - Loading and download errors, with a Retry button
  * @param {HTMLElement} elements.error - Validation errors (`.field-error`)
+ * @param {HTMLInputElement} [elements.showNext] - Show Next Public Holiday checkbox (role="switch")
  * @param {{ getCountries: Function, peekCountries: Function }} cache - From createHolidayCache()
+ * @param {object} [options]
+ * @param {(value: { enabled: boolean, countryCode: string, showNext: boolean }) => void} [options.onChange] -
+ *   Called when the feature switch or the country changes to a valid value
+ * @param {(showNext: boolean) => void} [options.onShowNextChange] - Called when the banner switch changes
  */
-export function createPublicHolidaysSettings({ toggle, select, status, error }, cache) {
+export function createPublicHolidaysSettings({ toggle, select, status, error, showNext }, cache, { onChange = () => {}, onShowNextChange = () => {} } = {}) {
   let countries = null;
-  let saved = { enabled: false, countryCode: '' };
+  let saved = { enabled: false, countryCode: '', showNext: true };
   // Bumped by fill(), so a list arriving for an earlier visit doesn't change this one.
   let visit = 0;
 
@@ -61,6 +73,7 @@ export function createPublicHolidaysSettings({ toggle, select, status, error }, 
 
   function updateEnabled() {
     select.disabled = !toggle.checked;
+    if (showNext) showNext.disabled = !toggle.checked;
   }
 
   function showStatus(message, { retry = false } = {}) {
@@ -95,12 +108,30 @@ export function createPublicHolidaysSettings({ toggle, select, status, error }, 
     }
   }
 
+  /** Applies the feature switch and the country once they're valid (on needs a country), quietly. */
+  function applyChange() {
+    const result = validatePublicHolidays(
+      { enabled: toggle.checked, countryCode: select.value, showNext: showNext ? showNext.checked : saved.showNext },
+      { countries, savedCountryCode: saved.countryCode });
+    if (!result.isValid) return;
+    saved = { ...result.value };
+    onChange(result.value);
+  }
+
   toggle.addEventListener('change', () => {
     clearError();
     updateEnabled();
     if (toggle.checked) loadCountries();
+    applyChange();
   });
-  select.addEventListener('change', clearError);
+  select.addEventListener('change', () => {
+    clearError();
+    applyChange();
+  });
+  showNext?.addEventListener('change', () => {
+    saved = { ...saved, showNext: showNext.checked };
+    onShowNextChange(showNext.checked);
+  });
   status.addEventListener('click', (event) => {
     if (event.target?.closest?.('[data-action="retry-countries"]')) loadCountries();
   });
@@ -110,12 +141,13 @@ export function createPublicHolidaysSettings({ toggle, select, status, error }, 
      * Shows the saved settings, discarding unsaved changes. Downloads the country list only when
      * the feature is on (and the list isn't cached).
      *
-     * @param {{ enabled: boolean, countryCode: string }} settings
+     * @param {{ enabled: boolean, countryCode: string, showNext?: boolean }} settings
      */
     async fill(settings) {
       visit++;
-      saved = { enabled: settings.enabled, countryCode: settings.countryCode };
+      saved = { enabled: settings.enabled, countryCode: settings.countryCode, showNext: settings.showNext !== false };
       toggle.checked = saved.enabled;
+      if (showNext) showNext.checked = saved.showNext;
       clearError();
       showStatus('');
       updateEnabled();
@@ -133,7 +165,7 @@ export function createPublicHolidaysSettings({ toggle, select, status, error }, 
     validate() {
       clearError();
       const result = validatePublicHolidays(
-        { enabled: toggle.checked, countryCode: select.value },
+        { enabled: toggle.checked, countryCode: select.value, showNext: showNext ? showNext.checked : saved.showNext },
         { countries, savedCountryCode: saved.countryCode });
       if (!result.isValid) {
         error.textContent = result.error;

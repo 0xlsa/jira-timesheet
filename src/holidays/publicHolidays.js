@@ -7,6 +7,10 @@
  * ever built from the selected country's data, so a download that finishes after the country
  * changed or the feature was turned off never shows. It still fills the cache.
  *
+ * The next holiday (for the dashboard banner) comes from the same data, counted from today, not
+ * the week displayed: today's year, which is loaded anyway, and the next year only once today's
+ * has no holiday left.
+ *
  * A dataset that couldn't be loaded (or only as an expired copy) is tried again at the next
  * display after RETRY_AFTER_MS, or when the settings are next applied; never in a loop.
  * No DOM; the cache and the clock are injected.
@@ -90,6 +94,29 @@ export function createPublicHolidays({ cache, now = Date.now, currentYear = () =
         }
       }
       return result;
+    },
+
+    /**
+     * The first holiday on or after `todayKey`, from what's loaded now: one per date, with the
+     * same icon and name as its weekday card. Null while the feature is off, while the data it
+     * needs is loading or unavailable, and when there's none. Loads today's year when needed, and
+     * the next year only when today's has no holiday left.
+     *
+     * @param {string} todayKey - YYYY-MM-DD, today's local date
+     * @returns {{ dateKey: string, icon: string, label: string } | null}
+     */
+    nextHoliday(todayKey) {
+      if (!isActive()) return null;
+      const { countryCode } = config;
+      const year = Number(todayKey.slice(0, 4));
+      for (const candidate of [year, year + 1]) {
+        request(countryCode, candidate);
+        const indicators = datasets.get(`${countryCode}:${candidate}`)?.indicators;
+        if (!indicators) return null;
+        const next = [...indicators.keys()].filter((key) => key >= todayKey).sort()[0];
+        if (next) return { dateKey: next, ...indicators.get(next) };
+      }
+      return null;
     }
   };
 }

@@ -16,6 +16,8 @@
  * - publicHolidaysEnabled, publicHolidaysCountry: the Public Holidays switch, and the country the
  *   user selected (an ISO 3166-1 alpha-2 code, or ''). The country is only ever what the user
  *   chose; it's kept when the feature is turned off.
+ * - publicHolidaysShowNext: the Show Next Public Holiday switch (the dashboard banner). Missing
+ *   (saved before the switch existed) reads as on; it's kept when the feature is turned off.
  * - assignmentFieldsBySite: Additional Assignment Fields, per Jira site, so one site's fields never
  *   apply to another: { [site]: [{ id, name }] }, `site` being `${deploymentType}|${baseUrl}`
  *   (siteId() in src/timer/timeTrackingStore.js), `id` the custom field ID, and `name` its name when
@@ -37,6 +39,7 @@ const STORAGE_KEYS = [
   'lastTestResult',
   'publicHolidaysEnabled',
   'publicHolidaysCountry',
+  'publicHolidaysShowNext',
   'assignmentFieldsBySite'
 ];
 
@@ -55,7 +58,7 @@ const STORAGE_KEYS = [
  *   baseUrlsByType: { cloud: string, server: string },
  *   tokensByType: { cloud: string, server: string },
  *   lastTestResult: object | null,
- *   publicHolidays: { enabled: boolean, countryCode: string },
+ *   publicHolidays: { enabled: boolean, countryCode: string, showNext: boolean },
  *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>
  * }}
  */
@@ -91,10 +94,17 @@ export function assignmentFieldsForSite(settings, site) {
   return settings?.assignmentFieldsBySite?.[site] ?? [];
 }
 
-/** The feature is only on with a country: a stored "on" without one reads as off. */
+/**
+ * The feature is only on with a country: a stored "on" without one reads as off. The banner
+ * switch is on unless it was turned off.
+ */
 function normalizePublicHolidays(raw) {
   const countryCode = normalizeCountryCode(raw.publicHolidaysCountry);
-  return { enabled: raw.publicHolidaysEnabled === true && Boolean(countryCode), countryCode };
+  return {
+    enabled: raw.publicHolidaysEnabled === true && Boolean(countryCode),
+    countryCode,
+    showNext: raw.publicHolidaysShowNext !== false
+  };
 }
 
 /**
@@ -125,14 +135,16 @@ export function createSettingsStore(storageArea) {
      *   email: string,
      *   baseUrlsByType: { cloud: string, server: string },
      *   tokensByType: { cloud: string, server: string },
-     *   publicHolidays?: { enabled: boolean, countryCode: string }
-     * }} settings - Without `publicHolidays`, the saved Public Holidays settings are kept
+     *   publicHolidays?: { enabled: boolean, countryCode: string, showNext?: boolean }
+     * }} settings - Without `publicHolidays`, the saved Public Holidays settings are kept (and
+     *   without `showNext`, the saved banner switch)
      */
     async save({ deploymentType, email, baseUrlsByType, tokensByType, publicHolidays }) {
       await storageArea.set({
         ...(publicHolidays && {
           publicHolidaysEnabled: publicHolidays.enabled,
-          publicHolidaysCountry: publicHolidays.countryCode
+          publicHolidaysCountry: publicHolidays.countryCode,
+          ...(typeof publicHolidays.showNext === 'boolean' && { publicHolidaysShowNext: publicHolidays.showNext })
         }),
         jiraBaseUrl: baseUrlsByType[deploymentType],
         deploymentType,
@@ -155,6 +167,27 @@ export function createSettingsStore(storageArea) {
 
     async clearTestResult() {
       await storageArea.remove('lastTestResult');
+    },
+
+    /**
+     * Saves the Public Holidays settings on their own, as they change; the other settings are kept.
+     * @param {{ enabled: boolean, countryCode: string, showNext: boolean }} publicHolidays
+     */
+    async savePublicHolidays({ enabled, countryCode, showNext }) {
+      await storageArea.set({
+        publicHolidaysEnabled: Boolean(enabled),
+        publicHolidaysCountry: countryCode,
+        publicHolidaysShowNext: Boolean(showNext)
+      });
+    },
+
+    /**
+     * Saves the Show Next Public Holiday switch on its own, as it changes; the other settings
+     * are kept.
+     * @param {boolean} showNext
+     */
+    async saveShowNextHoliday(showNext) {
+      await storageArea.set({ publicHolidaysShowNext: Boolean(showNext) });
     },
 
     /**

@@ -363,7 +363,8 @@ describe('Week picker - page wiring', () => {
   it('is unavailable, and closed, while a week loads, like the buttons around it', () => {
     const start = options.indexOf('function setWorklogBusy(');
     const busy = options.slice(start, options.indexOf('\n}\n', start));
-    assert.match(busy, /nextWeekBtn\.disabled = isBusy;\s*weekPickerBtn\.disabled = isBusy;\s*if \(isBusy\) weekPicker\.close\(\);/);
+    assert.match(busy, /nextWeekBtn\.disabled = isBusy;\s*weekPickerBtn\.disabled = isBusy;/);
+    assert.match(busy, /if \(isBusy\) weekPicker\.close\(\);/);
     // Created before anything can load a week.
     assert.ok(options.indexOf('const weekPicker = createWeekPicker({') < options.indexOf('function loadAndRenderWorklogs('));
   });

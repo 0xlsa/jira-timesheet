@@ -57,6 +57,7 @@ import { createPublicHolidaysSettings } from './src/ui/publicHolidaysSettings.js
 import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSettings.js';
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 import { createWeekPicker } from './src/ui/weekPicker.js';
+import { dateFromKey, renderNextHolidayBanner } from './src/ui/nextHolidayBanner.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -76,6 +77,7 @@ const thisWeekBtn = document.getElementById('thisWeekBtn');
 const nextWeekBtn = document.getElementById('nextWeekBtn');
 const weekDateRangeText = document.getElementById('weekDateRangeText');
 const weekPickerBtn = document.getElementById('weekPickerBtn');
+const nextHolidayBanner = document.getElementById('nextHolidayBanner');
 const refreshWorklogsBtn = document.getElementById('refreshWorklogsBtn');
 
 // Weekly Stats Elements
@@ -142,6 +144,7 @@ const publicHolidaysToggle = document.getElementById('publicHolidaysEnabled');
 const publicHolidaysCountry = document.getElementById('publicHolidaysCountry');
 const publicHolidaysStatus = document.getElementById('publicHolidaysStatus');
 const publicHolidaysError = document.getElementById('publicHolidaysError');
+const publicHolidaysShowNext = document.getElementById('publicHolidaysShowNext');
 
 // Additional Assignment Fields section of the Settings form
 const assignmentFieldsList = document.getElementById('assignmentFieldsList');
@@ -234,17 +237,53 @@ let hasUntestedChanges = false;
 const holidayCache = createHolidayCache(platform.storage, { api: createNagerDateClient() });
 const publicHolidays = createPublicHolidays({
   cache: holidayCache,
-  // Data that arrives after the week was rendered is added to its weekday cards in place.
+  // Data that arrives after the week was rendered is added to its weekday cards in place, and the
+  // Next Public Holiday banner follows it (and any change of settings).
   onChange: () => {
     if (currentAggregatedData) updateHolidays(daysContainer, currentAggregatedData, holidaysForWeek(currentAggregatedData));
+    showNextHoliday();
   }
 });
 const publicHolidaysSettings = createPublicHolidaysSettings({
   toggle: publicHolidaysToggle,
   select: publicHolidaysCountry,
   status: publicHolidaysStatus,
-  error: publicHolidaysError
-}, holidayCache);
+  error: publicHolidaysError,
+  showNext: publicHolidaysShowNext
+}, holidayCache, {
+  // The section applies at once, without Save Settings: saved on its own, then the weekday cards'
+  // holidays and the banner follow (configure() loads what's needed and calls their onChange).
+  async onChange(values) {
+    try {
+      await settingsStore.savePublicHolidays(values);
+      savedSettings = await settingsStore.load();
+    } catch (err) {
+      console.warn('Could not save the Public Holidays settings:', err);
+      return;
+    }
+    publicHolidays.configure(savedSettings.publicHolidays);
+  },
+  async onShowNextChange(showNext) {
+    try {
+      await settingsStore.saveShowNextHoliday(showNext);
+      savedSettings = await settingsStore.load();
+    } catch (err) {
+      console.warn('Could not save the Show Next Public Holiday setting:', err);
+      return;
+    }
+    showNextHoliday();
+  }
+});
+
+/**
+ * Shows the next public holiday from today in the banner under the week navigation, when the
+ * feature is on with its banner switch; otherwise hides it. Doesn't depend on the week displayed.
+ */
+function showNextHoliday() {
+  const todayKey = getLocalDateKey(new Date());
+  const holiday = savedSettings?.publicHolidays.showNext ? publicHolidays.nextHoliday(todayKey) : null;
+  renderNextHolidayBanner(nextHolidayBanner, holiday, todayKey);
+}
 
 // Additional Assignment Fields (src/jira/assignmentFields.js): Jira user fields that also count as
 // assigning an issue to the user in My Active Issues, per Jira site. Saved as they change.
@@ -1261,6 +1300,7 @@ function setWorklogBusy(isBusy) {
   thisWeekBtn.disabled = isBusy;
   nextWeekBtn.disabled = isBusy;
   weekPickerBtn.disabled = isBusy;
+  nextHolidayBanner.disabled = isBusy;
   if (isBusy) weekPicker.close();
   refreshWorklogsBtn.disabled = isBusy;
 
@@ -1673,6 +1713,17 @@ prevWeekBtn.addEventListener('click', () => {
 
 nextWeekBtn.addEventListener('click', () => {
   currentMonday.setDate(currentMonday.getDate() + 7);
+  loadAndRenderWorklogs();
+});
+
+// The Next Public Holiday banner shows the holiday's week, with the holiday selected, like a day
+// chosen in the week picker.
+nextHolidayBanner.addEventListener('click', () => {
+  const { date } = nextHolidayBanner.dataset;
+  if (!date) return;
+  weekPicker.close();
+  currentMonday = getMondayOfWeek(dateFromKey(date));
+  selectedDateKey = date;
   loadAndRenderWorklogs();
 });
 
