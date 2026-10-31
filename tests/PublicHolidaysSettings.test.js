@@ -233,7 +233,7 @@ describe('Settings page structure', () => {
     assert.equal(html.match(/id="aboutSection"/g).length, 1);
     // Nothing but the closing tags of the scroll area and the drawer after it.
     const afterAbout = drawer.slice(drawer.indexOf('<section id="aboutSection"'));
-    assert.match(afterAbout, /^<section id="aboutSection" class="settings-about" aria-labelledby="aboutTitle"><\/section>\s*<\/div>\s*<\/div>\s*$/);
+    assert.match(afterAbout, /^<section id="aboutSection" class="settings-about hidden" aria-labelledby="aboutTitle"><\/section>\s*<\/div>\s*<\/div>\s*$/);
     // Validation messages live inside their fields, before About.
     for (const id of ['urlError', 'emailError', 'tokenError', 'publicHolidaysError', 'publicHolidaysStatus', 'statusArea']) {
       assert.ok(drawer.indexOf(`id="${id}"`) < drawer.indexOf('id="aboutSection"'), id);
