@@ -73,13 +73,16 @@ Firefox for desktop (Windows, macOS, Linux). Not tested on Firefox for Android; 
 
 Recommended 1280×800 (1.6:1); no count limit. Proposed set, in this order:
 
-1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet
+1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet, with the next public holiday and a running timer
 2. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
-3. `docs/screenshots/worklog-log-work.png`: logging work
-4. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
-5. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
+3. `docs/screenshots/timer-and-pending-worklogs.png`: the timer and a pending worklog
+4. `docs/screenshots/worklog-log-work.png`: logging work
+5. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
+6. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
+7. `docs/screenshots/public-holidays-settings.png`: Public Holidays settings
+8. `docs/screenshots/keyboard-shortcuts.png`: the keyboard shortcuts
 
-All 5 screenshots exist, 1280×800 PNG, taken in Chrome (the extension looks the same in Firefox). The weekly timesheet and logging work screenshots show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The connection settings screenshots have blank fields.
+The screenshots are 1280×800 PNG, captured in Chrome from the real options page with demonstration data by `docs/screenshots/source/capture.py` (the extension looks the same in Firefox). They show the KAN sample worklogs, the account name "Luciano de Sa", and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The timer and pending worklog are seeded demonstration state, and Public Holidays is set to Italy, so the banner shows its next holiday, All Saints' Day on Nov 1. The connection settings screenshots have blank fields, and the Public Holidays one shows Jira Connection collapsed, so no email or token appears.
 
 ## Support information
 

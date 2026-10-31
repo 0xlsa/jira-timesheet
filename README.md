@@ -18,11 +18,15 @@
 
 ## Screenshots
 
-The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. It has light and dark themes.
+The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. A banner shows the next public holiday, and My Active Issues shows a running timer even when it's collapsed. It has light and dark themes.
 
 ![Timesheet for Jira: weekly overview, light theme](docs/screenshots/weekly-overview-light.png)
 
 ![Timesheet for Jira: weekly overview, dark theme](docs/screenshots/weekly-overview-dark.png)
+
+Time your work on an issue with the timer. A stopped timer leaves a pending worklog that you review and then submit to Jira:
+
+![Timesheet for Jira: a running timer and a pending worklog](docs/screenshots/timer-and-pending-worklogs.png)
 
 Log work on a day by finding the issue by its key:
 
@@ -34,7 +38,15 @@ Connect to Jira Cloud with your Atlassian account email and an API token, or to 
 
 ![Timesheet for Jira: connection settings for Jira Data Center / Server](docs/screenshots/connection-settings-data-center.png)
 
-The screenshots were taken in Chrome; the extension looks and works the same in Firefox.
+Show a country's official public holidays on the timesheet:
+
+![Timesheet for Jira: Public Holidays settings](docs/screenshots/public-holidays-settings.png)
+
+Press **?** for the keyboard shortcuts:
+
+![Timesheet for Jira: keyboard shortcuts](docs/screenshots/keyboard-shortcuts.png)
+
+The screenshots were taken in Chrome, with demonstration data; the extension looks and works the same in Firefox. [`docs/screenshots/source/`](docs/screenshots/source/README.md) describes how they are captured.
 
 ## Features
 
@@ -44,6 +56,7 @@ The screenshots were taken in Chrome; the extension looks and works the same in 
 - With Public Holidays on, a banner under the week navigation shows the next public holiday from today in your selected country; click it to go to that week. Turn it off with **Show Next Public Holiday** in Settings.
 - Seven weekday cards with each day's total, worklog count, and a progress bar (a full bar is 8 hours). Today is marked, and weekend cards have a subtle background.
 - Summary cards for the week total, the selected day's total, and the connected Jira account and edition.
+- Below the cards, the selected day's panel lists its worklogs. Click its header (or the day's total) to collapse or expand them; the date, count, and total stay in view. The panel starts collapsed, and your choice applies to every day and is remembered.
 - Totals are calculated in whole seconds, so the week total always equals the sum of the daily totals, and each daily total equals the sum of that day's worklogs.
 
 **Worklog cards** (for the selected day, in start-time order)
@@ -376,6 +389,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   ├── store-listing/             # Store listing drafts; common/privacy-policy.md is the privacy policy
 │   ├── store-assets/chrome/       # Chrome Web Store promo tiles
 │   └── screenshots/               # Screenshots used in this README and the store listings
+│       └── source/                # How the screenshots are captured (capture.py)
 ├── package.json                  # Metadata and the test script
 ├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License

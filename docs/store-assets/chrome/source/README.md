@@ -18,11 +18,10 @@ The script overwrites the three PNGs in `docs/store-assets/chrome/`. It needs Go
 
 ## Updating the screenshot
 
-`app-overview@2x.png` is a 2× capture (1704 × 1920 px) of the extension in the light theme at a 1280 px wide window. It shows the week of Oct 19–25, 2026 with Tuesday selected and My Active Issues collapsed (its default), with the same demonstration data as the screenshots in `docs/screenshots/`: the KAN sample issues and worklogs, and the Jira account and site they come from. Use that data rather than inventing names, sites, or worklogs.
+`app-overview@2x.png` is a 2× capture (1704 × 1920 px) of the extension in the light theme: the app's column of a 1280 px wide window. It shows the week of Oct 19–25, 2026, with Tuesday selected and its worklogs expanded, and My Active Issues collapsed (its default; its header shows the running timer and the pending worklog). It uses the same demonstration data as the screenshots in `docs/screenshots/`.
 
-When the UI changes:
+It's captured with the screenshots, by `docs/screenshots/source/capture.py` (see its README):
 
-1. Capture a new screenshot of the same state at the same size and scale.
-2. Never include tokens, credentials, or customer data.
-3. Replace `app-overview@2x.png` and run `render.sh`.
-4. Check each tile at its real size. The crops in `promo.html` (`.shot` and `.shot img` for each tile) may need adjusting if the layout moved.
+1. Run `python3 docs/screenshots/source/capture.py app-overview`.
+2. Run `render.sh`.
+3. Check each tile at its real size. The crops in `promo.html` (`.shot` and `.shot img` for each tile) may need adjusting if the layout moved.

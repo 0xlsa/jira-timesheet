@@ -1,0 +1,56 @@
+{
+  "site": "https://0xlsa.atlassian.net",
+  "user": {
+    "accountId": "5f1ea598a16487001508fc6d",
+    "displayName": "Luciano de Sa",
+    "emailAddress": "demo@example.com"
+  },
+  "issues": [
+    { "id": "10000", "key": "KAN-1", "summary": "Creating Jira Extension", "status": "In Review", "category": "indeterminate", "assigned": true, "updated": "2026-10-23T17:30:00.000+0200",
+      "worklogs": [
+        { "id": "10004", "started": "2026-10-19T09:00:00.000+0200", "seconds": 5400, "comment": "Agreed the v1 scope: weekly view, worklog editing, logging work, and Cloud and Data Center support." }
+      ] },
+    { "id": "10004", "key": "KAN-3", "summary": "Subtask 2.1", "status": "To Do", "category": "new", "assigned": false, "updated": "2026-10-21T20:52:01.737+0200", "worklogs": [] },
+    { "id": "10015", "key": "KAN-6", "summary": "Publish Extension Google Chrome", "status": "In Progress", "category": "indeterminate", "assigned": false, "updated": "2026-10-23T17:33:00.000+0200",
+      "worklogs": [
+        { "id": "10001", "started": "2026-10-23T13:33:10.285+0200", "seconds": 14400, "comment": "" }
+      ] },
+    { "id": "10016", "key": "KAN-7", "summary": "Implement Jira Cloud API token authentication", "status": "Done", "category": "done", "assigned": true, "updated": "2026-10-20T15:30:00.000+0200",
+      "worklogs": [
+        { "id": "10005", "started": "2026-10-19T10:45:00.000+0200", "seconds": 9900, "comment": "Basic authentication with account email and API token; connection test against /myself." },
+        { "id": "10008", "started": "2026-10-20T13:30:00.000+0200", "seconds": 7200, "comment": "Clear errors for expired tokens, missing permissions, and network failures." }
+      ] },
+    { "id": "10017", "key": "KAN-8", "summary": "Build the weekly worklog overview", "status": "Done", "category": "done", "assigned": true, "updated": "2026-10-20T12:15:00.000+0200",
+      "worklogs": [
+        { "id": "10006", "started": "2026-10-19T14:00:00.000+0200", "seconds": 5400, "comment": "Weekday cards with daily totals and the selected-day panel." },
+        { "id": "10007", "started": "2026-10-20T09:15:00.000+0200", "seconds": 10800, "comment": "Week navigation, local time zone grouping, and totals calculated in seconds." }
+      ] },
+    { "id": "10018", "key": "KAN-9", "summary": "Implement worklog editing", "status": "Done", "category": "done", "assigned": true, "updated": "2026-10-22T11:30:00.000+0200",
+      "worklogs": [
+        { "id": "10010", "started": "2026-10-21T09:00:00.000+0200", "seconds": 7200, "comment": "Edit panel with date, start time, duration, and description; only changed fields are sent." },
+        { "id": "10012", "started": "2026-10-21T14:00:00.000+0200", "seconds": 7200, "comment": "Validation for durations and skipped daylight-saving times; Jira errors stay in the panel." },
+        { "id": "10013", "started": "2026-10-22T09:00:00.000+0200", "seconds": 9000, "comment": "Delete with confirmation and a warning for unsaved changes." }
+      ] },
+    { "id": "10019", "key": "KAN-10", "summary": "Align worklog card actions with the duration badge", "status": "Done", "category": "done", "assigned": true, "updated": "2026-10-22T13:00:00.000+0200",
+      "worklogs": [
+        { "id": "10014", "started": "2026-10-22T11:45:00.000+0200", "seconds": 4500, "comment": "Moved the log work and edit buttons under the duration badge; checked cards with long comments." }
+      ] },
+    { "id": "10020", "key": "KAN-11", "summary": "Implement Log work from worklog cards", "status": "In Review", "category": "indeterminate", "assigned": true, "updated": "2026-10-22T15:45:00.000+0200",
+      "worklogs": [
+        { "id": "10015", "started": "2026-10-22T14:00:00.000+0200", "seconds": 6300, "comment": "Log work panel with 15m, 30m, and 1h quick durations." }
+      ] },
+    { "id": "10021", "key": "KAN-12", "summary": "Test Chrome and Firefox compatibility", "status": "In Progress", "category": "indeterminate", "assigned": true, "updated": "2026-10-23T17:40:00.000+0200",
+      "worklogs": [
+        { "id": "10009", "started": "2026-10-20T16:00:00.000+0200", "seconds": 3600, "comment": "Loaded the extension in Chrome and Firefox 116; checked storage and the toolbar action." },
+        { "id": "10011", "started": "2026-10-21T11:30:00.000+0200", "seconds": 6300, "comment": "Checked worklogs near midnight and across the daylight-saving change in both browsers." }
+      ] },
+    { "id": "10022", "key": "KAN-13", "summary": "Write the README and privacy policy", "status": "In Progress", "category": "indeterminate", "assigned": true, "updated": "2026-10-23T12:00:00.000+0200",
+      "worklogs": [
+        { "id": "10016", "started": "2026-10-23T09:30:00.000+0200", "seconds": 3600, "comment": "Rewrote the README and drafted the privacy policy for the store listings." }
+      ] },
+    { "id": "10023", "key": "KAN-14", "summary": "Prepare the Firefox Add-ons submission", "status": "To Do", "category": "new", "assigned": true, "updated": "2026-10-23T11:15:00.000+0200",
+      "worklogs": [
+        { "id": "10017", "started": "2026-10-23T10:45:00.000+0200", "seconds": 1800, "comment": "Reviewed the Add-ons listing requirements and the extension ID." }
+      ] }
+  ]
+}

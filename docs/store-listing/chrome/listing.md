@@ -66,13 +66,15 @@ English (United States)
 
 **Proposed screenshots** (in this order; 5 is the maximum):
 
-1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet
-2. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet, with the next public holiday and a running timer
+2. `docs/screenshots/timer-and-pending-worklogs.png`: the timer and a pending worklog
 3. `docs/screenshots/worklog-log-work.png`: logging work
-4. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
-5. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
+4. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+5. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
 
-All 5 screenshots exist, 1280×800 PNG, taken in Chrome (the extension looks the same in Firefox). The weekly timesheet and logging work screenshots show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The connection settings screenshots have blank fields.
+Also available, for the README or to swap in: `connection-settings-data-center.png` (Jira Data Center / Server), `public-holidays-settings.png`, and `keyboard-shortcuts.png`.
+
+The screenshots are 1280×800 PNG, captured in Chrome from the real options page with demonstration data by `docs/screenshots/source/capture.py` (the extension looks the same in Firefox). They show the KAN sample worklogs, the account name "Luciano de Sa", and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The timer and pending worklog are seeded demonstration state, and Public Holidays is set to Italy, so the banner shows its next holiday, All Saints' Day on Nov 1. The connection settings screenshots have blank fields, and the Public Holidays one shows Jira Connection collapsed, so no email or token appears.
 
 ### Additional fields
 
