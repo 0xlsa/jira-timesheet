@@ -158,6 +158,9 @@ const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus')
 
 let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
+// Whether the selected day's panel shows its worklogs: one state for every day, remembered across
+// sessions as My Active Issues' is; collapsed until the user expands it.
+let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'true';
 
 // The date range opens a calendar; the chosen day's week is shown with that day selected, through
 // the same state as the buttons around it.
@@ -513,7 +516,12 @@ function renderDays(aggregatedData, baseUrl = '') {
     onDeleteWorklog: aggregatedData.sourceWorklogs ? confirmDeleteWorklog : undefined,
     editingWorklogId: worklogEditor?.worklogId,
     workingIssues: workingIssuesOptions(),
-    holidays: holidaysForWeek(aggregatedData)
+    holidays: holidaysForWeek(aggregatedData),
+    dayExpanded: isDayPanelExpanded,
+    onToggleDay: (expanded) => {
+      isDayPanelExpanded = expanded;
+      localStorage.setItem('jts-day-panel-expanded', String(expanded));
+    }
   });
 }
 

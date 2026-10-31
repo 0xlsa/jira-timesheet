@@ -734,8 +734,12 @@ export function updateHolidays(container, week, holidays) {
  *   My Active Issues section without it. The section has the ID `workingIssues`.
  * @param {Map<string, { icon: string, label: string }>} [options.holidays] - Public holiday shown
  *   beside a weekday's name, by date key (src/holidays/publicHolidays.js); display only
+ * @param {boolean} [options.dayExpanded] - Whether the selected day's panel shows its worklogs;
+ *   collapsed otherwise. One state for every day.
+ * @param {(expanded: boolean) => void} [options.onToggleDay] - Called after the selected day's
+ *   panel header expands or collapses it
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -806,15 +810,30 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' })));
   addButton?.addEventListener('click', () => onAddWorklog(selectedDay.dateKey));
 
-  panel.append(
-    h('div', { class: 'day-panel-header' },
-      h('div', {},
-        h('h3', { class: 'day-panel-title' }, `${selectedDay.dayName}, ${LONG_DATE_FORMAT.format(selectedDay.date)}`),
-        h('span', { class: 'day-panel-meta' }, `${countLabel} \u2022 ${selectedDay.formattedTotal} total`)),
-      h('div', { class: 'day-panel-side' },
-        h('span', { class: `day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}` }, selectedDay.formattedTotal),
-        addButton))
-  );
+  // The header button expands and collapses the day's worklogs, as My Active Issues' does; the
+  // add button is beside it, not in it (buttons can't go in a button), so it never toggles.
+  const toggle = h('button', { type: 'button', class: 'day-panel-toggle', 'aria-controls': 'selectedDayBody' },
+    svg('svg', { class: 'day-panel-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
+      svg('polyline', { points: '6 9 12 15 18 9' })),
+    h('span', { class: 'day-panel-titles' },
+      h('span', { class: 'day-panel-title' }, `${selectedDay.dayName}, ${LONG_DATE_FORMAT.format(selectedDay.date)}`),
+      h('span', { class: 'day-panel-meta' }, `${countLabel} \u2022 ${selectedDay.formattedTotal} total`)));
+  toggle.addEventListener('click', () => {
+    const expanded = toggle.getAttribute('aria-expanded') !== 'true';
+    setDayPanelExpanded(panel, expanded);
+    onToggleDay?.(expanded);
+  });
+  const header = h('div', { class: 'day-panel-header' },
+    h('h3', { class: 'day-panel-heading' }, toggle),
+    h('div', { class: 'day-panel-side' },
+      h('span', { class: `day-panel-total ${selectedDay.totalDurationSeconds > 0 ? 'has-time' : ''}` }, selectedDay.formattedTotal),
+      addButton));
+  // A click elsewhere in the header (the day's total) toggles too; the add button doesn't.
+  header.addEventListener('click', (event) => {
+    if (!event.target.closest('button')) toggle.click();
+  });
+  const body = h('div', { id: 'selectedDayBody', class: 'day-panel-body' });
+  panel.append(header, body);
 
   if (selectedDay.worklogs.length > 0) {
     const listEl = document.createElement('div');
@@ -842,13 +861,25 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
       });
     }
 
-    panel.appendChild(listEl);
+    body.appendChild(listEl);
   } else {
     const emptyPlaceholder = document.createElement('div');
     emptyPlaceholder.className = 'empty-day-placeholder';
     emptyPlaceholder.textContent = 'No worklogs logged for this day.';
-    panel.appendChild(emptyPlaceholder);
+    body.appendChild(emptyPlaceholder);
   }
 
+  setDayPanelExpanded(panel, dayExpanded);
   container.appendChild(panel);
+}
+
+/**
+ * Shows or hides the selected day's worklogs, keeping its header (date, count, and total).
+ * @param {HTMLElement} panel
+ * @param {boolean} expanded
+ */
+function setDayPanelExpanded(panel, expanded) {
+  panel.querySelector('.day-panel-toggle').setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  panel.classList.toggle('is-collapsed', !expanded);
+  panel.querySelector('.day-panel-body').classList.toggle('hidden', !expanded);
 }

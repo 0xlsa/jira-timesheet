@@ -971,6 +971,42 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  cursor: pointer;
+}
+
+.day-panel-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* The header button: chevron, then the date and its count, as My Active Issues' header */
+.day-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-panel-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.day-panel-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .day-panel-title {
@@ -1416,7 +1452,8 @@ body {
   outline-offset: 2px;
 }
 
-.working-issues-chevron {
+.working-issues-chevron,
+.day-panel-chevron {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -1424,7 +1461,8 @@ body {
   transition: transform var(--transition);
 }
 
-.working-issues.is-collapsed .working-issues-chevron {
+.working-issues.is-collapsed .working-issues-chevron,
+.day-panel.is-collapsed .day-panel-chevron {
   transform: rotate(-90deg);
 }
 
@@ -1738,7 +1776,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .working-issues-chevron {
+  .working-issues-chevron,
+  .day-panel-chevron {
     transition: none;
   }
 }
