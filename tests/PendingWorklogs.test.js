@@ -115,81 +115,23 @@ describe('My Active Issues - tabs', () => {
     for (const expanded of [false, true]) {
       const { section } = render({ expanded });
       const titles = section.querySelector('.working-issues-titles').childNodes.map((n) => n.className);
-      assert.deepEqual(titles, ['working-issues-title', 'working-issues-subtitle']);
-      const row = section.querySelector('.working-issues-pending-row');
-      assert.equal(row.parentNode, section.querySelector('.working-issues-toggle'), 'its own row in the header');
-      assert.ok(!row.classList.contains('hidden'));
+      assert.deepEqual(titles, ['working-issues-title', 'working-issues-subtitle', 'working-issues-pending-count']);
       const line = section.querySelector('.working-issues-pending-count');
-      assert.equal(row.childNodes[0], line, 'first, at the left');
       assert.ok(!line.classList.contains('hidden'));
       assert.equal(line.textContent, '3 pending worklogs');
     }
   });
 
-  describe('the timed issue\'s summary, on the pending line', () => {
-    const summaryOf = (section) => section.querySelector('.working-issues-timer-summary');
-    const LONG = 'Investigate authentication failures in Keycloak when the session expires during a long upload';
-
-    it('shows a running timer\'s summary at the right of the pending worklogs, in full (CSS truncates it)', () => {
-      const { section } = render({ running: { ...RUNNING, issueSummary: LONG }, expanded: false });
-      const row = section.querySelector('.working-issues-pending-row');
-      assert.deepEqual(row.childNodes.map((n) => n.className), ['working-issues-pending-count', 'working-issues-timer-summary']);
-      assert.ok(!summaryOf(section).classList.contains('hidden'));
-      assert.equal(summaryOf(section).textContent, LONG);
-      assert.equal(section.querySelector('.working-issues-pending-count').textContent, '3 pending worklogs');
-      assert.equal(section.querySelector('.working-issues-timer-key').textContent, 'KAN-12', 'the timer indicator stays');
-    });
-
-    it('shows a paused timer\'s summary too', () => {
-      const { section } = render({ running: { ...RUNNING, accumulatedMs: 60_000, resumedAt: null } });
-      assert.ok(section.querySelector('.working-issues-timer').classList.contains('is-paused'));
-      assert.equal(summaryOf(section).textContent, 'Fix the login page');
-      assert.ok(!summaryOf(section).classList.contains('hidden'));
-    });
-
-    it('is hidden with no timer, or a timer without a summary, with zero or more pending worklogs', () => {
-      for (const entries of [[], ENTRIES]) {
-        for (const running of [null, { ...RUNNING, issueSummary: '' }]) {
-          const { section } = render({ entries, running });
-          assert.ok(summaryOf(section).classList.contains('hidden'));
-          assert.equal(summaryOf(section).textContent, '');
-          assert.ok(!section.querySelector('.working-issues-pending-row').classList.contains('hidden'), 'the pending line stays');
-          assert.equal(section.querySelector('.working-issues-pending-count').textContent, entries.length ? '3 pending worklogs' : '0 pending worklogs');
-        }
+  it('keeps the pending line, zero or not, with the timed issue on its own line below', () => {
+    for (const entries of [[], ENTRIES]) {
+      for (const running of [null, RUNNING, { ...RUNNING, resumedAt: null, accumulatedMs: 1000 }]) {
+        const { section } = render({ entries, running, expanded: false });
+        assert.equal(section.querySelector('.working-issues-pending-count').textContent, `${entries.length} pending worklogs`);
+        const summary = section.querySelector('.working-issues-timer-summary');
+        assert.equal(summary.classList.contains('hidden'), !running);
+        assert.equal(summary.textContent, running ? 'KAN-12: Fix the login page' : '');
       }
-    });
-
-    it('follows the timer: another issue, then stopped', () => {
-      const { section, options } = render({ running: RUNNING });
-      renderWorkingIssues(section, { ...options, timer: { ...options.timer, running: { ...RUNNING, id: 'r2', issueKey: 'KAN-7', issueSummary: 'Write the docs' } } });
-      assert.equal(summaryOf(section).textContent, 'Write the docs');
-      assert.equal(section.querySelector('.working-issues-timer-key').textContent, 'KAN-7');
-      renderWorkingIssues(section, { ...options, timer: { ...options.timer, running: null } });
-      assert.ok(summaryOf(section).classList.contains('hidden'));
-      assert.equal(summaryOf(section).textContent, '');
-    });
-
-    it('hides the whole line with neither pending worklogs nor a summary', () => {
-      const { options } = sectionOptions();
-      const section = h('section', { id: 'workingIssues' });
-      renderWorkingIssues(section, { ...options, pending: undefined });
-      assert.ok(section.querySelector('.working-issues-pending-row').classList.contains('hidden'));
-      renderWorkingIssues(section, { ...options, pending: undefined, timer: { ...options.timer, running: RUNNING } });
-      assert.ok(!section.querySelector('.working-issues-pending-row').classList.contains('hidden'));
-      assert.ok(section.querySelector('.working-issues-pending-count').classList.contains('hidden'));
-    });
-
-    it('lets the summary shrink first: the count keeps its width, the summary truncates with an ellipsis', () => {
-      const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
-      const rule = (selector) => css.match(new RegExp(`\\n${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`))[1];
-      assert.match(rule('.working-issues-pending-row'), /grid-column: 2 \/ -1;[\s\S]*display: flex;[\s\S]*min-width: 0;/);
-      assert.match(rule('.working-issues-pending-count'), /flex-shrink: 0;[\s\S]*white-space: nowrap;/);
-      const summary = rule('.working-issues-timer-summary');
-      for (const declaration of ['min-width: 0;', 'overflow: hidden;', 'text-overflow: ellipsis;', 'white-space: nowrap;', 'text-align: right;']) {
-        assert.ok(summary.includes(declaration), declaration);
-      }
-      assert.doesNotMatch(css, /working-issues-timer-summary[^{]*\{[^}]*position: absolute/);
-    });
+    }
   });
 
   it('says "pending worklog" for one, and "pending worklogs" for none or several', () => {
@@ -249,9 +191,10 @@ describe('My Active Issues - tabs', () => {
     const { section } = render({ running: RUNNING, expanded: false });
     assert.ok(section.querySelector('.working-issues-body').classList.contains('hidden'));
     assert.ok(section.querySelector('.working-issues-body').querySelector('[role="tablist"]'));
-    const indicator = section.querySelector('.working-issues-timer');
-    assert.ok(!indicator.classList.contains('hidden'));
-    assert.equal(indicator.querySelector('.working-issues-timer-key').textContent, 'KAN-12');
+    const controls = section.querySelector('.working-issues-timer');
+    assert.ok(!controls.classList.contains('hidden'));
+    assert.deepEqual(controls.querySelectorAll('.working-issue-timer-btn').map((b) => [b.dataset.issueKey, b.dataset.timerAction]),
+      [['KAN-12', 'pause'], ['KAN-12', 'stop']]);
   });
 
   it('switches tabs without touching the timer or pending worklogs, and reports the choice', () => {
@@ -433,7 +376,7 @@ describe('My Active Issues - counts follow the stored state', () => {
     active: section.querySelector('#workingIssuesTab-active').textContent,
     pending: section.querySelector('#workingIssuesTab-pending').textContent,
     line: section.querySelector('.working-issues-pending-count').textContent,
-    timer: section.querySelector('.working-issues-timer').classList.contains('hidden') ? null : section.querySelector('.working-issues-timer-key').textContent
+    timer: section.querySelector('.working-issues-timer').classList.contains('hidden') ? null : section.querySelector('.working-issues-timer').querySelector('.working-issue-timer-btn').dataset.issueKey
   });
 
   it('updates on stop, switch, and discard, and lists then drops a running issue Jira doesn\'t list', async () => {

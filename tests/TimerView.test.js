@@ -37,12 +37,17 @@ function timerOptions(overrides = {}) {
   };
 }
 
+// The list, below the header (which has its own timer buttons while a timer runs).
+const bodyOf = (section) => section.querySelector('.working-issues-body');
 // The row's first timer button: Start, Pause, or Resume.
 const timerButton = (section, issueKey) =>
-  section.querySelectorAll('.working-issue-timer-btn').find((btn) => btn.dataset.issueKey === issueKey);
+  bodyOf(section).querySelectorAll('.working-issue-timer-btn').find((btn) => btn.dataset.issueKey === issueKey);
 // The running issue's Stop button.
 const stopButton = (section, issueKey) =>
-  section.querySelectorAll('.working-issue-timer-btn').find((btn) => btn.dataset.issueKey === issueKey && btn.dataset.timerAction === 'stop');
+  bodyOf(section).querySelectorAll('.working-issue-timer-btn').find((btn) => btn.dataset.issueKey === issueKey && btn.dataset.timerAction === 'stop');
+// The header's timer controls, and their buttons.
+const headerTimerOf = (section) => section.querySelector('.working-issues-timer');
+const headerButtons = (section) => headerTimerOf(section).querySelectorAll('.working-issue-timer-btn');
 
 describe('Timer - elapsed time format', () => {
   it('shows hours, minutes, and seconds, two digits each', () => {
@@ -93,7 +98,7 @@ describe('Timer - My Active Issues controls', () => {
     assert.equal(stop.getAttribute('aria-label'), 'Stop the timer on KAN-12');
     assert.equal(timerButton(section, 'KAN-13').dataset.timerAction, 'start');
 
-    const elapsed = section.querySelectorAll('.working-issue-elapsed');
+    const elapsed = bodyOf(section).querySelectorAll('.working-issue-elapsed');
     assert.equal(elapsed.length, 1);
     assert.equal(elapsed[0].textContent, '01:02:03');
     assert.ok(stop.parentNode.childNodes.includes(elapsed[0]), 'in the running row');
@@ -192,8 +197,8 @@ describe('Timer - elapsed time updates', () => {
 
     updateWorkingIssuesTimer(section, NOW + 57_000);
 
-    assert.equal(section.querySelector('.working-issue-elapsed').textContent, '01:03:00');
-    assert.equal(section.querySelector('.working-issues-timer-elapsed').textContent, '01:03:00');
+    assert.equal(bodyOf(section).querySelector('.working-issue-elapsed').textContent, '01:03:00');
+    assert.equal(headerTimerOf(section).querySelector('.working-issue-elapsed').textContent, '01:03:00');
     assert.equal(section.querySelector('.working-issues-list'), list);
     assert.deepEqual(section.querySelectorAll('.working-issue'), rows);
     assert.equal(timerButton(section, 'KAN-12'), stop);
@@ -207,58 +212,142 @@ describe('Timer - elapsed time updates', () => {
   });
 });
 
-describe('Timer - header indicator', () => {
+describe('Timer - header controls', () => {
   let restoreDocument;
   before(() => { restoreDocument = installFakeDocument(); });
   after(() => restoreDocument());
 
-  const indicatorOf = (section) => section.querySelector('.working-issues-timer');
-
-  it('shows the running issue and its elapsed time in the header', () => {
+  const summaryOf = (section) => section.querySelector('.working-issues-timer-summary');
+  function render(running, { expanded = false, state = READY, ...extra } = {}) {
+    const calls = [];
+    const toggles = [];
     const section = document.createElement('section');
-    renderWorkingIssues(section, { state: READY, expanded: true, ...timerOptions({ running: RUNNING_KAN_12 }) });
+    const options = (r = running, more = {}) => ({
+      state, expanded, onToggle: (value) => toggles.push(value),
+      ...timerOptions({ running: r, onPause: () => calls.push('pause'), onResume: () => calls.push('resume'), onStop: () => calls.push('stop'), ...extra, ...more })
+    });
+    renderWorkingIssues(section, options());
+    return { section, calls, toggles, rerender: (r, more) => renderWorkingIssues(section, options(r, more)) };
+  }
 
-    const indicator = indicatorOf(section);
-    assert.ok(!indicator.classList.contains('hidden'));
-    assert.equal(indicator.querySelector('.working-issues-timer-key').textContent, 'KAN-12');
-    assert.equal(indicator.querySelector('.working-issues-timer-elapsed').textContent, '01:02:03');
-    assert.equal(indicator.getAttribute('title'), 'Timer running on KAN-12: Fix the login page');
-    // In the header, so it's there whatever state the list is in.
-    assert.ok(section.querySelector('.working-issues-heading').querySelectorAll('.working-issues-timer').includes(indicator));
-  });
-
-  it('stays visible, and keeps updating, while the section is collapsed', () => {
-    const section = document.createElement('section');
-    renderWorkingIssues(section, { state: READY, expanded: false, ...timerOptions({ running: RUNNING_KAN_12 }) });
-
+  it('shows the elapsed time, Pause, and Stop at the top right while running, collapsed', () => {
+    const { section } = render(RUNNING_KAN_12);
     assert.ok(section.classList.contains('is-collapsed'));
-    assert.ok(section.querySelector('.working-issues-body').classList.contains('hidden'));
-    assert.ok(!indicatorOf(section).classList.contains('hidden'));
+    const controls = headerTimerOf(section);
+    assert.ok(!controls.classList.contains('hidden'));
+    assert.deepEqual(controls.childNodes.map((n) => n.className),
+      ['sr-only', 'working-issue-elapsed', 'working-issue-timer-btn', 'working-issue-timer-btn is-running']);
+    assert.equal(controls.textContent, 'Timer running on KAN-12: 01:02:03');
+    assert.deepEqual(headerButtons(section).map((b) => [b.dataset.timerAction, b.getAttribute('aria-label')]),
+      [['pause', 'Pause the timer on KAN-12'], ['stop', 'Stop the timer on KAN-12']]);
+  });
 
+  it('sits beside the header button, not in it, with the timed issue on a line under both', () => {
+    const { section } = render(RUNNING_KAN_12);
+    const header = section.querySelector('.working-issues-header');
+    assert.deepEqual(header.childNodes.map((n) => n.className),
+      ['working-issues-heading', 'working-issues-timer', 'working-issues-timer-summary']);
+    assert.equal(section.querySelector('.working-issues-toggle').querySelector('button'), null, 'no button in the button');
+    assert.equal(header.parentNode, section);
+    assert.ok(section.classList.contains('has-timer'));
+  });
+
+  it('shows Resume and Stop while paused, with the time standing still', () => {
+    const { section } = render({ ...RUNNING_KAN_12, accumulatedMs: 300_000, resumedAt: null });
+    assert.deepEqual(headerButtons(section).map((b) => b.dataset.timerAction), ['resume', 'stop']);
+    const elapsed = headerTimerOf(section).querySelector('.working-issue-elapsed');
+    assert.equal(elapsed.textContent, '00:05:00');
+    assert.ok(elapsed.classList.contains('is-paused'));
+    assert.equal(headerTimerOf(section).textContent, 'Timer paused on KAN-12: 00:05:00');
+    updateWorkingIssuesTimer(section, NOW + 60_000);
+    assert.equal(elapsed.textContent, '00:05:00');
+  });
+
+  it('keeps the running time current, collapsed', () => {
+    const { section } = render(RUNNING_KAN_12);
     updateWorkingIssuesTimer(section, NOW + 1000);
-    assert.equal(indicatorOf(section).querySelector('.working-issues-timer-elapsed').textContent, '01:02:04');
+    assert.equal(headerTimerOf(section).querySelector('.working-issue-elapsed').textContent, '01:02:04');
   });
 
-  it('shows a running issue that isn\'t in the list, and one while the issues load', () => {
-    const elsewhere = { ...RUNNING_KAN_12, issueId: '20001', issueKey: 'OPS-4', issueSummary: '' };
-    const section = document.createElement('section');
-    renderWorkingIssues(section, { state: { status: 'loading' }, expanded: true, ...timerOptions({ running: elsewhere }) });
-
-    assert.equal(indicatorOf(section).querySelector('.working-issues-timer-key').textContent, 'OPS-4');
-    assert.equal(indicatorOf(section).getAttribute('title'), 'Timer running on OPS-4');
+  it('shows the timed issue as "KEY: summary" under the header, and just the key without a summary', () => {
+    const { section, rerender } = render(RUNNING_KAN_12);
+    assert.ok(!summaryOf(section).classList.contains('hidden'));
+    assert.equal(summaryOf(section).textContent, 'KAN-12: Fix the login page');
+    assert.equal(summaryOf(section).getAttribute('title'), 'KAN-12: Fix the login page', 'in full when truncated');
+    rerender({ ...RUNNING_KAN_12, issueId: '20001', issueKey: 'OPS-4', issueSummary: '' });
+    assert.equal(summaryOf(section).textContent, 'OPS-4');
   });
 
-  it('disappears when the timer stops, and is hidden without a timer', () => {
-    const section = document.createElement('section');
-    renderWorkingIssues(section, { state: READY, expanded: true, ...timerOptions({ running: RUNNING_KAN_12 }) });
-    renderWorkingIssues(section, { state: READY, expanded: true, ...timerOptions() });
+  it('follows the timer to another issue, and is hidden without one', () => {
+    const { section, rerender } = render(RUNNING_KAN_12);
+    rerender({ ...RUNNING_KAN_12, issueId: '10013', issueKey: 'KAN-13', issueSummary: 'Write the release notes' });
+    assert.equal(summaryOf(section).textContent, 'KAN-13: Write the release notes');
+    assert.deepEqual(headerButtons(section).map((b) => b.dataset.issueKey), ['KAN-13', 'KAN-13']);
 
-    assert.ok(indicatorOf(section).classList.contains('hidden'));
-    assert.equal(indicatorOf(section).childNodes.length, 0);
+    rerender(null);
+    assert.ok(headerTimerOf(section).classList.contains('hidden'));
+    assert.equal(headerTimerOf(section).childNodes.length, 0);
+    assert.ok(summaryOf(section).classList.contains('hidden'));
+    assert.equal(summaryOf(section).textContent, '');
+    assert.ok(!section.classList.contains('has-timer'));
 
     const plain = document.createElement('section');
-    renderWorkingIssues(plain, { state: READY, expanded: true });
-    assert.ok(indicatorOf(plain).classList.contains('hidden'));
+    renderWorkingIssues(plain, { state: READY, expanded: false });
+    assert.ok(headerTimerOf(plain).classList.contains('hidden'));
+    assert.ok(summaryOf(plain).classList.contains('hidden'));
+  });
+
+  it('shows a timed issue that isn\'t in the list, and one while the issues load', () => {
+    const elsewhere = { ...RUNNING_KAN_12, issueId: '20001', issueKey: 'OPS-4', issueSummary: 'Rotate keys' };
+    const { section } = render(elsewhere, { state: { status: 'loading' } });
+    assert.deepEqual(headerButtons(section).map((b) => b.dataset.issueKey), ['OPS-4', 'OPS-4']);
+    assert.equal(summaryOf(section).textContent, 'OPS-4: Rotate keys');
+  });
+
+  it('calls the page\'s Pause, Resume, and Stop, without expanding or collapsing the section', () => {
+    const running = render(RUNNING_KAN_12);
+    headerButtons(running.section)[0].click();
+    headerButtons(running.section)[1].click();
+    const paused = render({ ...RUNNING_KAN_12, resumedAt: null, accumulatedMs: 1000 }, { expanded: true });
+    headerButtons(paused.section)[0].click();
+    assert.deepEqual(running.calls, ['pause', 'stop']);
+    assert.deepEqual(paused.calls, ['resume']);
+    assert.deepEqual([...running.toggles, ...paused.toggles], []);
+    assert.ok(running.section.classList.contains('is-collapsed'));
+    assert.ok(!paused.section.classList.contains('is-collapsed'));
+  });
+
+  it('ignores clicks while busy, and passes them on when unavailable, as the rows do', () => {
+    const busy = render(RUNNING_KAN_12, { busy: true });
+    assert.deepEqual(headerButtons(busy.section).map((b) => b.getAttribute('aria-disabled')), ['true', 'true']);
+    headerButtons(busy.section)[1].click();
+    assert.deepEqual(busy.calls, []);
+
+    const off = render(RUNNING_KAN_12, { unavailable: 'The timer is turned off.' });
+    assert.equal(headerButtons(off.section)[0].getAttribute('title'), 'The timer is turned off.');
+    headerButtons(off.section)[1].click();
+    assert.deepEqual(off.calls, ['stop']);
+  });
+
+  it('toggles from a click elsewhere in the header, but not from the time between the buttons', () => {
+    const { section, toggles } = render(RUNNING_KAN_12);
+    headerTimerOf(section).querySelector('.working-issue-elapsed').dispatchEvent({ type: 'click', bubbles: true });
+    assert.deepEqual(toggles, []);
+    summaryOf(section).dispatchEvent({ type: 'click', bubbles: true });
+    assert.deepEqual(toggles, [true]);
+    assert.ok(!section.classList.contains('is-collapsed'));
+  });
+
+  it('keeps focus from Pause to Resume, and gives it to the header button when the timer stops', () => {
+    const { section, rerender } = render(RUNNING_KAN_12);
+    headerButtons(section)[0].focus();
+    rerender({ ...RUNNING_KAN_12, resumedAt: null, accumulatedMs: 1000 });
+    assert.equal(document.activeElement, headerButtons(section)[0]);
+    assert.equal(document.activeElement.dataset.timerAction, 'resume');
+
+    headerButtons(section)[1].focus();
+    rerender(null);
+    assert.equal(document.activeElement, section.querySelector('.working-issues-toggle'));
   });
 
   it('comes with the section in the weekly view', () => {
@@ -267,16 +356,21 @@ describe('Timer - header indicator', () => {
       selectedDateKey: '2026-10-26', onSelectDay: () => {},
       workingIssues: { state: READY, expanded: false, ...timerOptions({ running: RUNNING_KAN_12 }) }
     });
-    const indicator = container.querySelector('#workingIssues').querySelector('.working-issues-timer');
-    assert.ok(!indicator.classList.contains('hidden'));
+    const controls = container.querySelector('#workingIssues').querySelector('.working-issues-timer');
+    assert.ok(!controls.classList.contains('hidden'));
   });
 
-  it('is styled to stay in the header row, and pulses only when motion is allowed', () => {
+  it('is laid out with a grid: controls at the top right, and the timed issue truncating just below them', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
-    // Its own auto-width column on the header's first row, so the titles shrink, not the timer.
-    assert.match(css, /\.working-issues-toggle \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto auto;/);
-    assert.match(css, /\.working-issues-timer \{[^}]*grid-column: 3;\s*grid-row: 1;/);
-    assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[^@]*\.working-issues-timer-dot \{\s*animation: none;/);
+    const rule = (selector) => css.match(new RegExp(`\\n${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`))[1];
+    assert.match(rule('.working-issues-header'), /display: grid;\s*grid-template-columns: minmax\(0, 1fr\) auto;/);
+    assert.match(css, /\.working-issues\.has-timer \.working-issues-header \{\s*grid-template-columns: minmax\(0, max-content\) minmax\(max-content, 1fr\);/);
+    assert.match(rule('.working-issues-timer'), /grid-column: 2;\s*grid-row: 1;/);
+    const summary = rule('.working-issues-timer-summary');
+    for (const declaration of ['grid-column: 2;', 'grid-row: 2;', 'width: 0;', 'min-width: 100%;', 'overflow: hidden;', 'text-align: right;', 'text-overflow: ellipsis;', 'white-space: nowrap;']) {
+      assert.ok(summary.includes(declaration), declaration);
+    }
+    assert.doesNotMatch(css, /working-issues-timer[^{]*\{[^}]*position: absolute/);
   });
 });
 
@@ -445,7 +539,7 @@ describe('Timer - pause and resume controls', () => {
   // Running for 5 minutes banked before a pause, and 2 more since resuming.
   const RUNNING = { ...RUNNING_KAN_12, accumulatedMs: 300_000, resumedAt: NOW - 120_000 };
   const PAUSED = { ...RUNNING_KAN_12, accumulatedMs: 300_000, resumedAt: null };
-  const controls = (section, key) => section.querySelectorAll('.working-issue-timer-btn').filter((b) => b.dataset.issueKey === key);
+  const controls = (section, key) => bodyOf(section).querySelectorAll('.working-issue-timer-btn').filter((b) => b.dataset.issueKey === key);
 
   function render(running, extra = {}) {
     const calls = [];
@@ -464,7 +558,7 @@ describe('Timer - pause and resume controls', () => {
     assert.deepEqual([pause.getAttribute('aria-label'), pause.getAttribute('title')], ['Pause the timer on KAN-12', 'Pause timer']);
     assert.deepEqual([stop.getAttribute('aria-label'), stop.getAttribute('title')], ['Stop the timer on KAN-12', 'Stop timer']);
     assert.match(toHtml(pause), /<rect x="6" y="5" width="4" height="14" rx="1"><\/rect><rect x="14" y="5"/);
-    assert.equal(section.querySelector('.working-issue-elapsed').textContent, '00:07:00');
+    assert.equal(bodyOf(section).querySelector('.working-issue-elapsed').textContent, '00:07:00');
     // Other issues: Start only.
     assert.deepEqual(controls(section, 'KAN-13').map((b) => b.dataset.timerAction), ['start']);
   });
@@ -476,7 +570,7 @@ describe('Timer - pause and resume controls', () => {
     assert.deepEqual([resume.getAttribute('aria-label'), resume.getAttribute('title')], ['Resume the timer on KAN-12', 'Resume timer']);
     assert.match(toHtml(resume), /<polygon points="7 4 20 12 7 20 7 4">/);
 
-    const elapsed = section.querySelector('.working-issue-elapsed');
+    const elapsed = bodyOf(section).querySelector('.working-issue-elapsed');
     assert.equal(elapsed.textContent, '00:05:00');
     assert.ok(elapsed.classList.contains('is-paused'));
     updateWorkingIssuesTimer(section, NOW + 3_600_000);
@@ -486,8 +580,8 @@ describe('Timer - pause and resume controls', () => {
   it('keeps a running time current from what it banked and when it resumed', () => {
     const { section } = render(RUNNING);
     updateWorkingIssuesTimer(section, NOW + 30_000);
-    assert.equal(section.querySelector('.working-issue-elapsed').textContent, '00:07:30');
-    assert.equal(section.querySelector('.working-issues-timer-elapsed').textContent, '00:07:30');
+    assert.equal(bodyOf(section).querySelector('.working-issue-elapsed').textContent, '00:07:30');
+    assert.equal(headerTimerOf(section).querySelector('.working-issue-elapsed').textContent, '00:07:30');
   });
 
   it('calls Pause, Resume, and Stop', () => {
@@ -498,22 +592,6 @@ describe('Timer - pause and resume controls', () => {
     controls(paused.section, 'KAN-12')[0].click();
     assert.deepEqual(running.calls, ['pause', 'stop']);
     assert.deepEqual(paused.calls, ['resume']);
-  });
-
-  it('marks the header as paused, with the time standing still', () => {
-    const { section } = render(PAUSED, {}); // collapsed or not, the header is the same
-    const indicator = section.querySelector('.working-issues-timer');
-    assert.ok(indicator.classList.contains('is-paused'));
-    assert.equal(indicator.querySelector('.working-issues-timer-state').textContent, 'Paused');
-    assert.equal(indicator.getAttribute('title'), 'Timer paused on KAN-12: Fix the login page');
-    assert.equal(indicator.querySelector('.working-issues-timer-elapsed').textContent, '00:05:00');
-
-    const live = render(RUNNING).section.querySelector('.working-issues-timer');
-    assert.ok(!live.classList.contains('is-paused'));
-    assert.equal(live.querySelector('.working-issues-timer-state'), null);
-    // Exactly what's read and shown: nothing after the time while running.
-    assert.equal(live.textContent, 'Timer running on KAN-12, 00:07:00');
-    assert.equal(indicator.textContent, 'Timer paused on KAN-12, 00:05:00Paused');
   });
 
   it('keeps focus in place from Pause to Resume, and moves it from Stop to Start', () => {
@@ -533,7 +611,7 @@ describe('Timer - pause and resume controls', () => {
   it('marks its play buttons (Start, Resume) for the solid blue style, and Pause and Stop not', () => {
     const running = render(RUNNING).section;
     const paused = render(PAUSED).section;
-    const actions = (section) => section.querySelectorAll('.working-issue-timer-btn').map((b) => b.dataset.timerAction);
+    const actions = (section) => bodyOf(section).querySelectorAll('.working-issue-timer-btn').map((b) => b.dataset.timerAction);
     assert.deepEqual(actions(running), ['pause', 'stop', 'start']);
     assert.deepEqual(actions(paused), ['resume', 'stop', 'start']);
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');

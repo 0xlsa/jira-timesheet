@@ -1367,18 +1367,34 @@ body {
 }
 
 .working-issues-heading {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  min-width: 0;
   margin: 0;
   font-size: inherit;
   font-weight: inherit;
 }
 
-/* Chevron, titles, timer, and spinner on the first row; the pending row under the titles, out to
-   the right edge. Gaps are margins, so a hidden timer or empty spinner leaves no gap behind. */
-.working-issues-toggle {
+/* The header button on the left; on the right, the timer controls at the top and the timed issue
+   just below them. A click anywhere but the controls toggles, so it all looks clickable. */
+.working-issues-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  grid-template-rows: auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto 1fr;
+  align-items: start;
+  cursor: pointer;
+}
+
+/* With a timer, the text keeps its width when it can, and the right column takes the rest: at
+   least the controls, with the timed issue truncating in whatever is left. */
+.working-issues.has-timer .working-issues-header {
+  grid-template-columns: minmax(0, max-content) minmax(max-content, 1fr);
+}
+
+.working-issues-toggle {
+  display: flex;
   align-items: center;
+  gap: 10px;
   width: 100%;
   padding: 12px 18px;
   background: none;
@@ -1390,14 +1406,18 @@ body {
   cursor: pointer;
 }
 
+/* The controls bring their own gap on the right */
+.working-issues.has-timer .working-issues-toggle {
+  padding-right: 0;
+}
+
 .working-issues-toggle:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
 
 .working-issues-chevron {
-  grid-row: 1 / -1;
-  margin-right: 10px;
+  flex-shrink: 0;
   width: 16px;
   height: 16px;
   color: var(--text-subtle);
@@ -1412,8 +1432,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  grid-column: 2;
-  grid-row: 1;
+  flex: 1;
   min-width: 0;
 }
 
@@ -1428,32 +1447,10 @@ body {
   color: var(--text-subtle);
 }
 
-/* The pending worklogs, on their own line under the subtitle, and the timed issue's summary at
-   the right; the summary shrinks first, and never under the count. */
-.working-issues-pending-row {
-  grid-column: 2 / -1;
-  grid-row: 2;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-  margin-top: 2px;
+/* The pending worklogs, on their own line under the subtitle */
+.working-issues-pending-count {
   font-size: 12px;
   color: var(--text-subtle);
-}
-
-.working-issues-pending-count {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.working-issues-timer-summary {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
 }
 
 .working-issues.is-error .working-issues-subtitle {
@@ -1461,9 +1458,7 @@ body {
 }
 
 .working-issues-indicator {
-  grid-column: 4;
-  grid-row: 1;
-  margin-left: 10px;
+  flex-shrink: 0;
   display: inline-flex;
   align-items: center;
 }
@@ -1473,73 +1468,51 @@ body {
   display: none;
 }
 
-/* Running-timer indicator in the header: the issue and its elapsed time, shown collapsed too */
+/* The timer controls at the header's top right: the elapsed time, Pause (or Resume), and Stop,
+   as in the timed issue's row. Shown collapsed too. */
 .working-issues-timer {
-  grid-column: 3;
+  grid-column: 2;
   grid-row: 1;
-  margin-left: 10px;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  background-color: var(--danger-bg);
-  border: 1px solid var(--danger-border);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-main);
+  gap: 8px;
+  padding: 12px 18px 0 10px;
+  cursor: default;
 }
 
 .working-issues-timer.hidden {
   display: none;
 }
 
-.working-issues-timer-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--danger);
-  animation: timer-pulse 1.6s ease-in-out infinite;
+/* The timed issue ("KAN-12: Fix the login page"), right-aligned just below the controls. It
+   doesn't size its column (width 0, then the column's full width), so it truncates rather than
+   pushing into the text. */
+.working-issues-timer-summary {
+  grid-column: 2;
+  grid-row: 2;
+  width: 0;
+  min-width: 100%;
+  padding: 6px 18px 0 10px;
+  overflow: hidden;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.working-issues-timer-elapsed,
 .working-issue-elapsed {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-}
-
-.working-issue-elapsed {
   font-size: 12px;
   font-weight: 600;
   color: var(--danger);
 }
 
-/* Paused: the time stands still, and the header says so */
-.working-issue-elapsed.is-paused,
-.working-issues-timer.is-paused .working-issues-timer-elapsed {
+/* Paused: the time stands still */
+.working-issue-elapsed.is-paused {
   color: var(--text-subtle);
-}
-
-.working-issues-timer.is-paused {
-  background-color: var(--bg-card-elevated);
-  border-color: var(--border-color);
-}
-
-.working-issues-timer.is-paused .working-issues-timer-dot {
-  background-color: var(--text-muted);
-  animation: none;
-}
-
-.working-issues-timer-state {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-subtle);
-}
-
-@keyframes timer-pulse {
-  50% {
-    opacity: 0.35;
-  }
 }
 
 .working-issues-spinner {
@@ -1767,10 +1740,6 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .working-issues-chevron {
     transition: none;
-  }
-
-  .working-issues-timer-dot {
-    animation: none;
   }
 }
 

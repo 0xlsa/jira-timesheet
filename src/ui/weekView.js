@@ -239,24 +239,49 @@ const TIMER_ACTIONS = {
 function renderIssueTimer(issue, timer) {
   const timed = isTimedIssue(issue, timer);
   const paused = timed && isPaused(timer.running);
-  const inactive = Boolean(timer.busy || timer.unavailable);
   const focusKey = `${issue.site ?? timer.site}|${issue.issueKey}`;
   // The first button keeps its place through start, pause, and resume, so focus stays on it.
-  const button = (action, slot) => h('button', {
-    type: 'button',
-    class: `working-issue-timer-btn${action === 'stop' ? ' is-running' : ''}${action === 'resume' ? ' is-paused' : ''}`,
-    'data-issue-key': issue.issueKey,
-    'data-timer-action': action,
-    'data-focus-key': `${slot}:${focusKey}`,
-    'aria-label': TIMER_ACTIONS[action].label(issue.issueKey),
-    title: timer.unavailable || TIMER_ACTIONS[action].title,
-    'aria-disabled': inactive ? 'true' : undefined
-  }, renderTimerIcon(TIMER_ACTIONS[action].icon));
-
   return h('span', { class: 'working-issue-timer' },
     timed && renderElapsed(timer.running, timer.now, 'working-issue-elapsed'),
-    button(!timed ? 'start' : paused ? 'resume' : 'pause', 'timer'),
-    timed && button('stop', 'timer-stop'));
+    renderTimerButton(!timed ? 'start' : paused ? 'resume' : 'pause', issue.issueKey, timer, `timer:${focusKey}`),
+    timed && renderTimerButton('stop', issue.issueKey, timer, `timer-stop:${focusKey}`));
+}
+
+/**
+ * Builds one timer button, for a My Active Issues row or the header. While a change is in progress
+ * (or the timer is unavailable), it's marked disabled with aria-disabled, so it keeps focus.
+ * @param {'start' | 'pause' | 'resume' | 'stop'} action
+ * @param {string} issueKey
+ * @param {{ busy?: boolean, unavailable?: string }} timer
+ * @param {string} focusKey
+ * @returns {HTMLElement}
+ */
+function renderTimerButton(action, issueKey, timer, focusKey) {
+  return h('button', {
+    type: 'button',
+    class: `working-issue-timer-btn${action === 'stop' ? ' is-running' : ''}${action === 'resume' ? ' is-paused' : ''}`,
+    'data-issue-key': issueKey,
+    'data-timer-action': action,
+    'data-focus-key': focusKey,
+    'aria-label': TIMER_ACTIONS[action].label(issueKey),
+    title: timer.unavailable || TIMER_ACTIONS[action].title,
+    'aria-disabled': timer.busy || timer.unavailable ? 'true' : undefined
+  }, renderTimerIcon(TIMER_ACTIONS[action].icon));
+}
+
+/**
+ * Runs a timer button's action with the page's timer handlers, from a row or the header. An
+ * unavailable timer still answers the click (the page explains why); a busy one doesn't.
+ * @param {object} timer - renderWorkingIssues()'s `timer` options
+ * @param {string} action - The button's data-timer-action
+ * @param {object} [issue] - The row's issue, for Start
+ */
+function runTimerAction(timer, action, issue) {
+  if (timer.busy) return;
+  if (action === 'stop') timer.onStop();
+  else if (action === 'pause') timer.onPause?.();
+  else if (action === 'resume') timer.onResume?.();
+  else timer.onStart(issue);
 }
 
 /**
@@ -305,31 +330,51 @@ function renderWorkingIssue(issue, baseUrl, canLogWork, timer, index) {
 }
 
 /**
- * Fills the header's running-timer indicator: the issue and its elapsed time, or nothing (hidden)
- * when no timer runs. It's in the header, so it shows while the section is collapsed too.
- * @param {HTMLElement} indicator
+ * Fills the header's timer controls: the elapsed time with Pause (Resume while paused) and Stop,
+ * the same buttons and handlers as the timed issue's row; or nothing (hidden) when no timer runs.
+ * They're beside the header button, not in it, so they work while the section is collapsed and a
+ * click on one doesn't expand or collapse it.
+ * @param {HTMLElement} controls
  * @param {object} [timer]
  */
-function renderHeaderTimer(indicator, timer) {
+function renderHeaderTimer(controls, timer) {
   const running = timer?.running;
-  indicator.classList.toggle('hidden', !running);
+  controls.classList.toggle('hidden', !running);
   if (!running) {
-    indicator.replaceChildren();
-    indicator.removeAttribute('title');
+    controls.replaceChildren();
     return;
   }
   const paused = isPaused(running);
-  const state = paused ? 'paused' : 'running';
-  indicator.classList.toggle('is-paused', paused);
-  indicator.setAttribute('title', `Timer ${state} on ${running.issueKey}${running.issueSummary ? `: ${running.issueSummary}` : ''}`);
-  // fragment() leaves out the Paused label while running (replaceChildren() would show `false`).
-  indicator.replaceChildren(fragment(
-    h('span', { class: 'working-issues-timer-dot', 'aria-hidden': 'true' }),
-    h('span', { class: 'sr-only' }, `Timer ${state} on `),
-    h('span', { class: 'working-issues-timer-key' }, running.issueKey),
-    h('span', { class: 'sr-only' }, ', '),
-    renderElapsed(running, timer.now, 'working-issues-timer-elapsed'),
-    paused && h('span', { class: 'working-issues-timer-state' }, 'Paused')));
+  const focusKey = `${running.site}|${running.issueKey}`;
+  const buttons = [
+    renderTimerButton(paused ? 'resume' : 'pause', running.issueKey, timer, `header-timer:${focusKey}`),
+    renderTimerButton('stop', running.issueKey, timer, `header-timer-stop:${focusKey}`)
+  ];
+  for (const button of buttons) {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      runTimerAction(timer, button.dataset.timerAction);
+    });
+  }
+  controls.replaceChildren(
+    h('span', { class: 'sr-only' }, `Timer ${paused ? 'paused' : 'running'} on ${running.issueKey}: `),
+    renderElapsed(running, timer.now, 'working-issue-elapsed'),
+    ...buttons);
+}
+
+/**
+ * Fills the line under the header with the timed issue, running or paused ("KAN-12: Fix the login
+ * page"), or hides it.
+ * @param {HTMLElement} line
+ * @param {object} [timer]
+ */
+function renderHeaderTimerSummary(line, timer) {
+  const running = timer?.running;
+  const text = running ? (running.issueSummary ? `${running.issueKey}: ${running.issueSummary}` : running.issueKey) : '';
+  line.classList.toggle('hidden', !text);
+  line.textContent = text;
+  if (text) line.setAttribute('title', text);
+  else line.removeAttribute('title');
 }
 
 /**
@@ -392,22 +437,31 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
         svg('polyline', { points: '6 9 12 15 18 9' })),
       h('span', { class: 'working-issues-titles' },
         h('span', { class: 'working-issues-title' }, 'My Active Issues'),
-        h('span', { class: 'working-issues-subtitle' })),
-      h('span', { class: 'working-issues-timer hidden' }),
-      h('span', { class: 'working-issues-indicator' }),
-      // Its own row under the titles, out to the header's right edge, under the timer.
-      h('span', { class: 'working-issues-pending-row hidden' },
-        h('span', { class: 'working-issues-pending-count hidden' }),
-        h('span', { class: 'working-issues-timer-summary hidden' })));
+        h('span', { class: 'working-issues-subtitle' }),
+        h('span', { class: 'working-issues-pending-count hidden' })),
+      h('span', { class: 'working-issues-indicator' }));
     toggle.addEventListener('click', () => {
       const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
       setWorkingIssuesExpanded(section, isExpanded);
       onToggle?.(isExpanded);
     });
-    section.replaceChildren(
+    // The timer controls (top right) and the timed issue (under the titles) are beside the header
+    // button: buttons can't go in a button. A click elsewhere in the header, other than on the
+    // timer controls, still toggles.
+    const header = h('div', { class: 'working-issues-header' },
       h('h3', { class: 'working-issues-heading' }, toggle),
-      h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }));
+      h('span', { class: 'working-issues-timer hidden' }),
+      h('span', { class: 'working-issues-timer-summary hidden' }));
+    header.addEventListener('click', (event) => {
+      if (!event.target.closest('button, .working-issues-timer')) toggle.click();
+    });
+    section.replaceChildren(header, h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }));
   }
+
+  // Rebuilding the header's timer controls or the body replaces the button that had focus (Pause
+  // becomes Resume, Start becomes Stop, a tab re-renders): give focus to the new one with the same
+  // focus key.
+  const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
   // One row per issue, and the badge counts the rows.
   const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
@@ -420,17 +474,13 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     : subtitle;
   toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
     state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' })));
-  renderHeaderTimer(toggle.querySelector('.working-issues-timer'), timer);
+  renderHeaderTimer(section.querySelector('.working-issues-timer'), timer);
+  renderHeaderTimerSummary(section.querySelector('.working-issues-timer-summary'), timer);
+  section.classList.toggle('has-timer', Boolean(timer?.running));
   // The pending worklogs, on their own line under the subtitle, so they show while collapsed too.
   const pendingCount = toggle.querySelector('.working-issues-pending-count');
   pendingCount.classList.toggle('hidden', !pending);
   pendingCount.textContent = pending ? formatPendingCount(pending.entries.length) : '';
-  // The timed issue's summary, at the right of the pending worklogs, running or paused.
-  const timerSummary = toggle.querySelector('.working-issues-timer-summary');
-  const summary = timer?.running?.issueSummary || '';
-  timerSummary.classList.toggle('hidden', !summary);
-  timerSummary.textContent = summary;
-  toggle.querySelector('.working-issues-pending-row').classList.toggle('hidden', !pending && !summary);
 
   const retryButton = state.status === 'error' && onRetry
     ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm working-issues-retry' }, 'Retry')
@@ -456,18 +506,9 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       const issue = rows[Number(button.closest('.working-issue')?.dataset.rowIndex)];
       if (!issue) return;
       if (logBtn) onLogWork(issue);
-      // An unavailable timer still answers the click (the page explains why); a busy one doesn't.
-      else if (timer.busy) return;
-      else if (timerBtn.dataset.timerAction === 'stop') timer.onStop();
-      else if (timerBtn.dataset.timerAction === 'pause') timer.onPause?.();
-      else if (timerBtn.dataset.timerAction === 'resume') timer.onResume?.();
-      else timer.onStart(issue);
+      else runTimerAction(timer, timerBtn.dataset.timerAction, issue);
     });
   }
-
-  // Rebuilding the body replaces the button that had focus (Start becomes Stop, a tab re-renders):
-  // give focus to the new one with the same focus key.
-  const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
   const errorMessage = state.status === 'error' && h('div', { class: 'working-issues-message', role: 'status' },
     h('p', {}, state.message || workingIssuesSubtitle(state)),
@@ -493,13 +534,15 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   setWorkingIssuesExpanded(section, expanded);
 
   if (focusKey) {
-    const all = [...body.querySelectorAll('[data-focus-key]')];
+    const all = [...section.querySelectorAll('[data-focus-key]')];
     // A pending worklog that's gone (discarded) leaves focus on the Pending tab.
     const target = all.find((el) => el.dataset.focusKey === focusKey) ||
       // Stop leaves the issue's other timer button (now Start); a submitted or discarded pending
       // worklog leaves the Pending tab.
       (focusKey.startsWith('timer-stop:') ? all.find((el) => el.dataset.focusKey === `timer:${focusKey.slice('timer-stop:'.length)}`) : null) ||
-      (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'tab:pending') : null);
+      (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'tab:pending') : null) ||
+      // The header's controls go when the timer stops: back to the header button.
+      (focusKey.startsWith('header-timer') ? toggle : null);
     target?.focus();
   }
 }
