@@ -392,10 +392,13 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
         svg('polyline', { points: '6 9 12 15 18 9' })),
       h('span', { class: 'working-issues-titles' },
         h('span', { class: 'working-issues-title' }, 'My Active Issues'),
-        h('span', { class: 'working-issues-subtitle' }),
-        h('span', { class: 'working-issues-pending-count hidden' })),
+        h('span', { class: 'working-issues-subtitle' })),
       h('span', { class: 'working-issues-timer hidden' }),
-      h('span', { class: 'working-issues-indicator' }));
+      h('span', { class: 'working-issues-indicator' }),
+      // Its own row under the titles, out to the header's right edge, under the timer.
+      h('span', { class: 'working-issues-pending-row hidden' },
+        h('span', { class: 'working-issues-pending-count hidden' }),
+        h('span', { class: 'working-issues-timer-summary hidden' })));
     toggle.addEventListener('click', () => {
       const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
       setWorkingIssuesExpanded(section, isExpanded);
@@ -422,6 +425,12 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   const pendingCount = toggle.querySelector('.working-issues-pending-count');
   pendingCount.classList.toggle('hidden', !pending);
   pendingCount.textContent = pending ? formatPendingCount(pending.entries.length) : '';
+  // The timed issue's summary, at the right of the pending worklogs, running or paused.
+  const timerSummary = toggle.querySelector('.working-issues-timer-summary');
+  const summary = timer?.running?.issueSummary || '';
+  timerSummary.classList.toggle('hidden', !summary);
+  timerSummary.textContent = summary;
+  toggle.querySelector('.working-issues-pending-row').classList.toggle('hidden', !pending && !summary);
 
   const retryButton = state.status === 'error' && onRetry
     ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm working-issues-retry' }, 'Retry')

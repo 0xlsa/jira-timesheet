@@ -273,7 +273,9 @@ describe('Timer - header indicator', () => {
 
   it('is styled to stay in the header row, and pulses only when motion is allowed', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
-    assert.match(css, /\.working-issues-timer \{[^}]*flex-shrink: 0;/);
+    // Its own auto-width column on the header's first row, so the titles shrink, not the timer.
+    assert.match(css, /\.working-issues-toggle \{[^}]*grid-template-columns: auto minmax\(0, 1fr\) auto auto;/);
+    assert.match(css, /\.working-issues-timer \{[^}]*grid-column: 3;\s*grid-row: 1;/);
     assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[^@]*\.working-issues-timer-dot \{\s*animation: none;/);
   });
 });

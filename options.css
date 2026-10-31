@@ -1372,10 +1372,13 @@ body {
   font-weight: inherit;
 }
 
+/* Chevron, titles, timer, and spinner on the first row; the pending row under the titles, out to
+   the right edge. Gaps are margins, so a hidden timer or empty spinner leaves no gap behind. */
 .working-issues-toggle {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 10px;
   width: 100%;
   padding: 12px 18px;
   background: none;
@@ -1393,7 +1396,8 @@ body {
 }
 
 .working-issues-chevron {
-  flex-shrink: 0;
+  grid-row: 1 / -1;
+  margin-right: 10px;
   width: 16px;
   height: 16px;
   color: var(--text-subtle);
@@ -1408,7 +1412,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
 }
 
@@ -1423,10 +1428,32 @@ body {
   color: var(--text-subtle);
 }
 
-/* The pending worklogs, on their own line under the subtitle */
-.working-issues-pending-count {
+/* The pending worklogs, on their own line under the subtitle, and the timed issue's summary at
+   the right; the summary shrinks first, and never under the count. */
+.working-issues-pending-row {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 2px;
   font-size: 12px;
   color: var(--text-subtle);
+}
+
+.working-issues-pending-count {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.working-issues-timer-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .working-issues.is-error .working-issues-subtitle {
@@ -1434,7 +1461,9 @@ body {
 }
 
 .working-issues-indicator {
-  flex-shrink: 0;
+  grid-column: 4;
+  grid-row: 1;
+  margin-left: 10px;
   display: inline-flex;
   align-items: center;
 }
@@ -1446,7 +1475,9 @@ body {
 
 /* Running-timer indicator in the header: the issue and its elapsed time, shown collapsed too */
 .working-issues-timer {
-  flex-shrink: 0;
+  grid-column: 3;
+  grid-row: 1;
+  margin-left: 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
