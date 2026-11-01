@@ -1,6 +1,6 @@
 {
   "name": "timesheet-for-jira",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Your Jira worklogs as a weekly timesheet, at a glance.",
   "type": "module",
   "scripts": {
