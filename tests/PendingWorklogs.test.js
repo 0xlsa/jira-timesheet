@@ -265,6 +265,20 @@ describe('My Active Issues - Pending tab', () => {
     assert.equal(row.querySelector('.pending-discard-btn').getAttribute('aria-label'), `Discard pending worklog for KAN-20, started ${time}`);
   });
 
+  it('adds the comment after the date and start time, as text', () => {
+    const time = new Date(T0).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const when = (comment) => {
+      const { section } = render({ tab: 'pending', entries: [pendingEntry({ comment })] });
+      return panel(section, 'pending').querySelector('.pending-worklog-when');
+    };
+
+    assert.equal(when('Reviewed the <b>draft</b>').textContent, `26 Oct 2026 · Monday, ${time} - Reviewed the <b>draft</b>`);
+    assert.equal(when('Reviewed the <b>draft</b>').querySelector('b'), null);
+    for (const comment of ['', '   \n\t', undefined]) {
+      assert.equal(when(comment).textContent, `26 Oct 2026 · Monday, ${time}`, JSON.stringify(comment));
+    }
+  });
+
   it('flags a session under a minute, showing its seconds', () => {
     const { section } = render({ tab: 'pending' });
     const row = panel(section, 'pending').querySelector('[data-pending-id="p2"]');

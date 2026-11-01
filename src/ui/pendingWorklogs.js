@@ -86,6 +86,8 @@ const SUBMISSION_FLAGS = {
 function renderPendingWorklog(entry, currentSite, now) {
   const started = new Date(entry.startedAt);
   const startTime = formatPendingStartTime(started);
+  // Added to the date and start time when there is one; whitespace alone counts as none.
+  const comment = (entry.comment ?? '').trim();
   const baseUrl = siteBaseUrl(entry.site).replace(/\/+$/, '');
   const otherSite = entry.site !== currentSite;
   const short = isTooShort(entry);
@@ -106,7 +108,7 @@ function renderPendingWorklog(entry, currentSite, now) {
     h('div', { class: 'pending-worklog-main' },
       h('span', { class: 'pending-worklog-summary', title: entry.issueSummary || '' }, entry.issueSummary || 'No summary available'),
       h('span', { class: 'pending-worklog-meta' },
-        h('span', { class: 'pending-worklog-when' }, `${formatWorklogDate(started)}, ${startTime}`),
+        h('span', { class: 'pending-worklog-when' }, `${formatWorklogDate(started)}, ${startTime}${comment ? ` - ${comment}` : ''}`),
         short && h('span', { class: 'pending-flag is-warning', title: 'Jira needs at least 1 minute. Edit the duration before submitting it.' }, 'Under 1 minute'),
         otherSite && h('span', { class: 'pending-flag', title: `Tracked on ${siteHost(entry.site)}. It can only be submitted there.` },
           `Other site · ${siteHost(entry.site)}`),
