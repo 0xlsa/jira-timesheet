@@ -414,22 +414,24 @@ function uniqueIssues(issues) {
  * @param {() => void} options.timer.onStop - Called when the running issue's Stop button is clicked
  * @param {() => void} [options.timer.onPause] - Called when the running issue's Pause button is clicked
  * @param {() => void} [options.timer.onResume] - Called when the paused issue's Resume button is clicked
- * @param {object} [options.pending] - The pending worklogs; with them, the expanded section has Active Issues
- *   and Pending tabs (the header, collapsed or not, stays the same)
+ * @param {object} [options.pending] - The pending worklogs; with them, the expanded section has an Active
+ *   Issues group and a Pending Worklogs group, one below the other (the header, collapsed or not, stays the same)
  * @param {Array<object>} options.pending.entries - `timeTracking.pending`, as stored
  * @param {string} options.pending.site - The connected Jira site's ID
- * @param {'active' | 'pending'} options.pending.tab - The tab to show
- * @param {(tab: 'active' | 'pending') => void} [options.pending.onTabChange] - Called after the user switches tabs
  * @param {(id: string) => void} options.pending.onEdit - Called with a pending worklog's ID from its Edit button
  * @param {(id: string) => void} options.pending.onDiscard - Called with a pending worklog's ID from its Discard button
  * @param {(id: string) => void} [options.pending.onSubmit] - Called with a pending worklog's ID from its Submit button
  * @param {number} [options.pending.now] - For a submission left running too long
+ * @param {{ active?: boolean, pending?: boolean }} [options.groupsExpanded] - Whether each group is
+ *   expanded (only with `pending`); each is unless `false`
+ * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle] - Called
+ *   after a group's header expands or collapses that group (never the other)
  * @param {object} [options.recentlyLogged] - The Show Recently Logged Issues switch, at the right of
- *   the tab row (so only with `pending`); no switch without it
+ *   the Active Issues group's header (so only with `pending`); no switch without it
  * @param {boolean} options.recentlyLogged.checked - Whether it's on
  * @param {(checked: boolean) => void} options.recentlyLogged.onChange - Called when the user flips it
  */
-export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, recentlyLogged }) {
+export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, recentlyLogged }) {
   let toggle = section.querySelector('.working-issues-toggle');
   if (!toggle) {
     toggle = h('button', { type: 'button', class: 'working-issues-toggle', 'aria-controls': 'workingIssuesBody' },
@@ -459,7 +461,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   }
 
   // Rebuilding the header's timer controls or the body replaces the button that had focus (Pause
-  // becomes Resume, Start becomes Stop, a tab re-renders): give focus to the new one with the same
+  // becomes Resume, Start becomes Stop, a group re-renders): give focus to the new one with the same
   // focus key.
   const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
@@ -516,31 +518,30 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
 
   const body = section.querySelector('.working-issues-body');
   if (pending) {
-    // The tab counts what its list shows, from the start: 0 until Jira's issues are in.
-    body.replaceChildren(renderWorkingIssuesTabs(pending, rows.length,
+    // Each group's header counts what its list shows, from the start: 0 until Jira's issues are in.
+    body.replaceChildren(renderWorkingIssuesGroups(pending, rows.length,
       fragment(
         list,
         errorMessage,
         state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
         state.status === 'ready' && !list && h('p', { class: 'working-issues-empty' },
           state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.')),
-      recentlyLogged));
+      { groupsExpanded, onGroupToggle, recentlyLogged }));
   } else {
     body.replaceChildren(fragment(list, errorMessage));
   }
-  // Nothing to show below the header (loading, or no issues, without tabs).
+  // Nothing to show below the header (loading, or no issues, without the groups).
   body.classList.toggle('is-empty', body.childNodes.length === 0);
 
   setWorkingIssuesExpanded(section, expanded);
 
   if (focusKey) {
     const all = [...section.querySelectorAll('[data-focus-key]')];
-    // A pending worklog that's gone (discarded) leaves focus on the Pending tab.
     const target = all.find((el) => el.dataset.focusKey === focusKey) ||
       // Stop leaves the issue's other timer button (now Start); a submitted or discarded pending
-      // worklog leaves the Pending tab.
+      // worklog leaves the Pending Worklogs group's header.
       (focusKey.startsWith('timer-stop:') ? all.find((el) => el.dataset.focusKey === `timer:${focusKey.slice('timer-stop:'.length)}`) : null) ||
-      (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'tab:pending') : null) ||
+      (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'group:pending') : null) ||
       // The header's controls go when the timer stops: back to the header button.
       (focusKey.startsWith('header-timer') ? toggle : null);
     target?.focus();
@@ -556,96 +557,82 @@ export function formatPendingCount(count) {
   return `${count} pending ${count === 1 ? 'worklog' : 'worklogs'}`;
 }
 
-const TABS = [
+const GROUPS = [
   { id: 'active', label: 'Active Issues' },
-  { id: 'pending', label: 'Pending' }
+  { id: 'pending', label: 'Pending Worklogs' }
 ];
 
-// The tabs are the app's buttons: the selected one primary, the other secondary.
-const TAB_SELECTED_CLASS = 'btn-primary';
-const TAB_UNSELECTED_CLASS = 'btn-secondary';
-
 /**
- * Builds the Active Issues and Pending tabs and their panels. Switching tabs only shows the other
- * panel; it never changes the timer or a pending worklog.
+ * Builds the Active Issues and Pending Worklogs groups, one below the other. Each has a header
+ * button that expands and collapses that group only; both can be open, or closed, at once. The
+ * headers, with their counts, show either way. Expanding or collapsing never changes the timer or a
+ * pending worklog.
  *
- * Each tab counts what its panel lists: "Active Issues (5)" its rows (Jira's issues, and the
- * running timer's issue when Jira doesn't list it); "Pending (2)" the pending worklogs, one per
- * stopped session, so two sessions on one issue count twice.
+ * Each header counts what its group lists: "Active Issues (5)" its rows (Jira's issues, and the
+ * running timer's issue when Jira doesn't list it); "Pending Worklogs (2)" the pending worklogs, one
+ * per stopped session, so two sessions on one issue count twice.
  *
  * @param {object} pending - renderWorkingIssues()'s `pending` options
  * @param {number} activeCount - Rows in the Active Issues list (0 while Jira's issues load or
  *   failed, unless the running timer's issue is listed)
- * @param {DocumentFragment} activeContent - The Active Issues panel's contents
- * @param {{ checked: boolean, onChange: (checked: boolean) => void }} [recentlyLogged] - The Show
- *   Recently Logged Issues switch, at the right of the tabs; none without it
+ * @param {DocumentFragment} activeContent - The Active Issues group's contents
+ * @param {object} options
+ * @param {{ active?: boolean, pending?: boolean }} options.groupsExpanded - Each group is expanded unless `false`
+ * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle]
+ * @param {{ checked: boolean, onChange: (checked: boolean) => void }} [options.recentlyLogged] - The
+ *   Show Recently Logged Issues switch, at the right of the Active Issues header; none without it
  * @returns {DocumentFragment}
  */
-function renderWorkingIssuesTabs(pending, activeCount, activeContent, recentlyLogged) {
-  const selected = pending.tab === 'pending' ? 'pending' : 'active';
+function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, recentlyLogged }) {
   const counts = { active: activeCount, pending: pending.entries.length };
-  const tabButtons = TABS.map(({ id, label }) => h('button', {
-    type: 'button',
-    role: 'tab',
-    id: `workingIssuesTab-${id}`,
-    class: `btn working-issues-tab ${id === selected ? TAB_SELECTED_CLASS : TAB_UNSELECTED_CLASS}`,
-    'data-tab': id,
-    'data-focus-key': `tab:${id}`,
-    'aria-controls': `workingIssuesPanel-${id}`,
-    'aria-selected': String(id === selected),
-    tabindex: id === selected ? '0' : '-1'
-  }, `${label} (${counts[id]})`));
 
-  const panels = TABS.map(({ id }) => h('div', {
-    role: 'tabpanel',
-    id: `workingIssuesPanel-${id}`,
-    class: `working-issues-panel${id === selected ? '' : ' hidden'}`,
-    'aria-labelledby': `workingIssuesTab-${id}`
-  }, id === 'active' ? activeContent : renderPendingWorklogs({
-    entries: pending.entries, site: pending.site, now: pending.now,
-    onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit
-  })));
+  return fragment(GROUPS.map(({ id, label }) => {
+    const toggle = h('button', {
+      type: 'button',
+      id: `workingIssuesGroupToggle-${id}`,
+      class: 'working-issues-group-toggle',
+      'aria-controls': `workingIssuesGroup-${id}`,
+      'data-group': id,
+      'data-focus-key': `group:${id}`
+    },
+      svg('svg', { class: 'working-issues-group-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
+        svg('polyline', { points: '6 9 12 15 18 9' })),
+      h('span', { class: 'working-issues-group-title' }, `${label} (${counts[id]})`));
+    const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
+      id === 'active' ? activeContent : renderPendingWorklogs({
+        entries: pending.entries, site: pending.site, now: pending.now,
+        onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit
+      }));
+    // The switch is beside the header button (an input can't go in a button), on the Active Issues
+    // header only. A click elsewhere in the header, other than on the switch, still toggles.
+    const header = h('div', { class: 'working-issues-group-header' },
+      h('h4', { class: 'working-issues-group-heading' }, toggle),
+      id === 'active' && recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged));
+    const group = h('div', { class: `working-issues-group is-${id}`, 'data-group': id }, header, groupBody);
 
-  const tablist = h('div', { class: 'working-issues-tabs', role: 'tablist', 'aria-label': 'My Active Issues' }, tabButtons);
-  // The tabs on the left; the Show Recently Logged Issues switch, when given, on the right (outside
-  // the tablist, which holds only tabs).
-  const tabbar = h('div', { class: 'working-issues-tabbar' }, tablist, recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged));
+    const setExpanded = (isExpanded) => {
+      toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+      group.classList.toggle('is-collapsed', !isExpanded);
+      groupBody.classList.toggle('hidden', !isExpanded);
+    };
+    setExpanded(groupsExpanded[id] !== false);
 
-  const select = (id, { focus = false } = {}) => {
-    for (const tab of tabButtons) {
-      const isSelected = tab.dataset.tab === id;
-      tab.setAttribute('aria-selected', String(isSelected));
-      tab.setAttribute('tabindex', isSelected ? '0' : '-1');
-      tab.classList.toggle(TAB_SELECTED_CLASS, isSelected);
-      tab.classList.toggle(TAB_UNSELECTED_CLASS, !isSelected);
-      if (isSelected && focus) tab.focus();
-    }
-    for (const panel of panels) panel.classList.toggle('hidden', panel.id !== `workingIssuesPanel-${id}`);
-    pending.onTabChange?.(id);
-  };
-
-  tablist.addEventListener('click', (event) => {
-    const tab = event.target.closest('[role="tab"]');
-    if (!tab) return;
-    event.stopPropagation();
-    select(tab.dataset.tab);
-  });
-  // Arrow keys, Home, and End move between the tabs (WAI-ARIA tabs pattern).
-  tablist.addEventListener('keydown', (event) => {
-    const index = tabButtons.findIndex((tab) => tab.getAttribute('aria-selected') === 'true');
-    const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabButtons.length - 1 }[event.key];
-    if (next === undefined) return;
-    event.preventDefault();
-    select(tabButtons[(next + tabButtons.length) % tabButtons.length].dataset.tab, { focus: true });
-  });
-
-  return fragment(tabbar, panels);
+    header.addEventListener('click', (event) => {
+      if (event.target.closest('.working-issues-recent')) return;
+      // The click is this group's alone, not the section's.
+      event.stopPropagation();
+      const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
+      setExpanded(isExpanded);
+      onGroupToggle?.(id, isExpanded);
+    });
+    return group;
+  }));
 }
 
 const RECENTLY_LOGGED_HINT = "Also show issues where you've logged work in the last 14 days, even if they're not currently assigned to you.";
 
 /**
- * The Show Recently Logged Issues switch for the tab row: the Settings switch's look, smaller, with
+ * The Show Recently Logged Issues switch for the Active Issues header: the Settings switch's look, smaller, with
  * its label on the left. Keeps focus across re-renders (its focus key), and reports a flip through
  * `onChange`.
  *

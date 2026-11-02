@@ -1,5 +1,5 @@
 /**
- * The Pending tab of My Active Issues: the stopped timer sessions kept in this browser
+ * The Pending Worklogs group of My Active Issues: the stopped timer sessions kept in this browser
  * (`timeTracking.pending`, see src/timer/timeTrackingStore.js), one row each, with Submit, Edit,
  * and Discard. Pure DOM rendering; the page controller submits (src/worklog/pendingSubmission.js),
  * edits, and discards.
@@ -142,7 +142,7 @@ function renderPendingWorklog(entry, currentSite, now) {
 }
 
 /**
- * Builds the Pending tab's contents: every pending worklog, each on its own row (sessions are never
+ * Builds the Pending Worklogs group's contents: every pending worklog, each on its own row (sessions are never
  * merged), most recently stopped first; or a short note when there are none.
  *
  * @param {object} options

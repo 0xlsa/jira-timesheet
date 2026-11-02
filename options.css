@@ -1612,38 +1612,73 @@ body {
   white-space: nowrap;
 }
 
-/* Active Issues and Pending tabs, shown only while the section is expanded (they're in its body).
-   They're the app's buttons (.btn, like Test Connection and Save Settings): primary when selected,
-   secondary otherwise. */
-.working-issues-tabbar {
+/* Active Issues and Pending Worklogs groups, one below the other in the section's body. Each header
+   expands and collapses its own group; a click anywhere on it but the switch toggles. */
+.working-issues-group-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  column-gap: 12px;
   border-top: 1px solid var(--border-subtle);
-  padding-top: 8px;
-  margin-bottom: 4px;
+  cursor: pointer;
 }
 
-.working-issues-tabs {
+.working-issues-group-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.working-issues-group-toggle {
   display: flex;
+  align-items: center;
   gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  background: none;
+  border: 0;
+  color: var(--text-main);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
 }
 
-/* Show Recently Logged Issues, at the right of the tabs: its label, then the Settings switch, with
-   smaller text. */
+.working-issues-group-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.working-issues-group-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+  transition: transform var(--transition);
+}
+
+.working-issues-group.is-collapsed .working-issues-group-chevron {
+  transform: rotate(-90deg);
+}
+
+/* Space between the Active Issues list and the Pending Worklogs header */
+.working-issues-group + .working-issues-group {
+  margin-top: 4px;
+}
+
+/* Show Recently Logged Issues, at the right of the Active Issues header: its label, then the
+   Settings switch, with smaller text. At narrow widths it wraps below the title. */
 .switch-row.working-issues-recent {
   gap: 8px;
   margin: 0 0 0 auto;
+  padding: 4px 0;
   white-space: nowrap;
   font-size: 12px;
   color: var(--text-subtle);
-}
-
-.working-issues-tab:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 2px;
 }
 
 .working-issues-empty {
@@ -1777,6 +1812,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .working-issues-chevron,
+  .working-issues-group-chevron,
   .day-panel-chevron {
     transition: none;
   }

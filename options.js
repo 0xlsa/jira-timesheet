@@ -194,8 +194,12 @@ let currentBaseUrl = '';
 // left it. The loader (src/worklog/workingIssuesLoader.js) is created with the section's renderer below.
 let workingIssuesState = null;
 let isWorkingIssuesExpanded = localStorage.getItem('jts-working-issues-expanded') === 'true';
-// The section's tab when expanded, kept like the expanded state: 'active' or 'pending'.
-let workingIssuesTab = localStorage.getItem('jts-working-issues-tab') === 'pending' ? 'pending' : 'active';
+// Its Active Issues and Pending Worklogs groups, each expanded until the user collapses it, then as
+// they last left it, independently of each other.
+const workingIssuesGroupsExpanded = {
+  active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
+  pending: localStorage.getItem('jts-working-issues-pending-expanded') !== 'false'
+};
 
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
@@ -311,7 +315,7 @@ const assignmentFieldsSettings = createAssignmentFieldsSettings({
 });
 
 /**
- * Show Recently Logged Issues (the switch on My Active Issues' tab row): saved as it changes, then
+ * Show Recently Logged Issues (the switch on the header of My Active Issues' Active Issues group): saved as it changes, then
  * My Active Issues loads again with or without the issues only logged recently.
  * @param {boolean} show
  */
@@ -555,6 +559,11 @@ function workingIssuesOptions() {
     onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined,
     timer: timerOptions(),
     pending: pendingOptions(),
+    groupsExpanded: workingIssuesGroupsExpanded,
+    onGroupToggle: (group, expanded) => {
+      workingIssuesGroupsExpanded[group] = expanded;
+      localStorage.setItem(`jts-working-issues-${group}-expanded`, String(expanded));
+    },
     recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues }
   };
 }
@@ -634,7 +643,7 @@ function timedIssue(issue) {
 }
 
 /**
- * Pending tab options for My Active Issues (which then shows its Active Issues and Pending tabs),
+ * Pending worklog options for My Active Issues (which then shows its Active Issues and Pending Worklogs groups),
  * or undefined while the timer's state isn't known.
  * @returns {object | undefined}
  */
@@ -644,11 +653,6 @@ function pendingOptions() {
   return {
     entries: state.tracking.pending,
     site: siteId(currentClient.deploymentType, currentClient.baseUrl),
-    tab: workingIssuesTab,
-    onTabChange: (tab) => {
-      workingIssuesTab = tab;
-      localStorage.setItem('jts-working-issues-tab', tab);
-    },
     now: Date.now(),
     onEdit: startEditPending,
     onDiscard: confirmDiscardPending,
@@ -723,7 +727,7 @@ function logWorkTimerOptions() {
     },
     async onStop() {
       const stopped = await timer.stop();
-      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Pending' });
+      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Pending Worklogs' });
       return stopped;
     }
   };
@@ -738,10 +742,10 @@ function findPendingWorklog(id) {
   return timer.getState().tracking?.pending.find((entry) => entry.id === id);
 }
 
-/** Focuses a pending worklog's button, or the Pending tab once the worklog is gone. */
+/** Focuses a pending worklog's button, or the Pending Worklogs header once the worklog is gone. */
 function focusPendingWorklog(id, buttonClass) {
   (daysContainer.querySelector(`.${buttonClass}[data-pending-id="${CSS.escape(id)}"]`) ||
-    daysContainer.querySelector('#workingIssuesTab-pending') || selectedDayFocusTarget())?.focus();
+    daysContainer.querySelector('#workingIssuesGroupToggle-pending') || selectedDayFocusTarget())?.focus();
 }
 
 /**

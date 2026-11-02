@@ -101,7 +101,7 @@ SCENARIOS = [
         {'do': 'type', 'selector': '#worklogIssueSearch', 'text': 'KAN-1'},
         {'do': 'wait', 'selector': '.issue-picker-option-key'}]),
     screenshot('timer-and-pending-worklogs', storage=CONFIGURED,
-               localStorage={**LIGHT, **EXPANDED, 'jts-working-issues-tab': 'pending'}, steps=[
+               localStorage={**LIGHT, **EXPANDED}, steps=[
         {'do': 'wait', 'selector': '.worklog-duration-badge'},
         {'do': 'wait', 'selector': '.working-issues-timer:not(.hidden)'}]),
     screenshot('public-holidays-settings', storage=CONFIGURED, localStorage=LIGHT, steps=[

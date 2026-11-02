@@ -48,21 +48,23 @@ describe('Show Recently Logged Issues - setting', () => {
   });
 });
 
-describe('Show Recently Logged Issues - My Active Issues tab row', () => {
+describe('Show Recently Logged Issues - Active Issues header', () => {
   let restoreDocument;
   beforeEach(() => { restoreDocument = installFakeDocument(); });
   afterEach(() => restoreDocument());
 
   const ISSUES = [{ issueId: '1', issueKey: 'KAN-1', issueSummary: 'Fix it', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' }, inProgress: true }];
 
-  function render({ checked = true, withSwitch = true, tab = 'active' } = {}) {
+  function render({ checked = true, withSwitch = true, groupsExpanded } = {}) {
     const flips = [];
-    const tabs = [];
+    const groups = [];
     const section = document.createElement('section');
     const options = {
       state: { status: 'ready', issues: ISSUES, includeRecentlyLogged: checked },
       expanded: true,
-      pending: { entries: [], site: 'cloud|https://acme.atlassian.net', tab, onTabChange: (t) => tabs.push(t), onEdit() {}, onDiscard() {} },
+      pending: { entries: [], site: 'cloud|https://acme.atlassian.net', onEdit() {}, onDiscard() {} },
+      groupsExpanded,
+      onGroupToggle: (group, expanded) => groups.push([group, expanded]),
       ...(withSwitch && { recentlyLogged: { checked, onChange: (value) => flips.push(value) } })
     };
     renderWorkingIssues(section, options);
@@ -71,16 +73,32 @@ describe('Show Recently Logged Issues - My Active Issues tab row', () => {
       input.checked = value;
       input.dispatchEvent({ type: 'change' });
     };
-    return { section, options, input, flip, flips, tabs };
+    return { section, options, input, flip, flips, groups };
   }
 
-  it('sits at the right of the tabs, in their row, outside the tablist', () => {
+  const headerOf = (section, id) => section.querySelector(`.working-issues-group[data-group="${id}"]`).querySelector('.working-issues-group-header');
+
+  it('sits at the right of the Active Issues header, after its title, outside its button', () => {
     const { section, input } = render();
-    const row = section.querySelector('.working-issues-tabbar');
-    assert.deepEqual(row.children.map((child) => child.className), ['working-issues-tabs', 'switch-row working-issues-recent']);
-    assert.equal(input.closest('[role="tablist"]'), null);
+    const row = headerOf(section, 'active');
+    assert.deepEqual(row.children.map((child) => child.className), ['working-issues-group-heading', 'switch-row working-issues-recent']);
+    assert.equal(input.closest('button'), null);
     assert.equal(input.getAttribute('role'), 'switch');
     assert.equal(row.querySelector('.working-issues-recent').textContent.startsWith('Show recently logged'), true);
+  });
+
+  it('is on the Active Issues header only, never the Pending Worklogs one', () => {
+    const { section } = render();
+    assert.deepEqual(headerOf(section, 'pending').children.map((child) => child.className), ['working-issues-group-heading']);
+    assert.equal(section.querySelector('.working-issues-group.is-pending').querySelector('.working-issues-recent'), null);
+    assert.equal(section.querySelectorAll('.working-issues-recent').length, 1);
+  });
+
+  it('shows in the Active Issues header with the group collapsed too', () => {
+    const { section, input } = render({ groupsExpanded: { active: false, pending: false } });
+    assert.ok(input);
+    assert.ok(section.querySelector('.working-issues-group.is-active').classList.contains('is-collapsed'));
+    assert.ok(!input.closest('.working-issues-group-body'), 'not in the hidden contents');
   });
 
   it('puts its label on the left of the switch, and the checkbox just before the drawn switch', () => {
@@ -104,23 +122,26 @@ describe('Show Recently Logged Issues - My Active Issues tab row', () => {
     assert.equal(render({ checked: false }).input.checked, false);
   });
 
-  it('reports a flip, without changing tabs', () => {
+  it('reports a flip, without expanding or collapsing a group', () => {
     const view = render();
     view.flip(false);
     view.flip(true);
     assert.deepEqual(view.flips, [false, true]);
-    assert.deepEqual(view.tabs, []);
-    assert.equal(view.section.querySelector('[data-tab="active"]').getAttribute('aria-selected'), 'true');
+    assert.deepEqual(view.groups, []);
   });
 
-  it('is on the Pending tab too', () => {
-    assert.ok(render({ tab: 'pending' }).input);
+  it('doesn\'t toggle the Active Issues group when its label is clicked', () => {
+    const view = render();
+    view.section.querySelector('.working-issues-recent').querySelector('span').click();
+    view.input.click();
+    assert.deepEqual(view.groups, []);
+    assert.equal(view.section.querySelector('#workingIssuesGroupToggle-active').getAttribute('aria-expanded'), 'true');
   });
 
   it('is left out without its options', () => {
     const { section, input } = render({ withSwitch: false });
     assert.equal(input, null);
-    assert.deepEqual(section.querySelector('.working-issues-tabbar').children.map((child) => child.className), ['working-issues-tabs']);
+    assert.deepEqual(headerOf(section, 'active').children.map((child) => child.className), ['working-issues-group-heading']);
   });
 
   it('keeps focus when the list loads again', () => {
