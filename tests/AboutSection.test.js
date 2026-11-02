@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { installFakeDocument } from './support/fakeDom.js';
 import { h } from '../src/ui/dom.js';
-import { ABOUT_INFO_URL, loadAboutInfo, renderAboutSection } from '../src/ui/aboutSection.js';
+import { ABOUT_INFO_URL, loadAboutInfo, renderAboutSection, renderSettingsVersion } from '../src/ui/aboutSection.js';
 import { createPlatform } from '../src/compat/browser-api.js';
 
 const readJson = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
@@ -88,6 +88,62 @@ describe('renderAboutSection', () => {
     const root = render({ manifest: { name: 'Timesheet for Jira', version: '1.0.0' }, info: { ...INFO, developerUrl: '' } });
     assert.equal(root.querySelectorAll('a').length, 1);
     assert.equal(root.querySelectorAll('p')[1].textContent, 'Developed by @0xlsa');
+  });
+});
+
+describe('renderSettingsVersion', () => {
+  let restoreDocument;
+  beforeEach(() => { restoreDocument = installFakeDocument(); });
+  afterEach(() => restoreDocument());
+
+  const render = (manifest) => {
+    const root = h('p', { id: 'settingsVersion' });
+    renderSettingsVersion(root, manifest);
+    return root;
+  };
+
+  it('shows the name and version from the manifest, and nothing else', () => {
+    const root = render({ name: 'Timesheet for Jira', version: '1.1.2' });
+    assert.equal(root.textContent, 'Timesheet for Jira · v1.1.2');
+    assert.equal(root.childNodes.length, 1);
+    assert.equal(root.querySelector('a'), null);
+  });
+
+  it('shows the version the platform reads from the browser (runtime.getManifest())', () => {
+    const platform = createPlatform({ storage: { local: {} }, runtime: { getManifest: () => ({ name: 'Timesheet for Jira', version: '4.5.6' }) } });
+    assert.equal(render(platform.getManifest()).textContent, 'Timesheet for Jira · v4.5.6');
+  });
+
+  it('falls back to the name alone without a manifest or version', () => {
+    assert.equal(render(null).textContent, 'Timesheet for Jira');
+    assert.equal(render({ name: 'Timesheet for Jira' }).textContent, 'Timesheet for Jira');
+    assert.equal(render(createPlatform(null, {}).getManifest()).textContent, 'Timesheet for Jira');
+  });
+});
+
+describe('Settings version line - page', () => {
+  const html = readFileSync(new URL('../options.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+  const js = readFileSync(new URL('../options.js', import.meta.url), 'utf8');
+
+  it('sits after every Settings section, just before the hidden About, with no version in the page', () => {
+    const line = html.indexOf('<p id="settingsVersion" class="settings-version"></p>');
+    assert.ok(line > html.indexOf('</form>'));
+    assert.match(html.slice(line), /^<p id="settingsVersion" class="settings-version"><\/p>\s*<!--[\s\S]*?-->\s*<section id="aboutSection" class="settings-about hidden"/);
+    assert.doesNotMatch(html, /v\d+\.\d+\.\d+/);
+  });
+
+  it('fills it from the browser\'s manifest when the page loads', () => {
+    assert.match(js, /renderSettingsVersion\(document\.getElementById\('settingsVersion'\), platform\.getManifest\(\)\);/);
+  });
+
+  it('is small, muted print under a subtle divider, like About', () => {
+    const rule = css.match(/\n\.settings-version \{([^}]*)\}/)[1];
+    assert.match(rule, /border-top: 1px solid var\(--border-subtle\);/);
+    assert.match(rule, /margin-top: 18px;\s*padding-top: 18px;/);
+    assert.match(rule, /font-size: 11px;/);
+    assert.match(rule, /color: var\(--text-subtle\);/);
+    assert.doesNotMatch(rule, /padding-(left|right)|margin-(left|right)/, 'aligned with the Settings content');
   });
 });
 

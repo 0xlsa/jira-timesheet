@@ -807,14 +807,16 @@ describe('WeekView - My Active Issues section', () => {
     return section;
   };
 
-  it('sits between the weekday cards and the selected-day panel', () => {
-    const container = document.createElement('div');
-    renderWeek(container, buildEmptyWeek(MONDAY), {
-      selectedDateKey: '2026-10-26', onSelectDay: () => {},
-      workingIssues: { state: { status: 'loading' }, expanded: true }
-    });
-    assert.deepEqual(container.childNodes.map((node) => node.className.split(' ')[0]), ['week-strip', 'working-issues', 'day-panel']);
-    assert.equal(container.childNodes[1].id, 'workingIssues');
+  it('sits below the selected-day panel, whether the panel is expanded or collapsed', () => {
+    for (const dayExpanded of [true, false]) {
+      const container = document.createElement('div');
+      renderWeek(container, buildEmptyWeek(MONDAY), {
+        selectedDateKey: '2026-10-26', onSelectDay: () => {}, dayExpanded,
+        workingIssues: { state: { status: 'loading' }, expanded: true }
+      });
+      assert.deepEqual(container.childNodes.map((node) => node.className.split(' ')[0]), ['week-strip', 'day-panel', 'working-issues'], `dayExpanded: ${dayExpanded}`);
+      assert.equal(container.childNodes[2].id, 'workingIssues');
+    }
   });
 
   it('is titled My Active Issues, visibly and for assistive technology', () => {

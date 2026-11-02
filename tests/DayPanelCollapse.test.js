@@ -31,6 +31,7 @@ const NEXT_WEEK = { weekDays: [day('2026-10-26', 26, [worklog('5', 'KAN-5'), wor
 /**
  * The page as options.js runs it: the selected day, and one expanded state for every day, kept in
  * `storage` (localStorage, as a Map); a new page on the same storage is the tab opened again.
+ * Selecting a day, or a day in another week, expands it (expandDayPanel()).
  */
 function createPage(storage = new Map()) {
   const container = h('div', {});
@@ -38,9 +39,13 @@ function createPage(storage = new Map()) {
   let dayExpanded = storage.get('jts-day-panel-expanded') === 'true';
   let week = WEEK;
   let selectedDateKey = '2026-10-19';
+  const expandDayPanel = () => {
+    dayExpanded = true;
+    storage.set('jts-day-panel-expanded', 'true');
+  };
   const render = () => renderWeek(container, week, {
     selectedDateKey,
-    onSelectDay: (dateKey) => { selectedDateKey = dateKey; render(); },
+    onSelectDay: (dateKey) => { selectedDateKey = dateKey; expandDayPanel(); render(); },
     onAddWorklog: (dateKey) => calls.added.push(dateKey),
     onEditWorklog: (id) => calls.edited.push(id),
     onLogWork: () => {},
@@ -56,7 +61,7 @@ function createPage(storage = new Map()) {
   return {
     container, calls, render, storage,
     select: (dateKey) => container.querySelector(`.day-card[data-date-key="${dateKey}"]`).click(),
-    goToWeek: (next, dateKey) => { week = next; selectedDateKey = dateKey; render(); },
+    goToWeek: (next, dateKey) => { week = next; selectedDateKey = dateKey; expandDayPanel(); render(); },
     panel: () => container.querySelector('.day-panel'),
     toggle: () => container.querySelector('.day-panel-toggle'),
     body: () => container.querySelector('.day-panel-body'),
@@ -139,21 +144,40 @@ describe('Day panel - collapsing the selected day', () => {
     assert.deepEqual(page.calls.toggled, []);
   });
 
-  it('has one state for every day: expanding or collapsing one does it for all', () => {
+  it('expands the day selected in the weekday cards, every day of the week', () => {
     const page = createPage();
-    page.toggle().click(); // expanded on Monday
-    page.select('2026-10-20');
-    assert.ok(!page.collapsed(), 'Tuesday expanded too');
-    assert.equal(page.body().querySelectorAll('.worklog-item').length, 1);
-    page.select('2026-10-21');
-    assert.ok(!page.collapsed(), 'a day with no worklogs too');
-    assert.equal(page.container.querySelector('.day-panel-meta').textContent, '0 worklogs \u2022 0h 00m total');
-
-    page.toggle().click(); // collapsed on Wednesday
-    page.select('2026-10-19');
-    assert.ok(page.collapsed(), 'Monday collapsed too');
-    page.select('2026-10-20');
     assert.ok(page.collapsed());
+    for (const [dateKey, count] of [['2026-10-19', 3], ['2026-10-20', 1], ['2026-10-21', 0]]) {
+      page.select(dateKey);
+      assert.ok(!page.collapsed(), dateKey);
+      assert.equal(page.toggle().getAttribute('aria-expanded'), 'true');
+      assert.equal(page.body().querySelectorAll('.worklog-item').length, count);
+    }
+    assert.equal(page.container.querySelector('.day-panel-meta').textContent, '0 worklogs \u2022 0h 00m total');
+    assert.equal(page.storage.get('jts-day-panel-expanded'), 'true');
+  });
+
+  it('expands the newly selected day after the previous one was collapsed', () => {
+    const page = createPage();
+    page.select('2026-10-20');
+    page.toggle().click(); // collapsed on Tuesday
+    assert.ok(page.collapsed());
+    page.select('2026-10-21');
+    assert.ok(!page.collapsed(), 'Wednesday expanded');
+    page.toggle().click();
+    page.select('2026-10-21'); // the same day again
+    assert.ok(!page.collapsed());
+  });
+
+  it('still collapses and expands the selected day from its header', () => {
+    const page = createPage();
+    page.select('2026-10-19');
+    page.toggle().click();
+    assert.ok(page.collapsed());
+    assert.ok(page.body().classList.contains('hidden'));
+    page.toggle().click();
+    assert.ok(!page.collapsed());
+    assert.deepEqual(page.calls.toggled, [false, true]);
   });
 
   it('keeps the state through a re-render (an edit or delete reloads the week)', () => {
@@ -164,15 +188,29 @@ describe('Day panel - collapsing the selected day', () => {
     assert.equal(page.toggle().getAttribute('aria-expanded'), 'true');
   });
 
-  it('keeps the state in other weeks', () => {
+  it('expands the selected day in another week, even after it was collapsed', () => {
     const page = createPage();
-    page.toggle().click();
+    assert.ok(page.collapsed());
     page.goToWeek(NEXT_WEEK, '2026-10-26');
     assert.ok(!page.collapsed());
     assert.equal(page.body().querySelectorAll('.worklog-item').length, 2);
     page.toggle().click();
     page.goToWeek(WEEK, '2026-10-19');
-    assert.ok(page.collapsed());
+    assert.ok(!page.collapsed());
+    assert.equal(page.body().querySelectorAll('.worklog-item').length, 3);
+  });
+
+  it('keeps My Active Issues below the day\'s worklogs, expanded or collapsed', () => {
+    const container = h('div', {});
+    const order = (dayExpanded) => {
+      renderWeek(container, WEEK, {
+        selectedDateKey: '2026-10-19', onSelectDay: () => {}, dayExpanded,
+        workingIssues: { state: { status: 'ready', issues: [] }, expanded: true }
+      });
+      return container.childNodes.map((node) => node.className.split(' ')[0]);
+    };
+    assert.deepEqual(order(true), ['week-strip', 'day-panel', 'working-issues']);
+    assert.deepEqual(order(false), ['week-strip', 'day-panel', 'working-issues']);
   });
 
   it('remembers the state when the tab is opened again', () => {
@@ -204,6 +242,20 @@ describe('Day panel - page and styles', () => {
     const start = options.indexOf('function renderDays(');
     const fn = options.slice(start, options.indexOf('\n}\n', start));
     assert.match(fn, /dayExpanded: isDayPanelExpanded,\s*onToggleDay: \(expanded\) => \{\s*isDayPanelExpanded = expanded;\s*localStorage\.setItem\('jts-day-panel-expanded', String\(expanded\)\);/);
+  });
+
+  it('expands the selected day when a day is selected or another week is shown', () => {
+    assert.match(options, /function expandDayPanel\(\) \{\s*isDayPanelExpanded = true;\s*localStorage\.setItem\('jts-day-panel-expanded', 'true'\);\s*\}/);
+    const handler = (marker) => {
+      const start = options.indexOf(marker);
+      assert.ok(start >= 0, marker);
+      return options.slice(start, options.indexOf('loadAndRenderWorklogs()', start));
+    };
+    assert.match(options, /onSelectDay: \(dateKey\) => \{\s*selectedDateKey = dateKey;\s*expandDayPanel\(\);/);
+    for (const marker of ['const weekPicker = createWeekPicker(', 'prevWeekBtn.addEventListener(', 'nextWeekBtn.addEventListener(',
+      'nextHolidayBanner.addEventListener(', 'thisWeekBtn.addEventListener(']) {
+      assert.match(handler(marker), /expandDayPanel\(\);\s*$/, marker);
+    }
   });
 
   it('shares My Active Issues\' chevron, turned while collapsed', () => {

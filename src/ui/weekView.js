@@ -715,7 +715,7 @@ export function updateHolidays(container, week, holidays) {
 }
 
 /**
- * Renders the 7 weekday cards, the My Active Issues section, and the selected day's worklog panel
+ * Renders the 7 weekday cards, the selected day's worklog panel, and the My Active Issues section
  * into `container`. Daily totals and weekly totals are never modified by changing the selection.
  *
  * @param {HTMLElement} container
@@ -787,14 +787,7 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
   container.appendChild(strip);
 
-  // 2. My Active Issues: the user's issues in progress or with work logged recently
-  if (workingIssues) {
-    const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Active Issues' });
-    renderWorkingIssues(section, { ...workingIssues, baseUrl });
-    container.appendChild(section);
-  }
-
-  // 3. Selected-day worklogs panel
+  // 2. Selected-day worklogs panel
   const panel = document.createElement('section');
   panel.id = 'selectedDayPanel';
   panel.className = 'day-panel';
@@ -871,6 +864,14 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
   setDayPanelExpanded(panel, dayExpanded);
   container.appendChild(panel);
+
+  // 3. My Active Issues, below the selected day's worklogs: the user's issues in progress or with
+  // work logged recently
+  if (workingIssues) {
+    const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Active Issues' });
+    renderWorkingIssues(section, { ...workingIssues, baseUrl });
+    container.appendChild(section);
+  }
 }
 
 /**

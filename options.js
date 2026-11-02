@@ -49,7 +49,7 @@ import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js'
 import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus } from './src/timer/timeTrackingStore.js';
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
-import { loadAboutInfo, renderAboutSection } from './src/ui/aboutSection.js';
+import { loadAboutInfo, renderAboutSection, renderSettingsVersion } from './src/ui/aboutSection.js';
 import { createNagerDateClient } from './src/holidays/nagerDateClient.js';
 import { createHolidayCache } from './src/holidays/holidayCache.js';
 import { createPublicHolidays } from './src/holidays/publicHolidays.js';
@@ -159,8 +159,14 @@ const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus')
 let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
 // Whether the selected day's panel shows its worklogs: one state for every day, remembered across
-// sessions as My Active Issues' is; collapsed until the user expands it.
+// sessions as My Active Issues' is; collapsed until the user expands it or selects a day.
 let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'true';
+
+/** Selecting a day, here or in another week, shows its worklogs; its header still collapses them. */
+function expandDayPanel() {
+  isDayPanelExpanded = true;
+  localStorage.setItem('jts-day-panel-expanded', 'true');
+}
 
 // The date range opens a calendar; the chosen day's week is shown with that day selected, through
 // the same state as the buttons around it.
@@ -171,6 +177,7 @@ const weekPicker = createWeekPicker({
   onSelect: (date) => {
     currentMonday = getMondayOfWeek(date);
     selectedDateKey = getLocalDateKey(date);
+    expandDayPanel();
     loadAndRenderWorklogs();
   }
 });
@@ -504,6 +511,7 @@ function renderDays(aggregatedData, baseUrl = '') {
     baseUrl,
     onSelectDay: (dateKey) => {
       selectedDateKey = dateKey;
+      expandDayPanel();
       updateSelectedDayMetric(dateKey);
       renderDays(aggregatedData, baseUrl);
       daysContainer.querySelector(`.day-card[data-date-key="${dateKey}"]`)?.focus();
@@ -1740,11 +1748,13 @@ goToSettingsBtn.addEventListener('click', openSettings);
 // Week Navigation
 prevWeekBtn.addEventListener('click', () => {
   currentMonday.setDate(currentMonday.getDate() - 7);
+  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
 nextWeekBtn.addEventListener('click', () => {
   currentMonday.setDate(currentMonday.getDate() + 7);
+  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
@@ -1756,12 +1766,14 @@ nextHolidayBanner.addEventListener('click', () => {
   weekPicker.close();
   currentMonday = getMondayOfWeek(dateFromKey(date));
   selectedDateKey = date;
+  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
 thisWeekBtn.addEventListener('click', () => {
   currentMonday = getMondayOfWeek(new Date());
   selectedDateKey = getLocalDateKey(new Date());
+  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
@@ -2064,5 +2076,6 @@ document.addEventListener('DOMContentLoaded', () => {
   timer.setActive(document.visibilityState === 'visible');
   timer.init();
   loadSavedSettings();
+  renderSettingsVersion(document.getElementById('settingsVersion'), platform.getManifest());
   loadAboutInfo().then((info) => renderAboutSection(document.getElementById('aboutSection'), { manifest: platform.getManifest(), info }));
 });

@@ -411,7 +411,7 @@ describe('Next public holiday - page', () => {
   it('goes to the holiday\'s week, with the holiday selected, closing the week picker', () => {
     const start = options.indexOf("nextHolidayBanner.addEventListener('click'");
     const click = options.slice(start, options.indexOf('\n});', start));
-    assert.match(click, /weekPicker\.close\(\);\s*currentMonday = getMondayOfWeek\(dateFromKey\(date\)\);\s*selectedDateKey = date;\s*loadAndRenderWorklogs\(\);/);
+    assert.match(click, /weekPicker\.close\(\);\s*currentMonday = getMondayOfWeek\(dateFromKey\(date\)\);\s*selectedDateKey = date;\s*expandDayPanel\(\);\s*loadAndRenderWorklogs\(\);/);
     assert.doesNotMatch(click, /closeSettings|timer|settingsStore|force/);
     assert.match(fn('setWorklogBusy'), /nextHolidayBanner\.disabled = isBusy;/);
   });

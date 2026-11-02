@@ -3056,7 +3056,7 @@ select.is-invalid:focus {
 .holidays-group {
   border: none;
   padding: 0;
-  /* The form's last section: About's margin spaces it from the divider below. */
+  /* The form's last section: the version line's margin spaces it from the divider below. */
   margin-bottom: 0;
 }
 
@@ -3283,6 +3283,17 @@ select:disabled {
 
 .form-actions .btn {
   flex: 1 1 130px;
+}
+
+/* The version line: the name and version in small print below the form, set off by a subtle divider
+   (spaced like .settings-divider), as About is. */
+.settings-version {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-subtle);
 }
 
 /* About: small print below the actions, set off by a subtle divider (spaced like .settings-divider). */
