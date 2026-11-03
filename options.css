@@ -2938,6 +2938,21 @@ body {
   font-weight: 600;
 }
 
+/* A view searched again, its issues still shown below: a small spinner and a note */
+.working-issues-view-updating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.working-issues-view-updating .working-issues-spinner {
+  width: 12px;
+  height: 12px;
+}
+
 /* More issues match than the view lists */
 .working-issues-view-more {
   margin: 0;
@@ -2976,7 +2991,8 @@ body {
   gap: 2px;
 }
 
-.custom-view-value {
+.custom-view-value,
+.custom-view-direction {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2986,9 +3002,17 @@ body {
   cursor: pointer;
 }
 
-.custom-view-value input {
+.custom-view-value input,
+.custom-view-direction input {
   width: auto;
   margin: 0;
+}
+
+/* Ascending and Descending, side by side */
+.custom-view-directions {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
 }
 
 .custom-view-value-note {

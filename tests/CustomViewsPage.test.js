@@ -46,7 +46,7 @@ describe('Custom views page wiring', () => {
 
   it('searches a custom view only once it shows: My Work and My Issues expanded, the view selected', () => {
     const options = functionSource('customViewsOptions');
-    assert.match(options, /if \(selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded\.active\) viewSearch\.load\(selectedSearch\.key, selectedSearch\.run\);/);
+    assert.match(options, /if \(selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded\.active\) \{\s*viewSearch\.load\(selectedSearch\.key, selectedSearch\.run, \{ from: viewSearchKeys\.get\(selectedId\) \}\);\s*\}/);
     // Active has no search of its own here: searches holds custom views only.
     assert.match(options, /const searches = new Map\(views\.map\(\(view\) => \[view\.id, viewSearchFor\(client, view, context\)\]\)\);/);
     // Expanding either draws it again, which searches the selected view.
@@ -54,6 +54,14 @@ describe('Custom views page wiring', () => {
     assert.match(toggles, /if \(expanded && workingIssuesGroupsExpanded\.active\) setWorkingIssuesState\(workingIssuesState\);/);
     assert.match(toggles, /if \(group === 'active' && expanded\) setWorkingIssuesState\(workingIssuesState\);/);
     assert.match(functionSource('selectView'), /setWorkingIssuesState\(workingIssuesState\);/);
+  });
+
+  it('starts an edited view\'s new search (a new order or condition) from the results it showed', () => {
+    const options = functionSource('customViewsOptions');
+    // Before retain() drops the old key's results, and only then are the keys remembered.
+    assert.ok(options.indexOf('viewSearch.load(') < options.indexOf('viewSearch.retain('));
+    assert.match(options, /viewSearchKeys\.clear\(\);\s*for \(const \[id, search\] of searches\) if \(search\) viewSearchKeys\.set\(id, search\.key\);/);
+    assert.match(functionSource('openViewEditor'), /orderBy: valid\.orderBy\n/);
   });
 
   it('drops the results of views that are gone or changed, and searches again on Retry and Sync', () => {

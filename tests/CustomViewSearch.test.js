@@ -28,12 +28,12 @@ describe('Custom view results - searching', () => {
     const { results, changes } = setup();
     const { search, calls } = controlledSearch();
     results.load('a', search);
-    assert.deepEqual(results.get('a'), { status: 'loading', issues: [], total: null, hasMore: false, message: '' });
+    assert.deepEqual(results.get('a'), { status: 'loading', issues: [], total: null, hasMore: false, stale: false, message: '' });
     assert.equal(changes.length, 0, 'never reported during load()');
     await settle();
     calls[0].resolve(RESULT);
     await settle();
-    assert.deepEqual(results.get('a'), { status: 'ready', issues: RESULT.issues, total: 1, hasMore: false, message: '' });
+    assert.deepEqual(results.get('a'), { status: 'ready', issues: RESULT.issues, total: 1, hasMore: false, stale: false, message: '' });
     assert.equal(changes.length, 1);
   });
 
@@ -74,7 +74,7 @@ describe('Custom view results - searching', () => {
     await settle();
     calls[0].reject(new Error('Jira refused the search.'));
     await settle();
-    assert.deepEqual(results.get('a'), { status: 'error', issues: [], total: null, hasMore: false, message: 'Jira refused the search.' });
+    assert.deepEqual(results.get('a'), { status: 'error', issues: [], total: null, hasMore: false, stale: false, message: 'Jira refused the search.' });
     assert.equal(errors.length, 1);
     results.load('a', search);
     await settle();
@@ -142,5 +142,79 @@ describe('Custom view results - refreshing and forgetting', () => {
     results.load('a', search);
     await settle();
     assert.equal(calls.length, 2);
+  });
+});
+
+describe('Custom view results - kept while searched again', () => {
+  const OLD = { issues: [{ issueKey: 'KAN-1' }, { issueKey: 'KAN-2' }], total: 2, hasMore: false };
+  const NEW = { issues: [{ issueKey: 'KAN-2' }, { issueKey: 'KAN-1' }], total: 2, hasMore: false };
+
+  async function loadedOld() {
+    const { results, changes } = setup();
+    const { search, calls } = controlledSearch();
+    results.load('reporter ORDER BY updated DESC', search);
+    await settle();
+    calls[0].resolve(OLD);
+    await settle();
+    return { results, changes, search, calls };
+  }
+
+  it('keeps an edited view\'s issues shown, stale, until its new order\'s search answers', async () => {
+    const { results, search, calls } = await loadedOld();
+    results.load('reporter ORDER BY priority ASC', search, { from: 'reporter ORDER BY updated DESC' });
+    assert.deepEqual(results.get('reporter ORDER BY priority ASC'), { status: 'loading', issues: OLD.issues, total: 2, hasMore: false, stale: true, message: '' });
+    await settle();
+    assert.equal(calls.length, 2, 'the new order is a new search');
+    calls[1].resolve(NEW);
+    await settle();
+    assert.deepEqual(results.get('reporter ORDER BY priority ASC'), { status: 'ready', issues: NEW.issues, total: 2, hasMore: false, stale: false, message: '' });
+  });
+
+  it('keeps them, stale, beside the error when that search fails', async () => {
+    const { results, search, calls } = await loadedOld();
+    results.load('reporter ORDER BY priority ASC', search, { from: 'reporter ORDER BY updated DESC' });
+    await settle();
+    calls[1].reject(new Error('Offline'));
+    await settle();
+    assert.deepEqual(results.get('reporter ORDER BY priority ASC'), { status: 'error', issues: OLD.issues, total: 2, hasMore: false, stale: true, message: 'Offline' });
+  });
+
+  it('keeps a view\'s issues shown while Retry searches it again', async () => {
+    const { results, search, calls } = await loadedOld();
+    results.refresh('reporter ORDER BY updated DESC', search);
+    assert.equal(results.get('reporter ORDER BY updated DESC').stale, true);
+    assert.deepEqual(results.get('reporter ORDER BY updated DESC').issues, OLD.issues);
+    await settle();
+    calls[1].resolve(NEW);
+    await settle();
+    assert.equal(results.get('reporter ORDER BY updated DESC').stale, false);
+  });
+
+  it('never lets an older order\'s search replace the newer one\'s results', async () => {
+    const { results, search, calls } = await loadedOld();
+    results.load('order 2', search, { from: 'reporter ORDER BY updated DESC' });
+    results.retain(['order 2']);
+    results.load('order 3', search, { from: 'order 2' });
+    results.retain(['order 3']);
+    await settle();
+    assert.equal(calls[1].signal.aborted, true);
+    calls[2].resolve(NEW);
+    calls[1].resolve({ issues: [{ issueKey: 'OLD-9' }], total: 1, hasMore: false });
+    await settle();
+    assert.deepEqual(results.get('order 3').issues, NEW.issues);
+    assert.equal(results.get('order 2'), null);
+  });
+
+  it('starts afresh without a previous key, or when the previous one had no issues to show', async () => {
+    const { results } = setup();
+    const { search, calls } = controlledSearch();
+    results.load('first', search);
+    await settle();
+    calls[0].reject(new Error('Offline'));
+    await settle();
+    results.load('second', search, { from: 'first' });
+    assert.deepEqual(results.get('second'), { status: 'loading', issues: [], total: null, hasMore: false, stale: false, message: '' });
+    results.load('third', search, { from: 'unknown' });
+    assert.equal(results.get('third').stale, false);
   });
 });

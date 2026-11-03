@@ -3,12 +3,16 @@
  * page: never stored, and apart from the Active view's issues (src/worklog/workingIssuesLoader.js),
  * which never sees them.
  *
- * Results are kept by key, the Jira site and the view's JQL, so editing a view's condition gives it
- * a new key (and new results) while renaming it keeps them. A view is searched when the page asks
- * for it (shown), once: asking again while it loads, or once it has loaded or failed, does nothing.
- * refresh() searches again (Retry, Sync), clear() forgets everything, and retain() forgets
+ * Results are kept by key, the Jira site and the view's JQL, so editing a view's condition or order
+ * gives it a new key (and new results) while renaming it keeps them. A view is searched when the
+ * page asks for it (shown), once: asking again while it loads, or once it has loaded or failed, does
+ * nothing. refresh() searches again (Retry), clear() forgets everything (Sync), and retain() forgets
  * the keys no view has any more. A search that's replaced or forgotten is cancelled, and its answer,
  * even a late one, is never shown.
+ *
+ * While a view is searched again (refresh(), or load() `from` the key it had before an edit), the
+ * issues it showed stay, marked `stale`, until Jira's new answer replaces them; after a failure they
+ * stay too, still `stale`, beside the error.
  *
  * No DOM: the page renders the results through `onChange`.
  */
@@ -20,8 +24,8 @@
  * @param {(err: Error) => void} [options.logError=console.error] - Reports a failed search
  * @returns {{
  *   get: (key: string) => { status: 'loading' | 'ready' | 'error', issues: Array<object>, total: number | null,
- *     hasMore: boolean, message: string } | null,
- *   load: (key: string, search: Search) => void,
+ *     hasMore: boolean, stale: boolean, message: string } | null,
+ *   load: (key: string, search: Search, options?: { from?: string }) => void,
  *   refresh: (key: string, search: Search) => void,
  *   retain: (keys: Iterable<string>) => void,
  *   clear: () => void
@@ -31,14 +35,21 @@
  *   Runs a view's search (JiraClient.searchCustomViewIssues())
  */
 export function createCustomViewSearch(onChange, { logError = (err) => console.error('Failed to search a custom view:', err) } = {}) {
-  // key → { status, issues, total, hasMore, message, controller }
+  // key → { status, issues, total, hasMore, stale, message, controller }
   const entries = new Map();
 
-  /** Starts a key's search, replacing (and cancelling) the one it had. */
-  function start(key, search) {
+  /**
+   * Starts a key's search, replacing (and cancelling) the one it had. The issues `previous` showed
+   * (its answer, or the stale issues it kept) stay, stale, until this search answers.
+   */
+  function start(key, search, previous = null) {
     entries.get(key)?.controller.abort();
     const controller = new AbortController();
-    const entry = { status: 'loading', issues: [], total: null, hasMore: false, message: '', controller };
+    const kept = previous && (previous.status === 'ready' || previous.stale) ? previous : null;
+    const entry = {
+      status: 'loading', issues: kept?.issues ?? [], total: kept?.total ?? null, hasMore: kept?.hasMore ?? false,
+      stale: Boolean(kept), message: '', controller
+    };
     entries.set(key, entry);
     const current = () => entries.get(key) === entry && !controller.signal.aborted;
 
@@ -46,10 +57,12 @@ export function createCustomViewSearch(onChange, { logError = (err) => console.e
       .then(() => search(controller.signal))
       .then((result) => {
         if (!current()) return;
+        // Jira's answer replaces what was shown, all at once.
         entry.status = 'ready';
         entry.issues = Array.isArray(result?.issues) ? result.issues : [];
         entry.total = typeof result?.total === 'number' ? result.total : null;
         entry.hasMore = result?.hasMore === true;
+        entry.stale = false;
         onChange();
       }, (err) => {
         if (!current()) return;
@@ -65,18 +78,21 @@ export function createCustomViewSearch(onChange, { logError = (err) => console.e
     get(key) {
       const entry = entries.get(key);
       return entry
-        ? { status: entry.status, issues: entry.issues, total: entry.total, hasMore: entry.hasMore, message: entry.message }
+        ? { status: entry.status, issues: entry.issues, total: entry.total, hasMore: entry.hasMore, stale: entry.stale, message: entry.message }
         : null;
     },
 
-    /** Searches a key unless it's loading, loaded, or failed already. */
-    load(key, search) {
-      if (!entries.has(key)) start(key, search);
+    /**
+     * Searches a key unless it's loading, loaded, or failed already. `from`: the key the same view
+     * had before it was edited, whose issues stay shown (stale) until this search answers.
+     */
+    load(key, search, { from } = {}) {
+      if (!entries.has(key)) start(key, search, from && from !== key ? entries.get(from) : null);
     },
 
-    /** Searches a key again, cancelling a search in progress. */
+    /** Searches a key again, cancelling a search in progress; its issues stay shown meanwhile. */
     refresh(key, search) {
-      start(key, search);
+      start(key, search, entries.get(key));
     },
 
     /** Forgets every key but these, cancelling their searches. */

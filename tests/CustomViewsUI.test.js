@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument, toHtml } from './support/fakeDom.js';
 import { h } from '../src/ui/dom.js';
-import { renderWorkingIssues, VIEW_SEARCHING, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE } from '../src/ui/weekView.js';
+import { renderWorkingIssues, VIEW_SEARCHING, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE, VIEW_UPDATING } from '../src/ui/weekView.js';
 import {
   openCustomViewEditor, NO_VALUES, VALUES_UNAVAILABLE, FIELDS_UNAVAILABLE, NO_MATCHING_VALUES, NOT_IN_JIRA,
   VIEW_SEARCH_HINT, VALUE_FILTER_THRESHOLD, VALUE_SEARCH_DELAY_MS
@@ -121,7 +121,7 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     assert.deepEqual(rowKeys(section), ['OPS-7', 'OPS-8'], 'Active\'s issues aren\'t listed too');
     assert.equal(section.querySelectorAll('.working-issues-list').length, 1);
-    assert.equal(section.querySelector('.working-issues-view-query').textContent, 'Jira search: Reporter is Me');
+    assert.equal(section.querySelector('.working-issues-view-query').textContent, 'Jira search: Reporter is Me · Updated, descending');
     assert.equal(section.querySelector('#recentlyLoggedSwitch'), null);
     assert.equal(header(section), 'My Issues (2)');
     assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-reported');
@@ -166,6 +166,32 @@ describe('Custom views - tabs in My Issues', () => {
       assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported']);
       assert.equal(header(section), 'My Issues');
     }
+  });
+
+  it('keeps a view\'s issues, and their count, while it\'s searched again, with a spinner and a note', () => {
+    const stale = { ...REPORTED_RESULT, status: 'loading', stale: true };
+    const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: stale } });
+    const section = render({ views });
+    const panel = section.querySelector('#workingIssuesViewPanel');
+    assert.deepEqual(rowKeys(section), ['OPS-7', 'OPS-8']);
+    assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported (2)']);
+    const note = panel.querySelector('.working-issues-view-updating');
+    assert.equal(note.textContent, VIEW_UPDATING);
+    assert.equal(note.getAttribute('role'), 'status');
+    assert.ok(note.querySelector('.working-issues-spinner'));
+    assert.equal(panel.getAttribute('aria-busy'), 'true');
+    assert.equal(panel.querySelectorAll('.working-issues-empty').length, 0, 'not "Searching Jira…"');
+  });
+
+  it('keeps a view\'s issues below the error when searching it again fails, with Retry', () => {
+    const failed = { ...REPORTED_RESULT, status: 'error', stale: true, message: 'Jira refused the search.' };
+    const { views, calls } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: failed } });
+    const section = render({ views });
+    assert.match(section.querySelector('#workingIssuesViewPanel').querySelector('.working-issues-message').textContent, /Jira refused the search\./);
+    assert.deepEqual(rowKeys(section), ['OPS-7', 'OPS-8']);
+    assert.equal(section.querySelector('.working-issues-view-updating'), null);
+    section.querySelector('#workingIssuesViewPanel').querySelector('.working-issues-message').querySelector('button').click();
+    assert.deepEqual(calls, [['refresh', 'reported']]);
   });
 
   it('says when no issue matches the view', () => {
@@ -223,7 +249,7 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     assert.equal(section.querySelector('[role="tablist"]').getAttribute('aria-label'), 'Views of My Issues');
     assert.deepEqual(tabs(section).map((tab) => [tab.getAttribute('aria-selected'), tab.getAttribute('tabindex')]), [['true', '0'], ['false', '-1'], ['false', '-1']]);
-    assert.equal(tabs(section)[1].getAttribute('title'), 'Reporter is Me');
+    assert.equal(tabs(section)[1].getAttribute('title'), 'Reporter is Me · Updated, descending');
     assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-all');
   });
 
@@ -394,7 +420,7 @@ describe('Custom views - editor', () => {
     submit();
     await flush();
     assert.deepEqual(calls, [
-      ['save', { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'isOneOf', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] }] }],
+      ['save', { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'isOneOf', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] }], orderBy: { field: 'updated', direction: 'DESC' } }],
       ['close']
     ]);
   });
@@ -445,6 +471,59 @@ describe('Custom views - editor', () => {
     await flush();
     assert.equal($('#customViewFormError').textContent, 'Storage is full.');
     assert.equal(editor.isOpen, true);
+    assert.deepEqual(calls, []);
+  });
+
+  it('offers Order by, after the condition, with Jira\'s sortable fields, Updated descending for a new view', () => {
+    const { $, root } = open();
+    const select = $('#customViewOrderBy');
+    assert.deepEqual(select.querySelectorAll('option').map((o) => [o.getAttribute('value'), o.textContent]), [
+      ['updated', 'Updated'], ['created', 'Created'], ['priority', 'Priority'], ['duedate', 'Due date'], ['status', 'Status'], ['key', 'Issue key']
+    ]);
+    assert.equal(select.value, 'updated');
+    const directions = root.querySelectorAll('input[name="customViewOrderDirection"]');
+    assert.deepEqual(directions.map((input) => [input.value, input.getAttribute('type'), input.checked]), [['ASC', 'radio', false], ['DESC', 'radio', true]]);
+    assert.deepEqual(root.querySelectorAll('.custom-view-direction').map((label) => label.textContent), ['Ascending (ASC)', 'Descending (DESC)']);
+    const groups = root.querySelectorAll('.form-group');
+    const at = (el) => groups.indexOf(el.closest('.form-group'));
+    assert.ok(at(select) > at($('#customViewValues')), 'after the condition');
+  });
+
+  it('saves the chosen order and direction', async () => {
+    const { $, root, choose, submit, calls } = open();
+    $('#customViewName').value = 'By priority';
+    choose('#customViewField', 'reporter');
+    await flush();
+    choose('#customViewOrderBy', 'priority');
+    const ascending = root.querySelectorAll('input[name="customViewOrderDirection"]').find((input) => input.value === 'ASC');
+    ascending.checked = true;
+    root.querySelectorAll('input[name="customViewOrderDirection"]').find((input) => input.value === 'DESC').checked = false;
+    submit();
+    await flush();
+    assert.deepEqual(calls[0][1].orderBy, { field: 'priority', direction: 'ASC' });
+  });
+
+  it('restores a saved view\'s order, and opens one saved without an order on Updated descending', async () => {
+    const sorted = { ...QUEUE, orderBy: { field: 'duedate', direction: 'ASC' } };
+    const edited = open({ view: sorted, views: [sorted] });
+    assert.equal(edited.$('#customViewOrderBy').value, 'duedate');
+    assert.equal(edited.root.querySelectorAll('input[name="customViewOrderDirection"]').find((input) => input.checked).value, 'ASC');
+    const old = open({ view: QUEUE, views: [QUEUE] });
+    assert.equal(old.$('#customViewOrderBy').value, 'updated');
+    assert.equal(old.root.querySelectorAll('input[name="customViewOrderDirection"]').find((input) => input.checked).value, 'DESC');
+    const invalid = { ...QUEUE, orderBy: { field: 'summary', direction: 'sideways' } };
+    assert.equal(open({ view: invalid, views: [invalid] }).$('#customViewOrderBy').value, 'updated');
+  });
+
+  it('refuses an order that isn\'t offered, saying so, and saves nothing', async () => {
+    const { $, root, choose, submit, calls } = open();
+    $('#customViewName').value = 'Mine';
+    choose('#customViewField', 'assignee');
+    await flush();
+    for (const input of root.querySelectorAll('input[name="customViewOrderDirection"]')) input.checked = false;
+    submit();
+    assert.match($('#customViewOrderByError').textContent, /Choose an order and a direction/);
+    assert.equal(document.activeElement, $('#customViewOrderBy'));
     assert.deepEqual(calls, []);
   });
 

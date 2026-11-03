@@ -3,9 +3,10 @@
  * built-in view: My Work's existing search), each with one condition (a field, an operator, and
  * values). A view is its own Jira search: buildCustomViewJql() turns its condition into JQL, and the
  * page runs it apart from Active's search (src/jira/customViewSearch.js), so a view finds the issues
- * the user can browse in Jira that match, whether Active lists them or not. Jira's permissions decide what any search returns. A view lists the first
- * CUSTOM_VIEW_RESULT_LIMIT issues, most recently updated first (then by key, so the same issues
- * come back in the same order), from one request: Jira is never asked for another page.
+ * the user can browse in Jira that match, whether Active lists them or not. Jira's permissions
+ * decide what any search returns. A view lists the first CUSTOM_VIEW_RESULT_LIMIT issues in its own
+ * order (one of ORDER_BY_FIELDS, ascending or descending; Updated, newest first, by default), which
+ * Jira sorts before it limits them, from one request: Jira is never asked for another page.
  *
  * Fields:
  * - Status and Priority: Jira's numeric ID in the JQL (`status in (10001, 3)`), chosen from every
@@ -22,9 +23,11 @@
  *
  * Stored in storage.local as `customViewsBySite`, per Jira site (`${deploymentType}|${baseUrl}`,
  * as siteId() makes it): { [site]: { version: 1, views: [{ id, name, conditions: [{ field: { id,
- * name }, operator, values: [{ id, label }] | [{ currentUser: true, label: 'Me' }] }] }] } }. One
- * condition per view for now; `conditions` is a list so more can come later. A site's entry with
- * another version is from another version of the extension: it's neither used nor overwritten.
+ * name }, operator, values: [{ id, label }] | [{ currentUser: true, label: 'Me' }] }], orderBy: { field,
+ * direction } }] } }. One condition per view for now; `conditions` is a list so more can come later.
+ * A view saved without `orderBy`, or with one that isn't valid, is read with DEFAULT_ORDER_BY. A
+ * site's entry with another version is from another version of the extension: it's neither used nor
+ * overwritten.
  * Search results are never stored.
  *
  * No DOM and no network access.
@@ -35,6 +38,22 @@ export const MAX_CUSTOM_VIEWS = 2;
 export const MAX_VIEW_NAME_LENGTH = 30;
 // The issues a view lists: Jira's first ones, in one request.
 export const CUSTOM_VIEW_RESULT_LIMIT = 20;
+
+// The fields a view can be ordered by: Jira's own sortable fields, by their JQL names, all checked
+// with ORDER BY on Jira Cloud and Data Center. Status sorts by the workflow's order of statuses,
+// and Priority by the site's order of priorities, as Jira's issue navigator does.
+export const ORDER_BY_FIELDS = Object.freeze([
+  Object.freeze({ id: 'updated', name: 'Updated' }),
+  Object.freeze({ id: 'created', name: 'Created' }),
+  Object.freeze({ id: 'priority', name: 'Priority' }),
+  Object.freeze({ id: 'duedate', name: 'Due date' }),
+  Object.freeze({ id: 'status', name: 'Status' }),
+  Object.freeze({ id: 'key', name: 'Issue key' })
+]);
+export const ORDER_DIRECTIONS = Object.freeze({ ASC: 'ASC', DESC: 'DESC' });
+export const ORDER_DIRECTION_LABELS = Object.freeze({ ASC: 'Ascending', DESC: 'Descending' });
+// Most recently updated first.
+export const DEFAULT_ORDER_BY = Object.freeze({ field: 'updated', direction: 'DESC' });
 
 // The built-in view, Active: My Work's existing search. Its name, and All, are no custom view's.
 export const ALL_VIEW_ID = 'all';
@@ -158,6 +177,17 @@ export function normalizeCondition(raw) {
 }
 
 /**
+ * Checks a view's order: one of ORDER_BY_FIELDS, ascending or descending; null when it's anything else.
+ * @param {unknown} raw
+ * @returns {{ field: string, direction: 'ASC' | 'DESC' } | null}
+ */
+export function normalizeOrderBy(raw) {
+  const field = ORDER_BY_FIELDS.find((item) => item.id === raw?.field)?.id;
+  const direction = Object.values(ORDER_DIRECTIONS).find((item) => item === raw?.direction);
+  return field && direction ? { field, direction } : null;
+}
+
+/**
  * Checks a view's name: required once trimmed, at most MAX_VIEW_NAME_LENGTH characters, and none
  * of RESERVED_VIEW_NAMES (Active, the built-in view, and All), in any letter case.
  * @param {unknown} name
@@ -174,16 +204,16 @@ export function nameProblem(name) {
 
 /**
  * Checks a stored view; null when it's malformed: a valid ID and name, and exactly one valid
- * condition.
+ * condition. Its order is read as DEFAULT_ORDER_BY when it has none, or one that isn't valid.
  * @param {unknown} raw
- * @returns {{ id: string, name: string, conditions: Array<object> } | null}
+ * @returns {{ id: string, name: string, conditions: Array<object>, orderBy: { field: string, direction: string } } | null}
  */
 export function normalizeView(raw) {
   const id = typeof raw?.id === 'string' && VIEW_ID.test(raw.id) ? raw.id : '';
   if (!id || id === ALL_VIEW_ID || nameProblem(raw.name)) return null;
   if (!Array.isArray(raw.conditions) || raw.conditions.length !== 1) return null;
   const condition = normalizeCondition(raw.conditions[0]);
-  return condition ? { id, name: text(raw.name), conditions: [condition] } : null;
+  return condition ? { id, name: text(raw.name), conditions: [condition], orderBy: normalizeOrderBy(raw.orderBy) ?? { ...DEFAULT_ORDER_BY } } : null;
 }
 
 /**
@@ -228,12 +258,12 @@ export function normalizeCustomViewsBySite(raw) {
  * Checks a view being created or edited, as the editor has it, against the site's other views.
  *
  * @param {{ name?: string, field?: { id: string, name: string, kind: 'user' | 'option' } | null,
- *   operator?: string, values?: Array<object> }} draft
+ *   operator?: string, values?: Array<object>, orderBy?: { field: string, direction: string } }} draft
  * @param {object} context
  * @param {Array<{ id: string, name: string }>} context.views - The site's saved views
  * @param {string} [context.editingId] - The view being edited; none when creating one
- * @returns {{ errors: { form?: string, name?: string, field?: string, operator?: string, values?: string },
- *   view: { name: string, conditions: Array<object> } | null }} `view` (without its ID) when there are no errors
+ * @returns {{ errors: { form?: string, name?: string, field?: string, operator?: string, values?: string, orderBy?: string },
+ *   view: { name: string, conditions: Array<object>, orderBy: object } | null }} `view` (without its ID) when there are no errors
  */
 export function validateViewDraft(draft, { views, editingId }) {
   const errors = {};
@@ -259,11 +289,13 @@ export function validateViewDraft(draft, { views, editingId }) {
   } else if (draft.operator === OPERATORS.IS_ONE_OF && values.length < 2) {
     errors.values = 'Choose at least two values.';
   }
+  const orderBy = normalizeOrderBy(draft.orderBy);
+  if (!orderBy) errors.orderBy = 'Choose an order and a direction.';
 
   if (Object.keys(errors).length > 0) return { errors, view: null };
   const condition = normalizeCondition({ field: { id: field.id, name: field.name }, operator: draft.operator, values });
   if (!condition) return { errors: { values: 'Choose the values again.' }, view: null };
-  return { errors, view: { name, conditions: [condition] } };
+  return { errors, view: { name, conditions: [condition], orderBy } };
 }
 
 /**
@@ -278,16 +310,18 @@ export function jqlString(value) {
 }
 
 /**
- * Builds the JQL of a view's own Jira search, from its condition alone: allow-listed fields and
- * operators, numeric IDs for statuses and priorities, quoted names for custom options, and
- * `currentUser()` for Me. Nothing typed by the user goes into it unquoted. Ordered by the latest
- * update, newest first, then by key, so the first issues are the same from one search to the next.
+ * Builds the JQL of a view's own Jira search, from its condition and order alone: allow-listed
+ * fields and operators, numeric IDs for statuses and priorities, quoted names for custom options,
+ * and `currentUser()` for Me. Nothing typed by the user goes into it unquoted. Ordered by the view's
+ * field and direction (DEFAULT_ORDER_BY without a valid one), then by key in the same direction, so
+ * issues with the same value come back in the same order from one search to the next.
  *
  * @param {{ conditions: Array<object> }} view - A stored view (normalizeView())
  * @param {object} context
  * @param {string[]} context.assignmentFieldIds - The site's Additional Assignment Fields: the only
  *   custom fields Me can be compared on
- * @returns {string} E.g. `reporter = currentUser() ORDER BY updated DESC, key DESC`
+ * @returns {string} E.g. `reporter = currentUser() ORDER BY updated DESC, key DESC`, or
+ *   `status = 3 ORDER BY priority ASC, key ASC`
  * @throws {Error} For a condition that isn't valid, or a field views can't search on
  */
 export function buildCustomViewJql(view, { assignmentFieldIds = [] } = {}) {
@@ -309,7 +343,8 @@ export function buildCustomViewJql(view, { assignmentFieldIds = [] } = {}) {
     values = condition.values.map((value) => jqlString(value.label));
   }
   const clause = condition.operator === OPERATORS.EQUALS ? `${clauseField} = ${values[0]}` : `${clauseField} in (${values.join(', ')})`;
-  return `${clause} ORDER BY updated DESC, key DESC`;
+  const { field, direction } = normalizeOrderBy(view.orderBy) ?? DEFAULT_ORDER_BY;
+  return `${clause} ORDER BY ${field} ${direction}${field === 'key' ? '' : `, key ${direction}`}`;
 }
 
 /**
@@ -360,14 +395,18 @@ function unquoteJqlValue(value) {
 }
 
 /**
- * Describes a view's search for its panel: "Status is one of In Progress, Review", "Reporter is Me".
- * @param {{ conditions: Array<object> }} view
+ * Describes a view's search for its panel: "Status is one of In Progress, Review · Priority,
+ * ascending", "Reporter is Me · Updated, descending".
+ * @param {{ conditions: Array<object>, orderBy?: object }} view
  * @returns {string}
  */
 export function describeView(view) {
   const condition = view.conditions[0];
   const labels = condition.values.map((value) => value.label).join(', ');
-  return `${condition.field.name} ${condition.operator === OPERATORS.IS_ONE_OF ? 'is one of' : 'is'} ${labels}`;
+  const orderBy = normalizeOrderBy(view.orderBy) ?? DEFAULT_ORDER_BY;
+  const orderName = ORDER_BY_FIELDS.find((item) => item.id === orderBy.field).name;
+  return `${condition.field.name} ${condition.operator === OPERATORS.IS_ONE_OF ? 'is one of' : 'is'} ${labels}` +
+    ` · ${orderName}, ${ORDER_DIRECTION_LABELS[orderBy.direction].toLowerCase()}`;
 }
 
 /**

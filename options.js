@@ -943,6 +943,9 @@ let singleSelectCatalog = null;
 const viewSearch = createCustomViewSearch(() => {
   if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
 });
+// Each custom view's results key when last drawn, by view ID: after an edit changes its JQL (its
+// condition or order), its new search starts from the results it showed, which stay until Jira answers.
+const viewSearchKeys = new Map();
 
 /**
  * A Jira site's custom views, from the saved settings.
@@ -1022,12 +1025,16 @@ function customViewsOptions() {
     singleSelectFieldIds: singleSelectCatalog?.site === site ? singleSelectCatalog.ids : null
   };
   const searches = new Map(views.map((view) => [view.id, viewSearchFor(client, view, context)]));
-  // A deleted view's results, or an edited one's old results, go (their searches are cancelled).
-  viewSearch.retain([...searches.values()].filter(Boolean).map((search) => search.key));
 
   const selectedId = views.some((view) => view.id === selectedViewId) ? selectedViewId : ALL_VIEW_ID;
   const selectedSearch = searches.get(selectedId);
-  if (selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded.active) viewSearch.load(selectedSearch.key, selectedSearch.run);
+  if (selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded.active) {
+    viewSearch.load(selectedSearch.key, selectedSearch.run, { from: viewSearchKeys.get(selectedId) });
+  }
+  // A deleted view's results, or an edited one's old results, go (their searches are cancelled).
+  viewSearch.retain([...searches.values()].filter(Boolean).map((search) => search.key));
+  viewSearchKeys.clear();
+  for (const [id, search] of searches) if (search) viewSearchKeys.set(id, search.key);
 
   return {
     items: views.map((view) => {
@@ -1143,7 +1150,8 @@ function openViewEditor(viewId) {
         name: valid.name,
         field: { ...condition.field, kind: conditionKind(condition) },
         operator: condition.operator,
-        values: condition.values
+        values: condition.values,
+        orderBy: valid.orderBy
       }, { views, editingId: view?.id });
       const problem = Object.values(errors)[0];
       if (problem) throw new Error(problem);

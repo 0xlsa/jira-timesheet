@@ -6,13 +6,18 @@
  * Only what the chosen field allows is offered: Equals alone, and Me alone, for a user field
  * (Assignee, Reporter, an Additional Assignment Field); for the others, Equals (one value) or Is
  * one of (two or more). Status and Priority offer every value Jira lists; a custom field's values
- * are searched in Jira as the user types (Jira's suggestions), the chosen ones staying listed.
+ * are searched in Jira as the user types (Jira's suggestions), the chosen ones staying listed. Then
+ * the order Jira sorts the view's issues in: one of ORDER_BY_FIELDS, ascending or descending
+ * (Updated, descending, for a new view; the saved order, or that default, when editing).
  * Nothing is saved until Save, and only through `onSave`; checking is `validate`'s (validateViewDraft()).
  */
 
 import { h, svg, fragment } from './dom.js';
 import { showPanel, hidePanel } from './panel.js';
-import { OPERATORS, OPERATOR_LABELS, MAX_VIEW_NAME_LENGTH, CUSTOM_VIEW_RESULT_LIMIT, operatorsFor, conditionKind } from '../jira/customViews.js';
+import {
+  OPERATORS, OPERATOR_LABELS, MAX_VIEW_NAME_LENGTH, CUSTOM_VIEW_RESULT_LIMIT, ORDER_BY_FIELDS, ORDER_DIRECTIONS, ORDER_DIRECTION_LABELS,
+  DEFAULT_ORDER_BY, operatorsFor, conditionKind, normalizeOrderBy
+} from '../jira/customViews.js';
 
 export const LOADING_VALUES = 'Loading values…';
 export const NO_VALUES = 'Jira has no values for this field.';
@@ -93,12 +98,23 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
   const operatorSelect = h('select', { id: 'customViewOperator', class: 'custom-view-input', 'aria-describedby': 'customViewOperatorError' });
   const valuesBox = h('div', { id: 'customViewValues', class: 'custom-view-values' });
   const valuesLegend = h('legend', { class: 'form-label' }, 'Value');
+  // The order: the saved one when editing, Updated descending otherwise.
+  const savedOrder = normalizeOrderBy(view?.orderBy) ?? DEFAULT_ORDER_BY;
+  const orderBySelect = h('select', { id: 'customViewOrderBy', class: 'custom-view-input', 'aria-describedby': 'customViewOrderByError' },
+    ORDER_BY_FIELDS.map((item) => h('option', { value: item.id }, item.name)));
+  orderBySelect.value = savedOrder.field;
+  const directionInputs = Object.values(ORDER_DIRECTIONS).map((direction) => {
+    const input = h('input', { type: 'radio', name: 'customViewOrderDirection', id: `customViewOrder${direction}`, value: direction });
+    input.checked = direction === savedOrder.direction;
+    return input;
+  });
   const errorEl = (id) => h('div', { id, class: 'field-error', role: 'alert' });
   const errors = {
     name: errorEl('customViewNameError'),
     field: errorEl('customViewFieldError'),
     operator: errorEl('customViewOperatorError'),
     values: errorEl('customViewValuesError'),
+    orderBy: errorEl('customViewOrderByError'),
     form: errorEl('customViewFormError')
   };
   const fieldsStatus = h('div', { id: 'customViewFieldsStatus', class: 'field-hint' });
@@ -124,6 +140,14 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
       valuesLegend,
       valuesBox,
       errors.values),
+    h('div', { class: 'form-group' },
+      h('label', { for: 'customViewOrderBy', class: 'form-label' }, 'Order by'),
+      orderBySelect,
+      errors.orderBy),
+    h('fieldset', { class: 'form-group custom-view-values-group' },
+      h('legend', { class: 'form-label' }, 'Direction'),
+      h('div', { class: 'custom-view-directions' }, directionInputs.map((input) => h('label', { class: 'custom-view-direction', for: input.id },
+        input, h('span', {}, `${ORDER_DIRECTION_LABELS[input.value]} (${input.value})`))))),
     errors.form,
     h('div', { class: 'custom-view-actions' },
       saveButton,
@@ -311,6 +335,7 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
     }
     nameInput.classList.toggle('is-invalid', Boolean(found.name));
     fieldSelect.classList.toggle('is-invalid', Boolean(found.field));
+    orderBySelect.classList.toggle('is-invalid', Boolean(found.orderBy));
   }
 
   function setBusy(isBusy) {
@@ -334,12 +359,14 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
       name: nameInput.value,
       field: field && { id: field.id, name: field.name, kind: field.kind },
       operator,
-      values: [...chosen.values()].map((value) => (value.currentUser ? { currentUser: true, label: 'Me' } : { id: value.id, label: value.label }))
+      values: [...chosen.values()].map((value) => (value.currentUser ? { currentUser: true, label: 'Me' } : { id: value.id, label: value.label })),
+      orderBy: { field: orderBySelect.value, direction: directionInputs.find((input) => input.checked)?.value }
     };
     const { errors: found, view: valid } = validate(draft);
     showErrors(found);
     if (!valid) {
-      (found.name ? nameInput : found.field ? fieldSelect : found.operator ? operatorSelect : valuesBox.querySelector('input') ?? nameInput).focus();
+      (found.name ? nameInput : found.field ? fieldSelect : found.operator ? operatorSelect
+        : found.values ? valuesBox.querySelector('input') ?? nameInput : found.orderBy ? orderBySelect : nameInput).focus();
       return;
     }
     setBusy(true);

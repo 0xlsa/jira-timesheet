@@ -22,7 +22,7 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 - What's New, in the header, shows what the latest version brings, with a NEW badge until you've seen it. After an update, a short announcement lists the new version's highlights. <!-- highlight -->
 - The bottom of Settings shows the extension's name and version.
-- Custom views in My Work: up to two Jira searches of your own, as tabs beside Active in My Issues. Each lists the first 20 issues you can see in Jira with a given status, priority, or custom field value, or the ones where you're the assignee, the reporter, or in one of your Additional Assignment Fields.
+- Custom views in My Work: up to two Jira searches of your own, as tabs beside Active in My Issues. Each lists the first 20 issues you can see in Jira with a given status, priority, or custom field value, or the ones where you're the assignee, the reporter, or in one of your Additional Assignment Fields, in the order you choose (most recently updated first by default).
 
 ### Changed
 

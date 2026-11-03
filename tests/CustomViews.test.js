@@ -26,14 +26,19 @@ import {
   parseFieldSuggestions,
   buildCustomViewJql,
   jqlString,
-  describeView
+  describeView,
+  normalizeOrderBy,
+  ORDER_BY_FIELDS,
+  ORDER_DIRECTIONS,
+  DEFAULT_ORDER_BY
 } from '../src/jira/customViews.js';
 
 const statusCondition = (ids, operator = ids.length > 1 ? 'isOneOf' : 'equals') => ({
   field: { id: 'status', name: 'Status' }, operator, values: ids.map((id) => ({ id, label: `Status ${id}` }))
 });
 const meCondition = (fieldId, name = fieldId) => ({ field: { id: fieldId, name }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] });
-const view = (id, name, condition = statusCondition(['3'])) => ({ id, name, conditions: [condition] });
+const DEFAULT_ORDER = { field: 'updated', direction: 'DESC' };
+const view = (id, name, condition = statusCondition(['3']), orderBy = DEFAULT_ORDER) => ({ id, name, conditions: [condition], orderBy });
 
 const STATUS = { id: 'status', name: 'Status', kind: 'option' };
 const PRIORITY = { id: 'priority', name: 'Priority', kind: 'option' };
@@ -140,12 +145,12 @@ describe('Custom views - conditions', () => {
 });
 
 describe('Custom views - validating a new or edited view', () => {
-  const draft = (overrides = {}) => ({ name: 'Development Queue', field: STATUS, operator: 'equals', values: [{ id: '3', label: 'In Progress' }], ...overrides });
+  const draft = (overrides = {}) => ({ name: 'Development Queue', field: STATUS, operator: 'equals', values: [{ id: '3', label: 'In Progress' }], orderBy: DEFAULT_ORDER, ...overrides });
 
   it('accepts a valid view, trimming its name', () => {
     const { errors, view: valid } = validateViewDraft(draft({ name: '  Development Queue  ' }), { views: [] });
     assert.deepEqual(errors, {});
-    assert.deepEqual(valid, { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }] });
+    assert.deepEqual(valid, { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }], orderBy: DEFAULT_ORDER });
   });
 
   it('requires a name', () => {
@@ -211,8 +216,9 @@ describe('Custom views - fields', () => {
   });
 
   it('describes a view\'s search for its panel', () => {
-    assert.equal(describeView(view('a', 'A', meCondition('reporter', 'Reporter'))), 'Reporter is Me');
-    assert.equal(describeView(view('b', 'B', statusCondition(['1', '2']))), 'Status is one of Status 1, Status 2');
+    assert.equal(describeView(view('a', 'A', meCondition('reporter', 'Reporter'))), 'Reporter is Me · Updated, descending');
+    assert.equal(describeView(view('b', 'B', statusCondition(['1', '2']), { field: 'priority', direction: 'ASC' })), 'Status is one of Status 1, Status 2 · Priority, ascending');
+    assert.equal(describeView({ conditions: [meCondition('reporter', 'Reporter')] }), 'Reporter is Me · Updated, descending', 'an old view');
   });
 });
 
@@ -405,5 +411,65 @@ describe('Custom views - custom option values from Jira\'s suggestions', () => {
     const condition = normalizeCondition({ field: { id: 'customfield_11300', name: 'Team' }, operator: 'equals', values: parseFieldSuggestions({ results: [{ value: '"Cisco UC Apps"' }] }) });
     assert.deepEqual(condition.values, [{ id: 'Cisco UC Apps', label: 'Cisco UC Apps' }]);
     assert.equal(buildCustomViewJql({ conditions: [condition] }), 'cf[11300] = "Cisco UC Apps" ORDER BY updated DESC, key DESC');
+  });
+});
+
+describe('Custom views - order', () => {
+  const jql = (orderBy, condition = meCondition('reporter')) => buildCustomViewJql({ conditions: [condition], orderBy });
+
+  it('offers Jira\'s sortable fields only, with Ascending and Descending, Updated descending by default', () => {
+    assert.deepEqual(ORDER_BY_FIELDS.map((f) => [f.id, f.name]), [
+      ['updated', 'Updated'], ['created', 'Created'], ['priority', 'Priority'], ['duedate', 'Due date'], ['status', 'Status'], ['key', 'Issue key']
+    ]);
+    assert.deepEqual(Object.values(ORDER_DIRECTIONS), ['ASC', 'DESC']);
+    assert.deepEqual(DEFAULT_ORDER_BY, { field: 'updated', direction: 'DESC' });
+  });
+
+  it('orders the JQL by the view\'s field and direction, then by key the same way', () => {
+    assert.equal(jql({ field: 'updated', direction: 'DESC' }), 'reporter = currentUser() ORDER BY updated DESC, key DESC');
+    assert.equal(jql({ field: 'updated', direction: 'ASC' }), 'reporter = currentUser() ORDER BY updated ASC, key ASC');
+    assert.equal(jql({ field: 'created', direction: 'DESC' }), 'reporter = currentUser() ORDER BY created DESC, key DESC');
+    assert.equal(jql({ field: 'priority', direction: 'ASC' }), 'reporter = currentUser() ORDER BY priority ASC, key ASC');
+    assert.equal(jql({ field: 'duedate', direction: 'ASC' }), 'reporter = currentUser() ORDER BY duedate ASC, key ASC');
+    assert.equal(jql({ field: 'status', direction: 'DESC' }), 'reporter = currentUser() ORDER BY status DESC, key DESC');
+    assert.equal(jql({ field: 'key', direction: 'ASC' }), 'reporter = currentUser() ORDER BY key ASC', 'no tiebreaker for the key itself');
+  });
+
+  it('keeps the condition exactly as before, the order after it', () => {
+    assert.equal(jql({ field: 'priority', direction: 'ASC' }, statusCondition(['3', '10413'])), 'status in (3, 10413) ORDER BY priority ASC, key ASC');
+    assert.equal(jql({ field: 'duedate', direction: 'DESC' }, { field: { id: 'customfield_11300', name: 'Team' }, operator: 'equals', values: [{ id: 'Sega', label: 'Sega' }] }),
+      'cf[11300] = "Sega" ORDER BY duedate DESC, key DESC');
+  });
+
+  it('orders a view saved without an order, or with one that isn\'t valid, by Updated descending', () => {
+    for (const orderBy of [undefined, null, {}, { field: 'updated' }, { direction: 'ASC' }]) {
+      assert.equal(jql(orderBy), 'reporter = currentUser() ORDER BY updated DESC, key DESC', JSON.stringify(orderBy));
+    }
+  });
+
+  it('never puts an unknown field or direction into the JQL', () => {
+    for (const orderBy of [
+      { field: 'summary', direction: 'ASC' }, { field: 'cf[10050]', direction: 'ASC' }, { field: 'updated; DROP', direction: 'ASC' },
+      { field: 'updated DESC, created', direction: 'ASC' }, { field: 'updated', direction: 'asc' }, { field: 'updated', direction: 'DESC, key' },
+      { field: 'Updated', direction: 'DESC' }, { field: 'updated', direction: 'RANDOM' }
+    ]) {
+      assert.equal(normalizeOrderBy(orderBy), null, JSON.stringify(orderBy));
+      assert.equal(jql(orderBy), 'reporter = currentUser() ORDER BY updated DESC, key DESC', JSON.stringify(orderBy));
+    }
+  });
+
+  it('stores the order with the view, keeping only Jira\'s fields and ASC or DESC', () => {
+    const stored = normalizeView({ id: 'a', name: 'A', conditions: [statusCondition(['3'])], orderBy: { field: 'priority', direction: 'ASC', extra: 'x' } });
+    assert.deepEqual(stored.orderBy, { field: 'priority', direction: 'ASC' });
+    assert.deepEqual(normalizeView({ id: 'b', name: 'B', conditions: [statusCondition(['3'])] }).orderBy, DEFAULT_ORDER_BY, 'a view saved before orders');
+    assert.deepEqual(normalizeView({ id: 'c', name: 'C', conditions: [statusCondition(['3'])], orderBy: { field: 'summary', direction: 'ASC' } }).orderBy, DEFAULT_ORDER_BY);
+  });
+
+  it('refuses a draft without a valid order', () => {
+    const draft = (orderBy) => ({ name: 'A', field: STATUS, operator: 'equals', values: [{ id: '3', label: 'In Progress' }], orderBy });
+    for (const orderBy of [undefined, { field: 'summary', direction: 'ASC' }, { field: 'updated', direction: 'up' }]) {
+      assert.match(validateViewDraft(draft(orderBy), { views: [] }).errors.orderBy, /Choose an order and a direction/);
+    }
+    assert.deepEqual(validateViewDraft(draft({ field: 'duedate', direction: 'ASC' }), { views: [] }).view.orderBy, { field: 'duedate', direction: 'ASC' });
   });
 });

@@ -181,6 +181,30 @@ describe('Custom views - their own Jira search', () => {
   });
 });
 
+describe('Custom views - Jira sorts before it limits', () => {
+  it('asks Jira for its first 20 issues in the view\'s order, keeping the total', async () => {
+    const requests = [];
+    const fetchFn = async (rawUrl) => {
+      requests.push(new URL(rawUrl));
+      return jsonResponse(200, { issues: [REPORTED_BACKLOG], startAt: 0, total: 147 });
+    };
+    const view = { conditions: [{ field: { id: 'reporter', name: 'Reporter' }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] }], orderBy: { field: 'priority', direction: 'ASC' } };
+    const result = await server({ fetchFn }).searchCustomViewIssues(buildCustomViewJql(view));
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].searchParams.get('jql'), 'reporter = currentUser() ORDER BY priority ASC, key ASC');
+    assert.equal(requests[0].searchParams.get('maxResults'), '20');
+    assert.equal(requests[0].searchParams.get('startAt'), '0');
+    assert.deepEqual({ total: result.total, hasMore: result.hasMore }, { total: 147, hasMore: true });
+  });
+
+  it('lists the issues in Jira\'s order, never sorting them again', async () => {
+    const order = [OTHERS_IN_PROGRESS, MINE_IN_PROGRESS, REPORTED_BACKLOG];
+    const fetchFn = async () => jsonResponse(200, { issues: order, isLast: true });
+    const { issues } = await cloud({ fetchFn }).searchCustomViewIssues('status = 3 ORDER BY key DESC');
+    assert.deepEqual(keys(issues), ['KAN-3', 'KAN-1', 'KAN-2']);
+  });
+});
+
 describe('Custom views - Jira\'s suggestions for a custom field\'s values', () => {
   function suggestionsJira(body, responseStatus = 200) {
     const requests = [];
@@ -262,7 +286,7 @@ describe('Custom views - custom fields from Jira (GET /field)', () => {
 describe('Custom views - storage per Jira site', () => {
   const SITE = 'cloud|https://acme.atlassian.net';
   const OTHER_SITE = 'server|https://jira.example.com';
-  const view = (id, name) => ({ id, name, conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }] });
+  const view = (id, name, orderBy = { field: 'updated', direction: 'DESC' }) => ({ id, name, conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }], orderBy });
 
   it('saves a site\'s views, and reads them back', async () => {
     const store = createSettingsStore(createMemoryStorageArea());
@@ -270,6 +294,14 @@ describe('Custom views - storage per Jira site', () => {
     const settings = await store.load();
     assert.deepEqual(customViewsForSite(settings, SITE), { version: 1, views: [view('a', 'Development Queue')] });
     assert.deepEqual(customViewsForSite(settings, OTHER_SITE), { version: 1, views: [] });
+  });
+
+  it('saves each view\'s order, and reads a view saved without one as Updated descending', async () => {
+    const store = createSettingsStore(createMemoryStorageArea());
+    await store.saveCustomViews(SITE, [view('a', 'By priority', { field: 'priority', direction: 'ASC' }), view('b', 'Default')]);
+    assert.deepEqual(customViewsForSite(await store.load(), SITE).views.map((v) => v.orderBy), [{ field: 'priority', direction: 'ASC' }, { field: 'updated', direction: 'DESC' }]);
+    const old = createSettingsStore(createMemoryStorageArea({ customViewsBySite: { [SITE]: { version: 1, views: [{ id: 'x', name: 'Old', conditions: view('x', 'Old').conditions }] } } }));
+    assert.deepEqual(customViewsForSite(await old.load(), SITE).views[0].orderBy, { field: 'updated', direction: 'DESC' });
   });
 
   it('never touches another site\'s entry, even one it can\'t read', async () => {

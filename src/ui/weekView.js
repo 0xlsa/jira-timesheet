@@ -34,6 +34,9 @@ const WORKING_ISSUES_ASSIGNED_ONLY = 'In progress';
 export const VIEW_SEARCHING = 'Searching Jira…';
 export const VIEW_NO_MATCHES = 'No issues match this view.';
 export const VIEW_FIELD_UNAVAILABLE = "This view's field is no longer available in Jira.";
+// Beside a custom view's issues while it's searched again (after an edit of its order or
+// condition, or Retry); they stay shown meanwhile.
+export const VIEW_UPDATING = 'Updating this view…';
 
 /** The section's subtitle for a state. */
 const workingIssuesSubtitle = (state) =>
@@ -612,14 +615,15 @@ function renderIssueList(rows, { baseUrl, onLogWork, timer, scope = '' }) {
 }
 
 /**
- * A custom view's count for its tab, once its search has answered: "6", or "20+" when more issues
- * match than it lists; none while it's searched, after a failure, or while its field is unavailable.
+ * A custom view's count for its tab, once its search has answered (or while it's searched again,
+ * its issues shown meanwhile): "6", or "20+" when more issues match than it lists; none while it's
+ * first searched, after a failure, or while its field is unavailable.
  * @param {{ unavailable: boolean, result: object | null }} view
  * @returns {string | null}
  */
 function viewCountLabel(view) {
   const result = view.result;
-  if (view.unavailable || result?.status !== 'ready') return null;
+  if (view.unavailable || !(result?.status === 'ready' || (result?.status === 'loading' && result.stale))) return null;
   return result.hasMore ? `${result.issues.length}+` : String(result.issues.length);
 }
 
@@ -713,7 +717,8 @@ function renderViewTabs(views, selectedView, activeCount) {
  * The selected custom view's contents in the list: what it searches ("Jira search: Reporter is Me"),
  * then its own search's issues (the first CUSTOM_VIEW_RESULT_LIMIT), saying when more match, or why
  * there are none: still searching, nothing matches, Jira failed (with Retry), or its field is gone
- * (with Edit view).
+ * (with Edit view). While it's searched again, and after that search fails, the issues it showed
+ * stay (`stale`), with a spinner, or the error, above them.
  *
  * @param {object} view - One of renderWorkingIssues()'s `views.items`
  * @param {object} views - renderWorkingIssues()'s `views`
@@ -725,6 +730,18 @@ function renderViewTabs(views, selectedView, activeCount) {
  */
 function renderViewResults(view, views, { baseUrl, onLogWork, timer }) {
   const result = view.result;
+  /** The issues, and whether more match than are listed. */
+  const issues = () => {
+    const list = renderIssueList(result.issues, { baseUrl, onLogWork, timer, scope: 'view-row:' });
+    // More match than the view lists: say so, with Jira's count where it gives one.
+    const shown = COUNT_FORMAT.format(result.issues.length);
+    return fragment(
+      list,
+      !list && h('p', { class: 'working-issues-empty' }, VIEW_NO_MATCHES),
+      result.hasMore && h('p', { class: 'working-issues-view-more' }, result.total !== null
+        ? `Showing the first ${shown} of ${COUNT_FORMAT.format(result.total)} matching issues.`
+        : `Showing the first ${shown} matching issues.`));
+  };
   let content;
   if (view.unavailable) {
     // A view whose field is gone says so, with Edit to choose another; it never falls back to Active.
@@ -740,17 +757,17 @@ function renderViewResults(view, views, { baseUrl, onLogWork, timer }) {
       event.stopPropagation();
       views.onRefresh(view.id);
     });
-    content = h('div', { class: 'working-issues-message', role: 'status' }, h('p', {}, result.message), retryViewButton);
-  } else if (result?.status === 'ready') {
-    const list = renderIssueList(result.issues, { baseUrl, onLogWork, timer, scope: 'view-row:' });
-    // More match than the view lists: say so, with Jira's count where it gives one.
-    const shown = COUNT_FORMAT.format(result.issues.length);
     content = fragment(
-      list,
-      !list && h('p', { class: 'working-issues-empty' }, VIEW_NO_MATCHES),
-      result.hasMore && h('p', { class: 'working-issues-view-more' }, result.total !== null
-        ? `Showing the first ${shown} of ${COUNT_FORMAT.format(result.total)} matching issues.`
-        : `Showing the first ${shown} matching issues.`));
+      h('div', { class: 'working-issues-message', role: 'status' }, h('p', {}, result.message), retryViewButton),
+      // What the view showed before stays below, as it was.
+      result.stale && issues());
+  } else if (result?.status === 'ready') {
+    content = issues();
+  } else if (result?.stale) {
+    content = fragment(
+      h('p', { class: 'working-issues-view-updating', role: 'status' },
+        h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' }), VIEW_UPDATING),
+      issues());
   } else {
     content = h('p', { class: 'working-issues-empty' }, VIEW_SEARCHING);
   }
