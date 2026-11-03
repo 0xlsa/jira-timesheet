@@ -18,7 +18,7 @@ function functionSource(name) {
 }
 
 describe('What\'s New page wiring - markup', () => {
-  it('has a What\'s New button in the header, between the keyboard shortcuts and Settings, with a hidden NEW badge', () => {
+  it('has a What\'s New button in the header, before the keyboard shortcuts and Settings, with a hidden NEW badge', () => {
     const header = html.slice(html.indexOf('<div class="header-actions">'), html.indexOf('</header>'));
     const button = header.match(/<button[^>]*id="changelogBtn"[^>]*>/)?.[0];
     assert.ok(button, 'missing #changelogBtn');
@@ -26,8 +26,11 @@ describe('What\'s New page wiring - markup', () => {
     assert.match(button, /aria-expanded="false"/);
     assert.match(button, /aria-label="What's New"/);
     assert.match(button, /data-tooltip="What's New"/);
-    assert.ok(header.indexOf('id="shortcutsHelpBtn"') < header.indexOf('id="changelogBtn"'));
-    assert.ok(header.indexOf('id="changelogBtn"') < header.indexOf('id="settingsBtn"'));
+    // What's New, Help (?), then Settings, after the theme switch.
+    const at = (id) => header.indexOf(`id="${id}"`);
+    assert.ok(at('themeToggleBtn') >= 0 && at('themeToggleBtn') < at('changelogBtn'));
+    assert.ok(at('changelogBtn') < at('shortcutsHelpBtn'));
+    assert.ok(at('shortcutsHelpBtn') < at('settingsBtn'));
     assert.match(header, /<span id="changelogNewBadge" class="header-new-badge hidden" aria-hidden="true">NEW<\/span>/);
   });
 

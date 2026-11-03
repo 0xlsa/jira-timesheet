@@ -43,12 +43,6 @@
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         </button>
-        <!-- Opens the keyboard shortcuts drawer, like pressing ? -->
-        <button type="button" id="shortcutsHelpBtn" class="editor-icon-btn header-icon-btn" aria-label="Keyboard shortcuts"
-          aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutsDrawer" aria-expanded="false"
-          data-tooltip="Keyboard shortcuts (?)">
-          <span class="header-help-glyph" aria-hidden="true">?</span>
-        </button>
         <!-- Opens the What's New drawer (src/ui/changelogDrawer.js); NEW until the latest release notes
              have been seen there -->
         <button type="button" id="changelogBtn" class="editor-icon-btn header-icon-btn" aria-label="What's New"
@@ -62,6 +56,12 @@
             <polyline points="10 9 9 9 8 9" />
           </svg>
           <span id="changelogNewBadge" class="header-new-badge hidden" aria-hidden="true">NEW</span>
+        </button>
+        <!-- Opens the keyboard shortcuts drawer, like pressing ? -->
+        <button type="button" id="shortcutsHelpBtn" class="editor-icon-btn header-icon-btn" aria-label="Keyboard shortcuts"
+          aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="shortcutsDrawer" aria-expanded="false"
+          data-tooltip="Keyboard shortcuts (?)">
+          <span class="header-help-glyph" aria-hidden="true">?</span>
         </button>
         <!-- Opens the Settings drawer -->
         <button type="button" id="settingsBtn" class="editor-icon-btn header-icon-btn" aria-label="Settings"
