@@ -159,12 +159,55 @@ describe('Changelog generator - parsing CHANGELOG.md', () => {
     assert.match(problemsOf('## [Unreleased]\n### Added\n## [1.0.0] - 2026-10-27\n### Added\n- One.\n'), /^line 2: The Added section of Unreleased has no items/m);
   });
 
-  it('requires items under a category, written with "- ", without nested lists', () => {
+  it('requires items under a category, written with "- "', () => {
     assert.match(problemsOf('## [1.0.0] - 2026-10-27\n- One.\n'), /^line 2: Items must be under a category heading/m);
     assert.match(problemsOf('## [1.0.0] - 2026-10-27\n### Added\n* One.\n'), /^line 3: Start items with "- "/m);
-    assert.match(problemsOf('## [1.0.0] - 2026-10-27\n### Added\n- One.\n  - Nested.\n'), /^line 4: Nested lists aren't supported/m);
     assert.match(problemsOf('## [1.0.0] - 2026-10-27\n### Added\nA paragraph.\n'), /^line 3: Expected an item/m);
     assert.match(problemsOf('## [1.0.0] - 2026-10-27\nA paragraph.\n### Added\n- One.\n'), /^line 2: Expected a category heading/m);
+  });
+
+  describe('sub-items', () => {
+    const added = (body) => `## [1.0.0] - 2026-10-27\n### Added\n${body}`;
+    const itemsOf = (body) => parseChangelog(added(body)).releases[0].sections[0].items;
+
+    it('lists an item\'s "  - " sub-items, in order, with their continuations', () => {
+      assert.deepEqual(itemsOf('- Custom views: your own searches.\n  - Up to five,\n    as tabs.\n  - Reorder by dragging.\n- Another.\n'), [
+        { text: 'Custom views: your own searches.', highlight: false, subitems: ['Up to five, as tabs.', 'Reorder by dragging.'] },
+        { text: 'Another.', highlight: false }
+      ]);
+    });
+
+    it('keeps the item\'s own continuation before its sub-items, and its highlight', () => {
+      assert.deepEqual(itemsOf('- One,\n  continued. <!-- highlight -->\n  - A detail.\n'), [
+        { text: 'One, continued.', highlight: true, subitems: ['A detail.'] }
+      ]);
+    });
+
+    it('gives items without sub-items no subitems at all, so their JSON is as before', () => {
+      assert.equal('subitems' in itemsOf('- One.\n')[0], false);
+    });
+
+    it('allows one level only, and "  - " exactly', () => {
+      assert.match(problemsOf(added('- One.\n  - A.\n    - Deeper.\n')), /^line 5: Only one level of sub-items is supported/m);
+      assert.match(problemsOf(added('- One.\n  * A.\n')), /^line 4: Write sub-items as "  - "/m);
+      assert.match(problemsOf(added('- One.\n    - A.\n')), /^line 4: Write sub-items as "  - "/m);
+      assert.match(problemsOf(added('- One.\n  - A.\n  more.\n')), /^line 5: Continue a sub-item on lines indented by at least four spaces/m);
+    });
+
+    it('needs an item above, keeps sub-items plain text, and never makes one a highlight', () => {
+      assert.match(problemsOf('## [1.0.0] - 2026-10-27\n### Added\n  - Orphan.\n'), /^line 3: A sub-item \("  - …"\) must follow an item/m);
+      assert.match(problemsOf(added('- One.\n  - Uses `code`.\n')), /^line 4: Sub-items are plain text and can't contain a code span/m);
+      assert.match(problemsOf(added('- One.\n  - Big. <!-- highlight -->\n')), /^line 4: Only items can be highlights, not sub-items/m);
+    });
+
+    it('carries the sub-items into both outputs, and the runtime keeps them', () => {
+      const changelog = parseChangelog(added('- One.\n  - A.\n  - B.\n'));
+      for (const mode of MODES) {
+        const json = toChangelogJson(changelog, { mode });
+        assert.deepEqual(json.releases[0].sections[0].items[0].subitems, ['A.', 'B.']);
+        assert.deepEqual(normalizeReleases(json)[0].sections[0].items[0].subitems, ['A.', 'B.']);
+      }
+    });
   });
 
   it('keeps items plain text: no Markdown formatting or HTML besides the highlight marker', () => {

@@ -258,7 +258,8 @@ This runs `node --test tests/*.test.js`, as defined in `package.json`.
 [`CHANGELOG.md`](CHANGELOG.md) is the only record of release history, written by hand in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with [Semantic Versioning](https://semver.org/). Version 1.2.0 is the first documented release; the versions before it were development milestones, whose history is in Git (tags `v1.0.0` and `v1.1.0`).
 
 - Add each user-facing change under `## [Unreleased]`, in `### Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
-- Items are plain text on one line (or continued on lines indented by two spaces): no code spans, bold, emphasis, links, images, HTML, or nested lists. The check names the line of anything else.
+- Items are plain text on one line (or continued on lines indented by two spaces): no code spans, bold, emphasis, links, images, or HTML. The check names the line of anything else.
+- An item may have sub-items, one level only: `  - ` (two spaces, then `- `) under it, plain text too, continued on lines indented by four spaces. What's New lists them under their item; the update announcement shows only a highlight's own text. A sub-item can't be a highlight.
 - End an item with `<!-- highlight -->` to make it one of its release's highlights, which the update announcement lists.
 - Releases are `## [X.Y.Z] - YYYY-MM-DD`, newest first, one for every published version, patch releases included. Versions are numbers only, since browser manifests allow no pre-release suffix.
 

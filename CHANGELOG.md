@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 How to maintain this file (see "Changelog" under "Development and tests" in README.md):
 - Add each user-facing change under [Unreleased], in Added, Changed, Deprecated, Removed, Fixed, or Security.
 - Items are plain text: no code spans, bold, links, or HTML.
+- An item may have sub-items, one level: "  - " (two spaces, then "- ") under it, plain text too.
 - End an item with the highlight marker (an HTML comment, see README.md) to show it in the update announcement.
 - To release, move the Unreleased items into a new "## [X.Y.Z] - YYYY-MM-DD" section with 1 to 3 highlights,
   leave [Unreleased] empty, and set the same version in manifest.json and package.json. Packaging fails until
@@ -22,7 +23,11 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 - What's New, in the header, shows what the latest version brings, with a NEW badge until you've seen it. After an update, a short announcement lists the new version's highlights. <!-- highlight -->
 - The bottom of Settings shows the extension's name and version.
-- Custom views in My Work: up to five Jira searches of your own, as tabs beside Active in My Issues, which you can reorder by dragging. Each lists the first 20 issues you can see in Jira that meet all its conditions (on status, priority, assignee, reporter, or your Jira site's own fields), in the order you choose (most recently updated first by default).
+- Custom views in My Work: create your own Jira issue views to organize and find the issues that matter to you.
+  - Create up to five custom views, displayed as tabs beside Active in My Issues.
+  - Reorder tabs by dragging.
+  - Define multiple conditions using status, priority, assignee, reporter, or custom fields from your Jira site.
+  - See the first 20 matching issues you have permission to access, sorted in your chosen order (most recently updated first by default).
 
 ### Changed
 

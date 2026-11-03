@@ -225,6 +225,57 @@ describe('What\'s New drawer', () => {
   });
 });
 
+describe('What\'s New drawer - sub-items', () => {
+  let restoreDocument;
+  beforeEach(() => { restoreDocument = installFakeDocument(); });
+  afterEach(() => restoreDocument());
+
+  const VIEWS = {
+    text: 'Custom views in My Work: create your own Jira issue views.', highlight: false,
+    subitems: ['Create up to five custom views.', 'Reorder tabs by dragging.']
+  };
+
+  async function openWith(items, { unreleased = false } = {}) {
+    const root = h('aside', { class: 'changelog-drawer hidden' });
+    const notes = { version: '1.2.0', date: '2026-11-10', sections: [{ type: 'Added', items }] };
+    openChangelogDrawer(root, {
+      loadChangelog: async () => (unreleased ? { releases: RELEASES, unreleased: { sections: notes.sections } } : { releases: [notes], unreleased: null }),
+      onRead() {}, onClose() {}, afterRender: () => {}
+    });
+    await flush();
+    return root;
+  }
+
+  it('lists an item\'s sub-items under its text, as a nested list', async () => {
+    const root = await openWith([VIEWS, { text: 'Another', highlight: false }]);
+    const [first, second] = root.querySelector('.changelog-items').children;
+    const nested = first.querySelector('.changelog-subitems');
+    assert.equal(nested.localName, 'ul');
+    assert.deepEqual(nested.children.map((li) => li.textContent), VIEWS.subitems);
+    assert.equal(first.textContent.startsWith(VIEWS.text), true, 'the item\'s text first, then its list');
+    assert.equal(second.querySelector('.changelog-subitems'), null);
+  });
+
+  it('keeps a highlight\'s star on its item, never on its sub-items', async () => {
+    const root = await openWith([{ ...VIEWS, highlight: true }]);
+    const item = root.querySelector('.changelog-items').children[0];
+    assert.ok(item.classList.contains('is-highlight'));
+    assert.equal(item.querySelectorAll('.changelog-highlight-icon').length, 1);
+    assert.equal(item.querySelector('.changelog-subitems').querySelectorAll('.changelog-highlight-icon').length, 0);
+  });
+
+  it('lists sub-items in the development preview too', async () => {
+    const root = await openWith([VIEWS], { unreleased: true });
+    assert.deepEqual(unreleasedOf(root).querySelector('.changelog-subitems').children.map((li) => li.textContent), VIEWS.subitems);
+  });
+
+  it('shows sub-items as text, never as markup', async () => {
+    const root = await openWith([{ ...VIEWS, subitems: [HOSTILE] }]);
+    assert.equal(hasInjectedElements(root), false);
+    assert.match(toHtml(root), /&lt;img src=x onerror=alert\(1\)&gt;/);
+  });
+});
+
 describe('What\'s New drawer - development preview of unreleased changes', () => {
   let restoreDocument;
   beforeEach(() => {

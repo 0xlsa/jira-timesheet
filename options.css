@@ -2744,6 +2744,20 @@ body {
   margin-top: 4px;
 }
 
+/* An item's sub-items: a list under its text, set apart by its markers, size, and colour */
+.changelog-subitems {
+  margin: 4px 0 2px;
+  padding-left: 18px;
+  list-style: circle;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+
+.changelog-items .changelog-subitems li + li {
+  margin-top: 2px;
+}
+
 /* The latest release: on a highlighted card at the top, what the drawer is for */
 .changelog-release.is-latest {
   padding: 14px 16px;

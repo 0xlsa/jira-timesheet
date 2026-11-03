@@ -50,17 +50,23 @@ const highlightMark = () => [
   h('span', { class: 'sr-only' }, 'Highlight: ')
 ];
 
+/** An item's sub-items, as a list under its text; nothing without them. */
+const renderSubitems = (item) => (item.subitems?.length
+  ? h('ul', { class: 'changelog-subitems' }, item.subitems.map((text) => h('li', {}, text)))
+  : null);
+
 /**
- * Builds the changes under their categories' labels (only the categories with entries).
- * @param {Array<{ type: string, items: Array<{ text: string, highlight?: boolean }> }>} sections
+ * Builds the changes under their categories' labels (only the categories with entries), each
+ * item's sub-items listed under it.
+ * @param {Array<{ type: string, items: Array<{ text: string, highlight?: boolean, subitems?: string[] }> }>} sections
  * @param {boolean} markHighlights - Mark the highlights (the latest release only)
  */
 function renderSections(sections, markHighlights) {
   return sections.filter(({ items }) => items.length > 0).map(({ type, items }) => h('div', { class: 'changelog-section', 'data-category': type },
     h('h4', { class: 'changelog-category' }, CATEGORY_LABELS[type] ?? type),
     h('ul', { class: 'changelog-items' }, items.map((item) => (markHighlights && item.highlight
-      ? h('li', { class: 'is-highlight' }, highlightMark(), item.text)
-      : h('li', {}, item.text))))));
+      ? h('li', { class: 'is-highlight' }, highlightMark(), item.text, renderSubitems(item))
+      : h('li', {}, item.text, renderSubitems(item)))))));
 }
 
 /**

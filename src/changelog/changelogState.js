@@ -4,7 +4,7 @@
  * The release notes are src/changelog/changelog.json, generated from CHANGELOG.md by
  * scripts/changelog.mjs and packaged with the extension, so they show offline. Its shape:
  * { channel, unreleased?: { sections }, releases: [{ version, date, sections: [{ type, items:
- * [{ text, highlight }] }] }] }, newest release first. There are two:
+ * [{ text, highlight, subitems? }] }] }] }, newest release first; `subitems`, an item's sub-items' texts. There are two:
  * - release (packages): the releases only.
  * - development (`npm run changelog` for an unpacked copy, and `task build:*`): the releases, and
  *   the changes not released yet (`unreleased`), which the drawer previews as "Unreleased (in
@@ -53,13 +53,18 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-/** Keeps the sections and items that are well formed, in their order. */
+/** Keeps the sections, items, and sub-items that are well formed, in their order. */
 function normalizeSections(sections) {
   return (Array.isArray(sections) ? sections : []).flatMap((section) => {
     if (!CATEGORIES.includes(section?.type)) return [];
     const items = (Array.isArray(section.items) ? section.items : [])
       .filter((item) => typeof item?.text === 'string' && item.text.trim())
-      .map((item) => ({ text: item.text.trim(), highlight: item.highlight === true }));
+      .map((item) => {
+        const subitems = (Array.isArray(item.subitems) ? item.subitems : [])
+          .filter((subitem) => typeof subitem === 'string' && subitem.trim())
+          .map((subitem) => subitem.trim());
+        return { text: item.text.trim(), highlight: item.highlight === true, ...(subitems.length && { subitems }) };
+      });
     return items.length ? [{ type: section.type, items }] : [];
   });
 }

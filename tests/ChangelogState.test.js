@@ -21,6 +21,18 @@ const release = (version, items = [{ text: 'A change', highlight: false }]) =>
 const RELEASES = [release('1.2.0'), release('1.1.0'), release('1.0.0')];
 const state = (lastAnnouncedVersion, lastReadVersion) => ({ lastAnnouncedVersion, lastReadVersion });
 
+describe('Changelog state - sub-items', () => {
+  it('keeps an item\'s sub-items, trimmed, skipping any that aren\'t text', () => {
+    const [item] = normalizeReleases({ releases: [release('1.2.0', [{ text: 'Views', highlight: false, subitems: [' Five tabs ', '', 7, null, 'Dragging'] }])] })[0].sections[0].items;
+    assert.deepEqual(item, { text: 'Views', highlight: false, subitems: ['Five tabs', 'Dragging'] });
+  });
+
+  it('leaves items without sub-items as they were', () => {
+    const [item] = normalizeReleases({ releases: [release('1.2.0', [{ text: 'A', highlight: true, subitems: 'not a list' }])] })[0].sections[0].items;
+    assert.deepEqual(item, { text: 'A', highlight: true });
+  });
+});
+
 describe('Changelog state - versions', () => {
   it('compares versions by their numbers, with anything else older than every version', () => {
     assert.ok(compareVersions('1.10.0', '1.9.9') > 0);

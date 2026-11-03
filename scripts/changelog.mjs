@@ -28,15 +28,18 @@
  * - `### Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security` inside a release, each
  *   at most once and never empty. A release has at least one.
  * - `- ` items: plain text, on one line or continued on lines indented by at least two spaces. No
- *   nested lists, Markdown formatting (code, bold, emphasis, links, images), or HTML: the extension
- *   shows items as plain text.
+ *   Markdown formatting (code, bold, emphasis, links, images), or HTML: the extension shows items
+ *   as plain text.
+ * - An item may have sub-items, one level only: `  - ` (two spaces, then `- `) under it, plain text
+ *   too, continued on lines indented by at least four spaces. What's New lists them under their item.
  * - `<!-- highlight -->` at the end of an item marks it as one of its release's highlights, which
- *   the update announcement shows. The release being packaged needs 1 to 3 (--check-release);
+ *   the update announcement shows (its text, without sub-items). Sub-items can't be highlights. The release being packaged needs 1 to 3 (--check-release);
  *   older releases and Unreleased don't.
  * - Link reference definitions (`[1.2.0]: https://…`) after the releases are ignored.
  *
  * The JSON: { channel, unreleased?: { sections }, releases: [{ version, date, sections: [{ type,
- * items: [{ text, highlight }] }] }] }, newest release first, sections in the order of CATEGORIES.
+ * items: [{ text, highlight, subitems? }] }] }] }, newest release first, sections in the order of
+ * CATEGORIES; `subitems` (texts) only for an item that has some.
  */
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -60,6 +63,8 @@ const RELEASE_HEADING = /^## \[(\d+)\.(\d+)\.(\d+)\] - (\d{4})-(\d{2})-(\d{2})$/
 const CATEGORY_HEADING = /^### (.*)$/;
 const ITEM = /^- (.*)$/;
 const CONTINUATION = /^ {2,}(\S.*)$/;
+const SUBITEM = /^ {2}- (.*)$/;
+const SUBITEM_CONTINUATION = /^ {4,}(\S.*)$/;
 const NESTED_ITEM = /^\s+([-*+]|\d+[.)])\s/;
 const OTHER_BULLET = /^([*+]|\d+[.)])\s/;
 const LINK_DEFINITION = /^\[[^\]]+\]:\s*\S/;
@@ -208,18 +213,40 @@ export function parseChangelog(markdown) {
         item = null;
         return;
       }
-      item = { line, text: itemMatch[1].trim() };
+      item = { line, text: itemMatch[1].trim(), subitems: [] };
       category.items.push(item);
       return;
     }
 
+    const subitemMatch = SUBITEM.exec(raw.trimEnd());
+    if (subitemMatch) {
+      if (!item) problem(line, 'A sub-item ("  - …") must follow an item.');
+      else item.subitems.push({ line, text: subitemMatch[1].trim() });
+      return;
+    }
     if (NESTED_ITEM.test(raw)) {
-      problem(line, 'Nested lists aren\'t supported; write each change as its own item.');
+      problem(line, item?.subitems.length && /^ {4,}- /.test(raw)
+        ? 'Only one level of sub-items is supported.'
+        : 'Write sub-items as "  - " (two spaces, then "- "), one level only.');
       return;
     }
     if (OTHER_BULLET.test(text)) {
       problem(line, 'Start items with "- ".');
       return;
+    }
+
+    // Once an item has sub-items, a continuation belongs to the last one, indented by four spaces.
+    const lastSubitem = item?.subitems.at(-1);
+    if (lastSubitem) {
+      const subContinuation = SUBITEM_CONTINUATION.exec(raw);
+      if (subContinuation) {
+        lastSubitem.text = `${lastSubitem.text} ${subContinuation[1].trim()}`;
+        return;
+      }
+      if (CONTINUATION.test(raw)) {
+        problem(line, 'Continue a sub-item on lines indented by at least four spaces.');
+        return;
+      }
     }
 
     const continuation = CONTINUATION.exec(raw);
@@ -245,14 +272,22 @@ export function parseChangelog(markdown) {
       }
       sections.push({
         type,
-        items: section.items.map(({ line, text }) => {
+        items: section.items.map(({ line, text, subitems }) => {
           const highlight = HIGHLIGHT_MARKER.test(text);
           const plain = text.replace(HIGHLIGHT_MARKER, '').trim();
           if (!plain) problem(line, 'The item is empty.');
           for (const [pattern, name] of FORMATTING) {
             if (pattern.test(plain)) problem(line, `Items are plain text and can't contain ${name}.`);
           }
-          return { text: plain, highlight };
+          const subtexts = subitems.map((subitem) => {
+            if (HIGHLIGHT_MARKER.test(subitem.text)) problem(subitem.line, 'Only items can be highlights, not sub-items.');
+            if (!subitem.text) problem(subitem.line, 'The sub-item is empty.');
+            for (const [pattern, name] of FORMATTING) {
+              if (pattern.test(subitem.text)) problem(subitem.line, `Sub-items are plain text and can't contain ${name}.`);
+            }
+            return subitem.text;
+          });
+          return { text: plain, highlight, ...(subtexts.length && { subitems: subtexts }) };
         })
       });
     }
