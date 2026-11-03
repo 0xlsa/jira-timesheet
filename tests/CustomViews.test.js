@@ -25,6 +25,11 @@ import {
   viewUserFieldIds,
   normalizeConditions,
   MAX_VIEW_JQL_LENGTH,
+  normalizeViewOrder,
+  normalizeCustomViewOrderBySite,
+  orderViews,
+  reorderViewIds,
+  dropPosition,
   parseNamedValues,
   parseFieldSuggestions,
   buildCustomViewJql,
@@ -669,5 +674,75 @@ describe('Custom views - In and Not in', () => {
 
   it('describes Not in and In', () => {
     assert.equal(describeView({ conditions: [status('notIn', ['1', '2']), user('assignee', 'in')] }), 'Status not in S1, S2 and assignee in Me · Updated, descending');
+  });
+});
+
+describe('Custom views - tab order', () => {
+  const views = ['a', 'b', 'c', 'd'].map((id) => view(id, `View ${id}`));
+  const ids = (list) => list.map((v) => v.id);
+
+  it('shows the views in the saved order, keeping each view as it is', () => {
+    const ordered = orderViews(views, ['c', 'a', 'd', 'b']);
+    assert.deepEqual(ids(ordered), ['c', 'a', 'd', 'b']);
+    assert.ok(ordered.every((v) => views.includes(v)), 'the same view objects, unchanged');
+  });
+
+  it('shows the views as saved without an order', () => {
+    assert.deepEqual(ids(orderViews(views, [])), ['a', 'b', 'c', 'd']);
+    assert.deepEqual(ids(orderViews(views, undefined)), ['a', 'b', 'c', 'd']);
+  });
+
+  it('appends views the order doesn\'t name (created since), and skips IDs of views that are gone', () => {
+    assert.deepEqual(ids(orderViews(views, ['d', 'gone', 'b'])), ['d', 'b', 'a', 'c']);
+    assert.deepEqual(ids(orderViews([...views, view('e', 'New')], ['d', 'c', 'b', 'a'])), ['d', 'c', 'b', 'a', 'e']);
+  });
+
+  it('reads only valid IDs, each once, never Active', () => {
+    assert.deepEqual(normalizeViewOrder(['a', 'a', 'all', 'bad id!', 7, null, 'b']), ['a', 'b']);
+    assert.deepEqual(normalizeViewOrder({ ids: ['a'] }), []);
+    assert.deepEqual(normalizeCustomViewOrderBySite({ s1: ['b', 'a'], s2: { version: 2, ids: [] }, '': ['x'] }), { s1: ['b', 'a'] });
+    assert.deepEqual(normalizeCustomViewOrderBySite(null), {});
+  });
+
+  it('moves an ID left or right, keeping the others in order', () => {
+    const order = ['a', 'b', 'c', 'd'];
+    assert.deepEqual(reorderViewIds(order, 'c', 0), ['c', 'a', 'b', 'd']);
+    assert.deepEqual(reorderViewIds(order, 'a', 3), ['b', 'c', 'd', 'a']);
+    assert.deepEqual(reorderViewIds(order, 'b', 2), ['a', 'c', 'b', 'd']);
+    assert.deepEqual(reorderViewIds(order, 'b', 99), ['a', 'c', 'd', 'b']);
+    assert.deepEqual(reorderViewIds(order, 'b', -3), ['b', 'a', 'c', 'd']);
+    assert.deepEqual(reorderViewIds(order, 'zz', 0), order);
+    assert.deepEqual(order, ['a', 'b', 'c', 'd'], 'the list given is left as it was');
+  });
+
+  describe('where a dragged tab goes', () => {
+    // Two rows: a, b, c on the first (y 0-20), d on the second (y 30-50).
+    const tabs = [
+      { id: 'a', left: 100, right: 160, top: 0, bottom: 20 },
+      { id: 'b', left: 170, right: 230, top: 0, bottom: 20 },
+      { id: 'c', left: 240, right: 300, top: 0, bottom: 20 },
+      { id: 'd', left: 0, right: 60, top: 30, bottom: 50 }
+    ];
+
+    it('goes before or after the tab under the pointer, by which half it\'s in', () => {
+      assert.deepEqual(dropPosition(tabs, { x: 180, y: 10 }), { id: 'b', after: false, index: 1 });
+      assert.deepEqual(dropPosition(tabs, { x: 220, y: 10 }), { id: 'b', after: true, index: 2 });
+    });
+
+    it('goes beside the nearest tab on the pointer\'s row, between tabs or past the ends', () => {
+      assert.deepEqual(dropPosition(tabs, { x: 236, y: 10 }), { id: 'c', after: false, index: 2 });
+      assert.deepEqual(dropPosition(tabs, { x: 400, y: 10 }), { id: 'c', after: true, index: 3 });
+      assert.deepEqual(dropPosition(tabs, { x: 20, y: 5 }), { id: 'a', after: false, index: 0 });
+    });
+
+    it('follows the tabs onto another row when they wrap', () => {
+      assert.deepEqual(dropPosition(tabs, { x: 50, y: 40 }), { id: 'd', after: true, index: 4 });
+      assert.deepEqual(dropPosition(tabs, { x: 250, y: 45 }), { id: 'd', after: true, index: 4 });
+      assert.deepEqual(dropPosition(tabs, { x: 10, y: 26 }), { id: 'd', after: false, index: 3 }, 'nearer the second row');
+    });
+
+    it('has nowhere to go without tabs', () => {
+      assert.equal(dropPosition([], { x: 0, y: 0 }), null);
+    });
   });
 });

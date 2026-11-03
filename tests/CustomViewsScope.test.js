@@ -8,7 +8,7 @@ import { JiraCloudTokenProvider } from '../src/auth/JiraCloudTokenProvider.js';
 import { JiraPatProvider } from '../src/auth/JiraPatProvider.js';
 import { buildActiveIssuesJql } from '../src/jira/activeIssues.js';
 import { loadActiveIssues } from '../src/worklog/weeklyWorklogService.js';
-import { createSettingsStore, normalizeSettings, customViewsForSite } from '../src/settings/settingsStore.js';
+import { createSettingsStore, normalizeSettings, customViewsForSite, customViewOrderForSite } from '../src/settings/settingsStore.js';
 import { createMemoryStorageArea } from '../src/compat/browser-api.js';
 import { buildCustomViewJql, CUSTOM_VIEW_RESULT_LIMIT } from '../src/jira/customViews.js';
 
@@ -435,6 +435,54 @@ describe('Custom views - storage per Jira site', () => {
   const SITE = 'cloud|https://acme.atlassian.net';
   const OTHER_SITE = 'server|https://jira.example.com';
   const view = (id, name, orderBy = { field: 'updated', direction: 'DESC' }) => ({ id, name, conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }] }], orderBy });
+
+  describe('tab order', () => {
+    const order = (settings, site = SITE) => customViewOrderForSite(settings, site);
+
+    it('saves a site\'s order on its own, keeping the views exactly as stored', async () => {
+      const area = createMemoryStorageArea();
+      const store = createSettingsStore(area);
+      const views = [view('a', 'One'), view('b', 'Two'), view('c', 'Three')];
+      await store.saveCustomViews(SITE, views);
+      const { customViewsBySite: before } = await area.get(['customViewsBySite']);
+      await store.saveCustomViewOrder(SITE, ['c', 'a', 'b']);
+      const { customViewsBySite: after, customViewOrderBySite } = await area.get(['customViewsBySite', 'customViewOrderBySite']);
+      assert.deepEqual(after, before, 'the views aren\'t rewritten');
+      assert.deepEqual(customViewOrderBySite, { [SITE]: ['c', 'a', 'b'] });
+      assert.deepEqual(order(await store.load()), ['c', 'a', 'b'], 'and read back after a reload');
+    });
+
+    it('keeps each site\'s order apart, and never touches another\'s, nor other settings', async () => {
+      const area = createMemoryStorageArea({ customViewOrderBySite: { [OTHER_SITE]: ['x', 'y'] }, showRecentlyLoggedIssues: true });
+      const store = createSettingsStore(area);
+      await store.saveCustomViewOrder(SITE, ['b', 'a']);
+      const settings = await store.load();
+      assert.deepEqual(order(settings), ['b', 'a']);
+      assert.deepEqual(order(settings, OTHER_SITE), ['x', 'y']);
+      assert.equal(settings.showRecentlyLoggedIssues, true);
+      assert.deepEqual(order(normalizeSettings({}), 'cloud|https://elsewhere.atlassian.net'), [], 'none saved: as the views are saved');
+    });
+
+    it('leaves an order or views saved by another version untouched, refusing to change them', async () => {
+      const newer = { version: 3, ids: ['a'] };
+      const area = createMemoryStorageArea({ customViewOrderBySite: { [SITE]: newer } });
+      await assert.rejects(createSettingsStore(area).saveCustomViewOrder(SITE, ['b', 'a']), /another version/);
+      assert.deepEqual((await area.get(['customViewOrderBySite'])).customViewOrderBySite[SITE], newer);
+      const newerViews = createMemoryStorageArea({ customViewsBySite: { [SITE]: { version: 9, views: [] } } });
+      await assert.rejects(createSettingsStore(newerViews).saveCustomViewOrder(SITE, ['a']), /another version/);
+      assert.equal((await newerViews.get(['customViewOrderBySite'])).customViewOrderBySite, undefined);
+    });
+
+    it('refuses an order that isn\'t valid IDs, each once, or no site', async () => {
+      const area = createMemoryStorageArea();
+      const store = createSettingsStore(area);
+      for (const ids of [['a', 'a'], ['bad id!'], ['all'], 'a,b', ['1', '2', '3', '4', '5', '6']]) {
+        await assert.rejects(store.saveCustomViewOrder(SITE, ids), /isn't valid/, JSON.stringify(ids));
+      }
+      await assert.rejects(store.saveCustomViewOrder('', ['a']), /site is required/);
+      assert.deepEqual(await area.get(null), {});
+    });
+  });
 
   it('saves five views for a site, and reads them back in order', async () => {
     const store = createSettingsStore(createMemoryStorageArea());

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument, toHtml } from './support/fakeDom.js';
 import { h } from '../src/ui/dom.js';
-import { renderWorkingIssues, VIEW_SEARCHING, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE, VIEW_UPDATING } from '../src/ui/weekView.js';
+import { renderWorkingIssues, VIEW_SEARCHING, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE, VIEW_UPDATING, VIEW_MOVE_HINT } from '../src/ui/weekView.js';
 import {
   openCustomViewEditor, NO_VALUES, VALUES_UNAVAILABLE, FIELDS_UNAVAILABLE, NO_MATCHING_VALUES, NOT_IN_JIRA,
   VIEW_SEARCH_HINT, VALUE_FILTER_THRESHOLD, VALUE_SEARCH_DELAY_MS, ADD_CONDITION
@@ -33,7 +33,7 @@ const ready = (issues, { total = issues.length, hasMore = false } = {}) => ({ st
 const REPORTED_RESULT = ready([issue('OPS-7', 'Backlog'), issue('OPS-8', 'Done')]);
 
 /** renderWorkingIssues()'s `views`, from saved views and their results, recording what's asked. */
-function viewsOptions(saved, { selectedId = ALL_VIEW_ID, unavailable = [], results = {}, canCreate = saved.length < MAX_CUSTOM_VIEWS } = {}) {
+function viewsOptions(saved, { selectedId = ALL_VIEW_ID, unavailable = [], results = {}, canCreate = saved.length < MAX_CUSTOM_VIEWS, canReorder = saved.length > 1, announcement = '' } = {}) {
   const calls = [];
   return {
     calls,
@@ -46,7 +46,10 @@ function viewsOptions(saved, { selectedId = ALL_VIEW_ID, unavailable = [], resul
       onSelect: (id) => calls.push(['select', id]),
       onCreate: () => calls.push(['create']),
       onEdit: (id) => calls.push(['edit', id]),
-      onRefresh: (id) => calls.push(['refresh', id])
+      onRefresh: (id) => calls.push(['refresh', id]),
+      canReorder,
+      onMove: (id, toIndex) => calls.push(['move', id, toIndex]),
+      announcement
     }
   };
 }
@@ -311,6 +314,179 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     assert.equal(section.querySelectorAll('img').length, 0);
     assert.match(toHtml(section), /&lt;img src=x onerror=alert\(1\)&gt;/);
+  });
+});
+
+describe('Custom views - moving the tabs', () => {
+  let restoreDocument;
+  beforeEach(() => { restoreDocument = installFakeDocument(); });
+  afterEach(() => restoreDocument());
+
+  const THREE = [REPORTED, QUEUE, { ...QUEUE, id: 'qa', name: 'Ready for QA' }];
+  /**
+   * Gives the tabs boxes on the page, one row, 100 px wide each from x = 0 (Active first), and
+   * returns how to drag with a pointer over them.
+   */
+  function layout(section) {
+    tabs(section).forEach((tab, i) => {
+      tab.getBoundingClientRect = () => ({ left: i * 110, right: i * 110 + 100, top: 0, bottom: 24 });
+    });
+    const tablist = section.querySelector('[role="tablist"]');
+    const tabFor = (id) => tabs(section).find((tab) => tab.getAttribute('data-view') === id);
+    const pointer = (type, target, x, y = 10) => target.dispatchEvent({ type, pointerId: 1, button: 0, clientX: x, clientY: y });
+    return {
+      tablist,
+      tabFor,
+      /** Presses on a tab, moves to x, and releases: the click that follows a release too. */
+      drag(id, toX, { release = true } = {}) {
+        const tab = tabFor(id);
+        const from = Number(tabs(section).indexOf(tab)) * 110 + 50;
+        pointer('pointerdown', tab, from);
+        pointer('pointermove', tab, from + (toX > from ? 3 : -3));
+        pointer('pointermove', tab, toX);
+        if (!release) return;
+        pointer('pointerup', tab, toX);
+        tab.click();
+      },
+      pointer
+    };
+  }
+
+  it('drags a custom view to the right, after the tab it\'s dropped on', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    // Reported (x 110-210) dropped on Ready for QA's right half (x 330-430).
+    layout(section).drag('reported', 400);
+    assert.deepEqual(calls, [['move', 'reported', 2]]);
+  });
+
+  it('drags a custom view to the left, before the tab it\'s dropped on', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    layout(section).drag('qa', 120);
+    assert.deepEqual(calls, [['move', 'qa', 0]]);
+  });
+
+  it('never puts a view before Active: dropped on Active, it goes first among the custom views', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    layout(section).drag('qa', 10);
+    assert.deepEqual(calls, [['move', 'qa', 0]]);
+  });
+
+  it('never drags Active', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    const { pointer, tabFor } = layout(section);
+    pointer('pointerdown', tabFor(ALL_VIEW_ID), 50);
+    pointer('pointermove', tabFor(ALL_VIEW_ID), 400);
+    pointer('pointerup', tabFor(ALL_VIEW_ID), 400);
+    assert.deepEqual(calls, []);
+    assert.equal(tabFor(ALL_VIEW_ID).classList.contains('is-movable'), false);
+    assert.equal(tabFor(ALL_VIEW_ID).getAttribute('aria-keyshortcuts'), null);
+  });
+
+  it('never chooses the dragged tab, but a press without a drag still chooses it', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    const { drag, pointer, tabFor } = layout(section);
+    drag('reported', 400);
+    assert.deepEqual(calls.filter(([what]) => what === 'select'), []);
+    // A press that moves under the threshold is a click.
+    pointer('pointerdown', tabFor('qa'), 380);
+    pointer('pointermove', tabFor('qa'), 382);
+    pointer('pointerup', tabFor('qa'), 382);
+    tabFor('qa').click();
+    assert.deepEqual(calls.at(-1), ['select', 'qa']);
+  });
+
+  it('dropped back where it was, moves nothing', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    layout(section).drag('queue', 280);
+    assert.deepEqual(calls, []);
+  });
+
+  it('fades the dragged tab, shows a line where it would go, and clears both on release', () => {
+    const { views } = viewsOptions(THREE);
+    const section = render({ views });
+    const { drag, tabFor, tablist, pointer } = layout(section);
+    drag('reported', 400, { release: false });
+    assert.ok(tabFor('reported').classList.contains('is-dragging'));
+    assert.ok(tabFor('qa').classList.contains('is-drop-after'));
+    assert.ok(tablist.classList.contains('is-reordering'));
+    pointer('pointermove', tabFor('reported'), 340);
+    assert.ok(tabFor('qa').classList.contains('is-drop-before'));
+    assert.equal(tabFor('qa').classList.contains('is-drop-after'), false);
+    pointer('pointerup', tabFor('reported'), 340);
+    assert.ok(tabs(section).every((tab) => !/is-dragging|is-drop-/.test(tab.className)));
+    assert.equal(tablist.classList.contains('is-reordering'), false);
+  });
+
+  it('cancels a drag with Escape, moving nothing and choosing nothing', () => {
+    const { views, calls } = viewsOptions(THREE);
+    const section = render({ views });
+    const { drag, tabFor, tablist, pointer } = layout(section);
+    drag('reported', 400, { release: false });
+    assert.equal(tablist.dispatchEvent({ type: 'keydown', key: 'Escape', target: tabFor('reported') }), false);
+    pointer('pointerup', tabFor('reported'), 400);
+    tabFor('reported').click();
+    assert.deepEqual(calls, []);
+    assert.equal(tabFor('reported').classList.contains('is-dragging'), false);
+  });
+
+  it('moves the focused custom view with Alt+Shift and the arrow keys, one place each', () => {
+    const { views, calls } = viewsOptions(THREE, { selectedId: 'queue' });
+    const section = render({ views });
+    const { tablist, tabFor } = layout(section);
+    const press = (key, id) => tablist.dispatchEvent({ type: 'keydown', key, altKey: true, shiftKey: true, target: tabFor(id) });
+    assert.equal(press('ArrowRight', 'queue'), false, 'handled');
+    press('ArrowLeft', 'queue');
+    press('ArrowLeft', 'reported');
+    press('ArrowRight', 'qa');
+    press('ArrowLeft', ALL_VIEW_ID);
+    assert.deepEqual(calls, [['move', 'queue', 2], ['move', 'queue', 0]], 'nothing past either end, and never Active');
+  });
+
+  it('describes the keys on each custom view\'s tab', () => {
+    const { views } = viewsOptions(THREE);
+    const section = render({ views });
+    const tab = layout(section).tabFor('queue');
+    assert.equal(tab.getAttribute('aria-keyshortcuts'), 'Alt+Shift+ArrowLeft Alt+Shift+ArrowRight');
+    assert.equal(tab.getAttribute('aria-describedby'), 'workingIssuesViewMoveHint');
+    assert.equal(section.querySelector('#workingIssuesViewMoveHint').textContent, VIEW_MOVE_HINT);
+  });
+
+  it('announces a move, once, through a status region kept across renders', () => {
+    const section = render({ views: viewsOptions(THREE).views });
+    const announcer = section.querySelector('#workingIssuesAnnouncer');
+    assert.equal(announcer.getAttribute('role'), 'status');
+    assert.equal(announcer.textContent, '');
+    render({ views: viewsOptions(THREE, { announcement: 'Moved Reported to position 4 of 4.' }).views, section });
+    assert.ok(section.querySelector('#workingIssuesAnnouncer') === announcer, 'the same region');
+    assert.equal(announcer.textContent, 'Moved Reported to position 4 of 4.');
+  });
+
+  it('can\'t move anything with one custom view, or when the page doesn\'t allow it', () => {
+    for (const views of [viewsOptions([REPORTED]).views, viewsOptions(THREE, { canReorder: false }).views]) {
+      const section = render({ views });
+      assert.equal(section.querySelectorAll('.is-movable').length, 0);
+      assert.equal(section.querySelector('#workingIssuesViewMoveHint'), null);
+    }
+    const { views, calls } = viewsOptions(THREE, { canReorder: false });
+    const section = render({ views });
+    layout(section).drag('reported', 400);
+    assert.deepEqual(calls, [['select', 'reported']], 'a press is only a click');
+  });
+
+  it('leaves ✎ and + working, and the selected view selected', () => {
+    const { views, calls } = viewsOptions([REPORTED, QUEUE], { selectedId: 'queue', canCreate: true });
+    const section = render({ views });
+    layout(section).drag('reported', 290);
+    section.querySelector('[data-action="edit-view"]').click();
+    section.querySelector('[data-action="add-view"]').click();
+    assert.deepEqual(calls, [['move', 'reported', 1], ['edit', 'queue'], ['create']]);
+    assert.equal(layout(section).tabFor('queue').getAttribute('aria-selected'), 'true');
   });
 });
 

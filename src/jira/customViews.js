@@ -272,6 +272,89 @@ export function normalizeSiteViews(raw) {
 }
 
 /**
+ * Checks one site's stored tab order: the custom views' IDs, in the order their tabs show (Active,
+ * the built-in view, is always first and never in it). Anything else, such as an entry saved by
+ * another version, reads as no order.
+ * @param {unknown} raw
+ * @returns {string[]} Valid IDs, each once
+ */
+export function normalizeViewOrder(raw) {
+  if (!Array.isArray(raw)) return [];
+  const ids = [];
+  for (const id of raw) {
+    if (typeof id === 'string' && VIEW_ID.test(id) && id !== ALL_VIEW_ID && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Checks every site's stored tab order (`customViewOrderBySite`): `{ [site]: normalizeViewOrder() }`.
+ * @param {unknown} raw
+ * @returns {Record<string, string[]>}
+ */
+export function normalizeCustomViewOrderBySite(raw) {
+  const bySite = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return bySite;
+  for (const [site, order] of Object.entries(raw)) {
+    if (site && Array.isArray(order)) bySite[site] = normalizeViewOrder(order);
+  }
+  return bySite;
+}
+
+/**
+ * The views in their tabs' order: those in `order` first, as it has them, then any it doesn't
+ * name (a view created since, or every view when there's no order yet), as they're saved. IDs of
+ * views that are gone are skipped. The views themselves are returned as they are.
+ * @param {Array<{ id: string }>} views
+ * @param {string[]} order
+ * @returns {Array<object>}
+ */
+export function orderViews(views, order) {
+  const byId = new Map(views.map((view) => [view.id, view]));
+  const ordered = normalizeViewOrder(order).filter((id) => byId.has(id)).map((id) => byId.get(id));
+  return [...ordered, ...views.filter((view) => !ordered.includes(view))];
+}
+
+/**
+ * Moves a view's ID to another position among the custom views' IDs (0 is just after Active);
+ * the others keep their order. A position past either end is the end.
+ * @param {string[]} ids
+ * @param {string} id
+ * @param {number} toIndex
+ * @returns {string[]} A new list; the same order when the ID isn't in it
+ */
+export function reorderViewIds(ids, id, toIndex) {
+  if (!ids.includes(id)) return [...ids];
+  const others = ids.filter((other) => other !== id);
+  const index = Math.max(0, Math.min(others.length, Math.trunc(toIndex) || 0));
+  return [...others.slice(0, index), id, ...others.slice(index)];
+}
+
+/**
+ * Where a dragged tab would go, from where the pointer is: the tab under it (or, between tabs or
+ * rows, the nearest on the pointer's row), before or after it by which half the pointer is in.
+ * Works when the tabs wrap onto several rows. Only the custom views' tabs are given: nothing can
+ * go before Active.
+ * @param {Array<{ id: string, left: number, right: number, top: number, bottom: number }>} tabs - The
+ *   custom views' tabs, in order, with their boxes on the page
+ * @param {{ x: number, y: number }} point
+ * @returns {{ id: string, after: boolean, index: number } | null} The tab the drop is beside, which
+ *   side, and the position it means among the custom views (as the list is before the move); null
+ *   without tabs
+ */
+export function dropPosition(tabs, { x, y }) {
+  if (tabs.length === 0) return null;
+  const rowOf = (tab) => (y >= tab.top && y <= tab.bottom ? 0 : Math.min(Math.abs(y - tab.top), Math.abs(y - tab.bottom)));
+  const nearestRow = Math.min(...tabs.map(rowOf));
+  const onRow = tabs.filter((tab) => rowOf(tab) === nearestRow);
+  const distance = (tab) => (x < tab.left ? tab.left - x : x > tab.right ? x - tab.right : 0);
+  const target = onRow.reduce((best, tab) => (distance(tab) < distance(best) ? tab : best));
+  const after = x > (target.left + target.right) / 2;
+  const index = tabs.indexOf(target) + (after ? 1 : 0);
+  return { id: target.id, after, index };
+}
+
+/**
  * Checks every site's stored views: `{ [site]: normalizeSiteViews() }`.
  * @param {unknown} raw
  * @returns {Record<string, { version: number, views: Array<object>, unsupported?: true }>}

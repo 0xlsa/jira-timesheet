@@ -2911,6 +2911,33 @@ body {
   color: inherit;
 }
 
+/* Moving a custom view's tab: a vertical touch still scrolls the page; a drag moves the tab. While
+   it's dragged, it fades, and a line (a shadow, so nothing moves) shows where it would go. */
+.working-issues-view-tab.is-movable {
+  touch-action: pan-y;
+}
+
+.working-issues-view-tabs.is-reordering {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.working-issues-view-tabs.is-reordering .working-issues-view-tab {
+  cursor: grabbing;
+}
+
+.working-issues-view-tab.is-dragging {
+  opacity: 0.45;
+}
+
+.working-issues-view-tab.is-drop-before {
+  box-shadow: -3px 0 0 0 var(--primary);
+}
+
+.working-issues-view-tab.is-drop-after {
+  box-shadow: 3px 0 0 0 var(--primary);
+}
+
 /* A view whose field is gone from Jira: struck-through name, so it reads as needing attention */
 .working-issues-view-tab.is-unavailable .working-issues-view-tab-name {
   text-decoration: line-through;

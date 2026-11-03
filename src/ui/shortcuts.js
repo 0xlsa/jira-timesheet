@@ -8,7 +8,7 @@
  */
 
 // Display order of categories; any other category follows, in registration order.
-export const SHORTCUT_CATEGORIES = ['General', 'Day Navigation', 'Week Navigation', 'Navigation', 'Worklogs', 'Worklog form'];
+export const SHORTCUT_CATEGORIES = ['General', 'Day Navigation', 'Week Navigation', 'Navigation', 'Worklogs', 'Worklog form', 'Views'];
 
 // Words a key can be searched by, besides its label.
 const KEY_NAMES = {

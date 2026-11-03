@@ -113,8 +113,24 @@ describe('Custom views page wiring', () => {
     assert.match(load, /settings = await settingsStore\.load\(\);\s*\/\/[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*savedSettings = settings;/);
   });
 
-  it('follows views changed in another tab', () => {
-    assert.match(js, /platform\.watchStorage\(\(changes\) => \{\s*if \(!\('customViewsBySite' in changes\)\) return;[\s\S]*?updateCustomViews\(\);/);
+  it('follows views changed or reordered in another tab', () => {
+    assert.match(js, /platform\.watchStorage\(\(changes\) => \{\s*if \(!\('customViewsBySite' in changes\) && !\('customViewOrderBySite' in changes\)\) return;[\s\S]*?updateCustomViews\(\);/);
+  });
+
+  it('shows the custom views in their saved tab order, which only custom views can change', () => {
+    const options = functionSource('customViewsOptions');
+    assert.match(options, /const views = orderViews\(saved, customViewOrderForSite\(savedSettings, site\)\);/);
+    assert.match(options, /canReorder: !unsupported && views\.length > 1,/);
+    assert.match(options, /onMove: \(id, toIndex\) => moveView\(client, views\.map\(\(view\) => view\.id\), id, toIndex\),/);
+  });
+
+  it('moves a view at once, then saves the order apart from the views, never searching Jira', () => {
+    const move = functionSource('moveView');
+    assert.match(move, /const order = reorderViewIds\(ids, id, toIndex\);/);
+    assert.match(move, /savedSettings = \{ \.\.\.savedSettings, customViewOrderBySite: \{ \.\.\.savedSettings\?\.customViewOrderBySite, \[site\]: order \} \};/);
+    assert.match(move, /settingsStore\.saveCustomViewOrder\(site, order\)/);
+    assert.match(move, /viewTabsAnnouncement = `Moved \$\{name\} to position \$\{order\.indexOf\(id\) \+ 2\} of \$\{order\.length \+ 1\}\.`;/);
+    assert.doesNotMatch(move, /viewSearch\.|saveCustomViews\(|searchCustomViewIssues|selectedViewId =/);
   });
 
   it('opens one drawer at a time: the editor closes the others, and they close it', () => {

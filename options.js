@@ -29,13 +29,13 @@ import {
   replaceWorklogInWeek,
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
-import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite } from './src/settings/settingsStore.js';
+import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite, customViewOrderForSite } from './src/settings/settingsStore.js';
 import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays, VIEW_TAB_SHORTCUTS } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -76,6 +76,8 @@ import {
   SYSTEM_FIELDS,
   buildCustomViewJql,
   describeView,
+  orderViews,
+  reorderViewIds,
   isViewAvailable,
   usesCustomField,
   viewUserFieldIds,
@@ -949,6 +951,9 @@ const viewSearch = createCustomViewSearch(() => {
 // conditions or order), its new search starts from the results it showed, which stay until Jira answers.
 const viewSearchKeys = new Map();
 
+// What was last said about the view tabs to assistive technology ("Moved Reported to position 2 of 4.").
+let viewTabsAnnouncement = '';
+
 /**
  * A Jira site's custom views, from the saved settings.
  * @returns {{ views: Array<object>, unsupported?: true }}
@@ -1031,7 +1036,9 @@ function customViewsOptions() {
   if (!currentClient) return undefined;
   const client = currentClient;
   const site = siteId(client.deploymentType, client.baseUrl);
-  const { views, unsupported } = customViewsFor(client);
+  const { views: saved, unsupported } = customViewsFor(client);
+  // In their tabs' order (reordering never changes a view, its search, or its results).
+  const views = orderViews(saved, customViewOrderForSite(savedSettings, site));
   const context = {
     assignmentFieldIds: assignmentFieldsFor(client).map((field) => field.id),
     singleSelectFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.optionIds : null,
@@ -1057,6 +1064,10 @@ function customViewsOptions() {
     selectedId,
     // Views saved by another version of the extension are left alone: none can be added.
     canCreate: !unsupported && views.length < MAX_CUSTOM_VIEWS,
+    // As views can only be added then: views saved by another version keep their order.
+    canReorder: !unsupported && views.length > 1,
+    onMove: (id, toIndex) => moveView(client, views.map((view) => view.id), id, toIndex),
+    announcement: viewTabsAnnouncement,
     onSelect: selectView,
     onCreate: () => openViewEditor(null),
     onEdit: (id) => openViewEditor(id),
@@ -1067,6 +1078,33 @@ function customViewsOptions() {
       setWorkingIssuesState(workingIssuesState);
     }
   };
+}
+
+/**
+ * Moves a custom view's tab (`ids`: the site's custom views in their tabs' order): shown at once,
+ * then saved (settingsStore.saveCustomViewOrder()), which other tabs follow. The views themselves,
+ * their searches, and their results are untouched, and the selected view stays selected. If it
+ * can't be saved, the order goes back to what's stored, and a toast says why.
+ */
+function moveView(client, ids, id, toIndex) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  const order = reorderViewIds(ids, id, toIndex);
+  if (order.join() === ids.join()) return;
+  const name = customViewsFor(client).views.find((view) => view.id === id)?.name ?? 'The view';
+  // Active is always first: a custom view's place among the tabs is one more than among the views.
+  viewTabsAnnouncement = `Moved ${name} to position ${order.indexOf(id) + 2} of ${order.length + 1}.`;
+  savedSettings = { ...savedSettings, customViewOrderBySite: { ...savedSettings?.customViewOrderBySite, [site]: order } };
+  if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+  settingsStore.saveCustomViewOrder(site, order).catch(async (err) => {
+    console.warn('Could not save the order of the custom views:', err);
+    showToast(err.message || "Couldn't save the order of the views.", { durationMs: 8000 });
+    try {
+      savedSettings = await settingsStore.load();
+    } catch {
+      // Keep what's shown.
+    }
+    if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+  });
 }
 
 /** Shows a view's tab (Active or a custom view, searched when it hasn't been), and remembers it. */
@@ -1191,9 +1229,9 @@ function openViewEditor(viewId) {
   });
 }
 
-// Custom views saved or deleted in another tab: show them here too.
+// Custom views saved, deleted, or reordered in another tab: show them here too.
 platform.watchStorage((changes) => {
-  if (!('customViewsBySite' in changes)) return;
+  if (!('customViewsBySite' in changes) && !('customViewOrderBySite' in changes)) return;
   settingsStore.load().then((settings) => {
     savedSettings = settings;
     updateCustomViews();
@@ -2537,6 +2575,7 @@ shortcuts.register({
   handler: () => refreshWorklogsBtn.click()
 });
 
+for (const shortcut of VIEW_TAB_SHORTCUTS) shortcuts.register(shortcut);
 for (const shortcut of WORKLOG_FORM_SHORTCUTS) {
   shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditor) });
 }

@@ -7,7 +7,7 @@ import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
 import { renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
-import { ALL_VIEW_ID, ALL_VIEW_NAME } from '../jira/customViews.js';
+import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
 const DAY_INDICATOR_FULL_SECONDS = 8 * 60 * 60;
@@ -460,6 +460,11 @@ function uniqueIssues(issues) {
  * @param {(id: string) => void} options.views.onEdit - Called with the selected view's ID from its edit button
  * @param {(id: string) => void} options.views.onRefresh - Called with the selected view's ID from its
  *   error's Retry
+ * @param {boolean} [options.views.canReorder] - The custom views' tabs can be moved: dragged, or with
+ *   Alt+Shift+Left / Right Arrow (Active stays first)
+ * @param {(id: string, toIndex: number) => void} [options.views.onMove] - Called with a custom view's
+ *   ID and its new position among the custom views (0: just after Active) when its tab is moved
+ * @param {string} [options.views.announcement] - Said to assistive technology (a view was moved)
  */
 export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, recentlyLogged, views }) {
   let toggle = section.querySelector('.working-issues-toggle');
@@ -487,13 +492,18 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     header.addEventListener('click', (event) => {
       if (!event.target.closest('button, .working-issues-timer')) toggle.click();
     });
-    section.replaceChildren(header, h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }));
+    section.replaceChildren(header, h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }),
+      // Kept across renders, so what it says (a view moved) is announced once.
+      h('span', { id: 'workingIssuesAnnouncer', class: 'sr-only', role: 'status' }));
   }
 
   // Rebuilding the header's timer controls or the body replaces the button that had focus (Pause
   // becomes Resume, Start becomes Stop, a group re-renders): give focus to the new one with the same
   // focus key.
   const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
+
+  const announcer = section.querySelector('#workingIssuesAnnouncer');
+  if (announcer && announcer.textContent !== (views?.announcement ?? '')) announcer.textContent = views?.announcement ?? '';
 
   // One row per issue, and the badge counts the rows.
   const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
@@ -629,12 +639,28 @@ function viewCountLabel(view) {
 
 const COUNT_FORMAT = new Intl.NumberFormat('en-US');
 
+// Said to assistive technology about a custom view's tab, when the tabs can be moved.
+export const VIEW_MOVE_HINT = 'Alt+Shift+Left or Right Arrow moves this view.';
+// Listed in the keyboard shortcuts drawer; the view tabs handle the keys themselves.
+export const VIEW_TAB_SHORTCUTS = [
+  { id: 'views.move-left', description: 'Move the focused custom view\'s tab left', category: 'Views', keys: [['Alt', 'Shift', '←']] },
+  { id: 'views.move-right', description: 'Move the focused custom view\'s tab right', category: 'Views', keys: [['Alt', 'Shift', '→']] }
+];
+// How far the pointer moves before pressing a tab becomes dragging it.
+const DRAG_THRESHOLD_PX = 5;
+
 /**
  * Builds the view tabs, side by side: Active first, then the custom views, each with its count (Active
  * once its issues are in, a custom view once searched), then the selected custom view's edit button
  * and + for a new view. A tablist (WAI-ARIA tabs): the selected tab is the one in the tab order, and
  * the arrow keys, Home, and End choose another. Choosing a tab reports it through `views.onSelect`;
  * the page renders the result.
+ *
+ * With `views.canReorder`, a custom view's tab can be dragged left or right, across rows when the
+ * tabs wrap: the tab fades and a line shows where it would go; Escape cancels. Pressing a tab only
+ * becomes a drag once the pointer has moved a few pixels, and a drag never chooses the tab. Alt+Shift
+ * with the Left or Right Arrow moves the focused custom view's tab one place. Active never moves,
+ * and nothing goes before it. A move is reported through `views.onMove`.
  *
  * @param {object} views - renderWorkingIssues()'s `views`
  * @param {object | null} selectedView - The selected custom view; null for Active
@@ -647,17 +673,22 @@ function renderViewTabs(views, selectedView, activeCount) {
     ...views.items.map((view) => ({ ...view, count: viewCountLabel(view) }))
   ];
   const selectedId = selectedView?.id ?? ALL_VIEW_ID;
+  const movable = Boolean(views.canReorder && views.onMove);
+  const customIds = views.items.map((view) => view.id);
   const buttons = tabs.map((view) => {
     const selected = view.id === selectedId;
+    const custom = view.id !== ALL_VIEW_ID;
     return h('button', {
       type: 'button',
       role: 'tab',
       id: `workingIssuesViewTab-${view.id}`,
-      class: `working-issues-view-tab${selected ? ' is-selected' : ''}${view.unavailable ? ' is-unavailable' : ''}`,
+      class: `working-issues-view-tab${selected ? ' is-selected' : ''}${view.unavailable ? ' is-unavailable' : ''}${custom && movable ? ' is-movable' : ''}`,
       'data-view': view.id,
       'data-focus-key': `view:${view.id}`,
       'aria-controls': 'workingIssuesViewPanel',
       'aria-selected': String(selected),
+      'aria-describedby': custom && movable ? 'workingIssuesViewMoveHint' : undefined,
+      'aria-keyshortcuts': custom && movable ? 'Alt+Shift+ArrowLeft Alt+Shift+ArrowRight' : undefined,
       tabindex: selected ? '0' : '-1',
       title: view.unavailable ? VIEW_FIELD_UNAVAILABLE : view.description
     },
@@ -665,20 +696,107 @@ function renderViewTabs(views, selectedView, activeCount) {
       view.count !== null && h('span', { class: 'working-issues-view-tab-count' }, ` (${view.count})`),
       view.unavailable && h('span', { class: 'sr-only' }, ', field unavailable'));
   });
+  const customButtons = buttons.slice(1);
 
   const tablist = h('div', { class: 'working-issues-view-tabs', role: 'tablist', 'aria-label': 'Views of My Issues' }, buttons);
   const select = (id) => {
     if (id !== selectedId) views.onSelect(id);
   };
+  /** Moves a custom view to a position among the custom views, when that changes anything. */
+  const move = (id, toIndex) => {
+    const from = customIds.indexOf(id);
+    const to = Math.max(0, Math.min(customIds.length - 1, toIndex));
+    if (from < 0 || to === from) return;
+    views.onMove(id, to);
+  };
+
+  // A drag in progress: { id, pointerId, x, y, dragging, drop }. A drag that ends swallows the
+  // click that follows it, so it never chooses the tab.
+  let drag = null;
+  let swallowClick = false;
+  const clearIndicator = () => {
+    for (const button of buttons) button.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
+    tablist.classList.remove('is-reordering');
+  };
+  /** The drop position under the pointer, among the custom views' tabs, as their boxes are now. */
+  const dropAt = (x, y) => dropPosition(customButtons.map((button) => {
+    const box = button.getBoundingClientRect();
+    return { id: button.dataset.view, left: box.left, right: box.right, top: box.top, bottom: box.bottom };
+  }), { x, y });
+  const endDrag = () => {
+    clearIndicator();
+    drag = null;
+  };
+
+  if (movable) {
+    tablist.addEventListener('pointerdown', (event) => {
+      swallowClick = false;
+      const tab = event.target.closest('[role="tab"]');
+      if (!tab || tab.dataset.view === ALL_VIEW_ID || (event.button ?? 0) !== 0 || customIds.length < 2) return;
+      drag = { id: tab.dataset.view, pointerId: event.pointerId, x: event.clientX, y: event.clientY, dragging: false, drop: null };
+    });
+    tablist.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      if (!drag.dragging) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < DRAG_THRESHOLD_PX) return;
+        drag.dragging = true;
+        const tab = customButtons.find((button) => button.dataset.view === drag.id);
+        tab.classList.add('is-dragging');
+        tablist.classList.add('is-reordering');
+        // The pointer stays the tablist's, even outside it, until it's released.
+        tablist.setPointerCapture?.(event.pointerId);
+      }
+      // No text selection, no scrolling, while dragging.
+      event.preventDefault();
+      drag.drop = dropAt(event.clientX, event.clientY);
+      for (const button of customButtons) {
+        const isTarget = drag.drop && button.dataset.view === drag.drop.id && button.dataset.view !== drag.id;
+        button.classList.toggle('is-drop-before', Boolean(isTarget && !drag.drop.after));
+        button.classList.toggle('is-drop-after', Boolean(isTarget && drag.drop.after));
+      }
+    });
+    tablist.addEventListener('pointerup', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const { id, dragging, drop } = drag;
+      endDrag();
+      if (!dragging) return;
+      swallowClick = true;
+      if (!drop) return;
+      // The drop's index counts the dragged tab where it was: one less once it's taken out before it.
+      const from = customIds.indexOf(id);
+      move(id, drop.index > from ? drop.index - 1 : drop.index);
+    });
+    tablist.addEventListener('pointercancel', endDrag);
+  }
+
   tablist.addEventListener('click', (event) => {
     const tab = event.target.closest('[role="tab"]');
     if (!tab) return;
     event.stopPropagation();
+    if (swallowClick) {
+      swallowClick = false;
+      return;
+    }
     select(tab.dataset.view);
   });
   // Arrow keys, Home, and End move to another tab and choose it (WAI-ARIA tabs pattern). Focus moves
-  // first, so it's on the new tab once the section is drawn again.
+  // first, so it's on the new tab once the section is drawn again. Alt+Shift with an arrow moves the
+  // focused custom view's tab instead, and Escape cancels a drag.
   tablist.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && drag?.dragging) {
+      event.preventDefault();
+      event.stopPropagation();
+      endDrag();
+      swallowClick = true;
+      return;
+    }
+    if (event.altKey && event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault();
+      event.stopPropagation();
+      const id = event.target.closest?.('[role="tab"]')?.dataset.view;
+      if (movable && id && id !== ALL_VIEW_ID) move(id, customIds.indexOf(id) + (event.key === 'ArrowRight' ? 1 : -1));
+      return;
+    }
     const index = buttons.findIndex((tab) => tab.dataset.view === selectedId);
     const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 }[event.key];
     if (next === undefined) return;
@@ -710,7 +828,8 @@ function renderViewTabs(views, selectedView, activeCount) {
     views.onCreate();
   });
 
-  return h('div', { class: 'working-issues-viewbar' }, tablist, editButton, addButton);
+  return h('div', { class: 'working-issues-viewbar' }, tablist, editButton, addButton,
+    movable && h('span', { id: 'workingIssuesViewMoveHint', class: 'sr-only' }, VIEW_MOVE_HINT));
 }
 
 /**
