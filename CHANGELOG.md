@@ -22,6 +22,7 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 - What's New, in the header, shows what the latest version brings, with a NEW badge until you've seen it. After an update, a short announcement lists the new version's highlights. <!-- highlight -->
 - The bottom of Settings shows the extension's name and version.
+- Custom views in My Active Issues: up to two views of your own, as tabs beside All, each listing the issues with a given status, priority, or custom field value, or the ones where you're the assignee, the reporter, or in one of your Additional Assignment Fields.
 
 ### Changed
 

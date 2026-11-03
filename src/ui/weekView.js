@@ -7,6 +7,7 @@ import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
 import { renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
+import { ALL_VIEW_ID, ALL_VIEW_NAME } from '../jira/customViews.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
 const DAY_INDICATOR_FULL_SECONDS = 8 * 60 * 60;
@@ -28,6 +29,10 @@ const WORKING_ISSUES_SUBTITLES = {
 };
 // Ready, with Show Recently Logged Issues turned off.
 const WORKING_ISSUES_ASSIGNED_ONLY = 'In progress';
+
+// A custom view's list, when no issue matches it, or when its field is gone from Jira.
+export const VIEW_NO_MATCHES = 'No issues match this view.';
+export const VIEW_FIELD_UNAVAILABLE = "This view's field is no longer available in Jira."
 
 /** The section's subtitle for a state. */
 const workingIssuesSubtitle = (state) =>
@@ -430,8 +435,19 @@ function uniqueIssues(issues) {
  *   the Active Issues group's header (so only with `pending`); no switch without it
  * @param {boolean} options.recentlyLogged.checked - Whether it's on
  * @param {(checked: boolean) => void} options.recentlyLogged.onChange - Called when the user flips it
+ * @param {object} [options.views] - Custom views (src/jira/customViews.js): tabs above the issues, All
+ *   first; no tabs without it. The selected view narrows Jira's issues, every one loaded (recently
+ *   logged ones too, whatever the switch); All lists them as Show recently logged says, and only All
+ *   lists the running timer's issue when Jira doesn't
+ * @param {Array<{ id: string, name: string, unavailable: boolean, matches: (issue: object) => boolean }>} options.views.items -
+ *   The custom views; `unavailable` when the view's field is gone from Jira
+ * @param {string} options.views.selectedId - ALL_VIEW_ID or a view's ID (an unknown one shows All)
+ * @param {boolean} options.views.canCreate - Show the + button (fewer than two views)
+ * @param {(id: string) => void} options.views.onSelect - Called with a tab's view ID when it's chosen
+ * @param {() => void} options.views.onCreate - Called from the + button
+ * @param {(id: string) => void} options.views.onEdit - Called with the selected view's ID from its edit button
  */
-export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, recentlyLogged }) {
+export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, recentlyLogged, views }) {
   let toggle = section.querySelector('.working-issues-toggle');
   if (!toggle) {
     toggle = h('button', { type: 'button', class: 'working-issues-toggle', 'aria-controls': 'workingIssuesBody' },
@@ -465,8 +481,13 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   // focus key.
   const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
-  // One row per issue, and the badge counts the rows.
-  const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
+  // One row per issue, and the badge counts the rows. With custom views, the issues are loaded with
+  // the recently logged ones even while Show recently logged is off (views filter them all): All then
+  // lists only the in-progress ones, as the switch says.
+  const loaded = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
+  const listsRecentlyLogged = state.includeRecentlyLogged !== false && (recentlyLogged?.checked ?? true);
+  const issues = listsRecentlyLogged ? loaded : loaded.filter((issue) => issue.inProgress);
+  state = { ...state, includeRecentlyLogged: listsRecentlyLogged };
   section.className = `working-issues is-${state.status}`;
 
   // When ready, the subtitle leads with how many issues are listed ("9 issues · In progress and …").
@@ -493,8 +514,11 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     onRetry();
   });
 
-  // The running timer's issue is listed even when Jira's list doesn't include it.
-  const rows = withRunningIssue(issues, timer);
+  // All lists Jira's issues, with the running timer's issue even when Jira's list doesn't include it;
+  // a custom view only the issues it matches, and nothing while its field is unavailable.
+  const selectedView = views?.items.find((view) => view.id === views.selectedId) ?? null;
+  const allRows = withRunningIssue(issues, timer);
+  const rows = !selectedView ? allRows : selectedView.unavailable ? [] : loaded.filter(selectedView.matches);
   const list = rows.length > 0 && h('ul', { class: 'working-issues-list' },
     rows.map((issue, index) => renderWorkingIssue(issue, baseUrl, Boolean(onLogWork), timer, index)));
   if (list && (onLogWork || timer)) {
@@ -516,19 +540,40 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     h('p', {}, state.message || workingIssuesSubtitle(state)),
     retryButton);
 
+  // A custom view whose field is gone says so, with Edit to choose another; it never falls back to All.
+  const editViewButton = selectedView?.unavailable ? h('button', {
+    type: 'button', class: 'btn btn-secondary btn-sm', 'data-focus-key': 'view-edit-unavailable'
+  }, 'Edit view') : null;
+  editViewButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    views.onEdit(selectedView.id);
+  });
+  const unavailableMessage = editViewButton && h('div', { class: 'working-issues-message', role: 'status' },
+    h('p', {}, VIEW_FIELD_UNAVAILABLE), editViewButton);
+  const noMatches = state.status === 'ready' && !list && selectedView && !selectedView.unavailable &&
+    h('p', { class: 'working-issues-empty' }, VIEW_NO_MATCHES);
+
+  const viewTabs = (content) => (views ? fragment(
+    renderViewTabs(views, selectedView, state.status === 'ready' ? viewCounts(views, loaded, allRows) : null),
+    h('div', { id: 'workingIssuesViewPanel', class: 'working-issues-view-panel', role: 'tabpanel', 'aria-labelledby': `workingIssuesViewTab-${selectedView?.id ?? ALL_VIEW_ID}` },
+      content)) : content);
+
   const body = section.querySelector('.working-issues-body');
   if (pending) {
     // Each group's header counts what its list shows, from the start: 0 until Jira's issues are in.
+    // With custom views, that's the selected view's list.
     body.replaceChildren(renderWorkingIssuesGroups(pending, rows.length,
-      fragment(
+      viewTabs(fragment(
         list,
         errorMessage,
+        unavailableMessage,
         state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
-        state.status === 'ready' && !list && h('p', { class: 'working-issues-empty' },
-          state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.')),
+        noMatches,
+        state.status === 'ready' && !list && !selectedView && h('p', { class: 'working-issues-empty' },
+          state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.'))),
       { groupsExpanded, onGroupToggle, recentlyLogged }));
   } else {
-    body.replaceChildren(fragment(list, errorMessage));
+    body.replaceChildren(viewTabs(fragment(list, errorMessage, unavailableMessage, noMatches)));
   }
   // Nothing to show below the header (loading, or no issues, without the groups).
   body.classList.toggle('is-empty', body.childNodes.length === 0);
@@ -546,6 +591,98 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       (focusKey.startsWith('header-timer') ? toggle : null);
     target?.focus();
   }
+}
+
+/**
+ * How many issues each tab lists: All its rows (with the running timer's issue), a custom view the
+ * loaded issues it matches (recently logged ones included); none for a view whose field is unavailable.
+ * @returns {Record<string, number | null>}
+ */
+function viewCounts(views, issues, allRows) {
+  const counts = { [ALL_VIEW_ID]: allRows.length };
+  for (const view of views.items) counts[view.id] = view.unavailable ? null : issues.filter(view.matches).length;
+  return counts;
+}
+
+/**
+ * Builds the view tabs (All, then the custom views, each with its count once the issues are in),
+ * and beside them the selected custom view's edit button and the + button for a new view. A tablist
+ * (WAI-ARIA tabs): the selected tab is the one in the tab order, and the arrow keys, Home, and End
+ * choose another. Choosing a tab reports it through `views.onSelect`; the page renders the result.
+ *
+ * @param {object} views - renderWorkingIssues()'s `views`
+ * @param {object | null} selectedView - The selected custom view; null for All
+ * @param {Record<string, number | null> | null} counts - Null until the issues are in
+ * @returns {HTMLElement}
+ */
+function renderViewTabs(views, selectedView, counts) {
+  const tabs = [{ id: ALL_VIEW_ID, name: ALL_VIEW_NAME, unavailable: false }, ...views.items];
+  const selectedId = selectedView?.id ?? ALL_VIEW_ID;
+  const buttons = tabs.map((view) => {
+    const selected = view.id === selectedId;
+    const count = counts?.[view.id];
+    return h('button', {
+      type: 'button',
+      role: 'tab',
+      id: `workingIssuesViewTab-${view.id}`,
+      class: `working-issues-view-tab${selected ? ' is-selected' : ''}${view.unavailable ? ' is-unavailable' : ''}`,
+      'data-view': view.id,
+      'data-focus-key': `view:${view.id}`,
+      'aria-controls': 'workingIssuesViewPanel',
+      'aria-selected': String(selected),
+      tabindex: selected ? '0' : '-1',
+      title: view.unavailable ? VIEW_FIELD_UNAVAILABLE : undefined
+    },
+      h('span', { class: 'working-issues-view-tab-name' }, view.name),
+      typeof count === 'number' && h('span', { class: 'working-issues-view-tab-count' }, ` (${count})`),
+      view.unavailable && h('span', { class: 'sr-only' }, ', field unavailable'));
+  });
+
+  const tablist = h('div', { class: 'working-issues-view-tabs', role: 'tablist', 'aria-label': 'Views of My Active Issues' }, buttons);
+  const select = (id) => {
+    if (id !== selectedId) views.onSelect(id);
+  };
+  tablist.addEventListener('click', (event) => {
+    const tab = event.target.closest('[role="tab"]');
+    if (!tab) return;
+    event.stopPropagation();
+    select(tab.dataset.view);
+  });
+  // Arrow keys, Home, and End move to another tab and choose it (WAI-ARIA tabs pattern). Focus moves
+  // first, so it's on the new tab once the section is drawn again.
+  tablist.addEventListener('keydown', (event) => {
+    const index = buttons.findIndex((tab) => tab.dataset.view === selectedId);
+    const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = buttons[(next + buttons.length) % buttons.length];
+    target.focus();
+    select(target.dataset.view);
+  });
+
+  const editButton = selectedView ? h('button', {
+    type: 'button', class: 'working-issues-view-btn', 'data-action': 'edit-view', 'data-focus-key': 'view-edit',
+    'aria-label': `Edit the ${selectedView.name} view`, title: 'Edit view'
+  }, buttonIcon(
+    svg('path', { d: 'M12 20h9' }),
+    svg('path', { d: 'M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z' }))) : null;
+  const addButton = views.canCreate ? h('button', {
+    type: 'button', class: 'working-issues-view-btn', 'data-action': 'add-view', 'data-focus-key': 'view-add',
+    'aria-label': 'New custom view', title: 'New view'
+  }, buttonIcon(
+    svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+    svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))) : null;
+  editButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    views.onEdit(selectedView.id);
+  });
+  addButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    views.onCreate();
+  });
+
+  return h('div', { class: 'working-issues-viewbar' }, tablist, editButton, addButton);
 }
 
 /**

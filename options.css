@@ -1046,6 +1046,7 @@ body {
 /* Circular add worklog button in the selected day's heading, and the timer and log work buttons
    of each My Active Issues row */
 .working-issue-timer-btn,
+.working-issues-view-btn,
 .working-issue-log-btn,
 .day-add-btn {
   flex-shrink: 0;
@@ -1064,6 +1065,7 @@ body {
 }
 
 .working-issue-timer-btn:hover,
+.working-issues-view-btn:hover,
 .working-issue-log-btn:hover,
 .day-add-btn:hover {
   color: var(--primary);
@@ -1072,6 +1074,7 @@ body {
 }
 
 .working-issue-timer-btn:focus-visible,
+.working-issues-view-btn:focus-visible,
 .working-issue-log-btn:focus-visible,
 .day-add-btn:focus-visible {
   outline: 2px solid var(--border-focus);
@@ -1079,6 +1082,7 @@ body {
 }
 
 .working-issue-timer-btn .icon,
+.working-issues-view-btn .icon,
 .working-issue-log-btn .icon,
 .day-add-btn .icon {
   width: 16px;
@@ -1886,6 +1890,7 @@ body {
 .worklog-editor,
 .shortcuts-drawer,
 .changelog-drawer,
+.custom-view-editor,
 .settings-drawer {
   position: fixed;
   top: 0;
@@ -1906,6 +1911,7 @@ body {
 .worklog-editor.is-closed,
 .shortcuts-drawer.is-closed,
 .changelog-drawer.is-closed,
+.custom-view-editor.is-closed,
 .settings-drawer.is-closed {
   transform: translateX(100%);
   opacity: 0;
@@ -1921,6 +1927,8 @@ body {
   .shortcuts-drawer.is-closed,
   .changelog-drawer,
   .changelog-drawer.is-closed,
+  .custom-view-editor,
+  .custom-view-editor.is-closed,
   .settings-drawer,
   .settings-drawer.is-closed {
     transition: none;
@@ -1931,6 +1939,7 @@ body {
   .worklog-editor,
   .shortcuts-drawer,
   .changelog-drawer,
+  .custom-view-editor,
   .settings-drawer {
     width: 100%;
     border-left: none;
@@ -2449,12 +2458,14 @@ body {
 /* The Connection Settings drawer shares this drawer's layout (only one is open at a time). */
 .shortcuts-drawer,
 .changelog-drawer,
+.custom-view-editor,
 .settings-drawer {
   z-index: 45;
 }
 
 .shortcuts-drawer-body,
 .changelog-drawer-body,
+.custom-view-editor-body,
 .settings-drawer-body {
   display: flex;
   flex-direction: column;
@@ -2465,6 +2476,7 @@ body {
 
 .shortcuts-header,
 .changelog-header,
+.custom-view-header,
 .settings-drawer-header {
   display: flex;
   align-items: center;
@@ -2473,6 +2485,7 @@ body {
 
 .shortcuts-title,
 .changelog-title,
+.custom-view-title,
 .settings-drawer-title {
   flex: 1;
   font-size: 18px;
@@ -2561,6 +2574,7 @@ body {
 /* Shortcut list: categories with description on the left and keys on the right */
 .shortcuts-list,
 .changelog-list,
+.custom-view-scroll,
 .settings-drawer-scroll {
   flex: 1;
   overflow-y: auto;
@@ -2797,6 +2811,169 @@ body {
 
 .update-announcement-close {
   flex-shrink: 0;
+}
+
+/* ==========================================================================
+   CUSTOM VIEWS
+   My Active Issues' view tabs (src/ui/weekView.js), and the editor drawer (src/ui/customViewEditor.js).
+   ========================================================================== */
+
+/* The tabs (All and the custom views), then the selected view's edit button and the + button */
+.working-issues-viewbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.working-issues-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Every tab, All and the custom views alike, has the same shape: the issue key badges' slightly rounded
+   corners and padding. Unselected: the duration presets' look (the Log work panel's 15m / 30m / 1h);
+   selected: the issue key badges' colours. */
+.working-issues-view-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.working-issues-view-tab:hover {
+  background-color: var(--bg-hover);
+}
+
+.working-issues-view-tab.is-selected {
+  color: #58a6ff;
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+[data-theme="light"] .working-issues-view-tab.is-selected {
+  color: var(--primary);
+}
+
+.working-issues-view-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.working-issues-view-tab-count {
+  white-space: pre;
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+
+.working-issues-view-tab.is-selected .working-issues-view-tab-count {
+  color: inherit;
+}
+
+/* A view whose field is gone from Jira: struck-through name, so it reads as needing attention */
+.working-issues-view-tab.is-unavailable .working-issues-view-tab-name {
+  text-decoration: line-through;
+}
+
+.working-issues-viewbar .working-issues-view-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.working-issues-viewbar .working-issues-view-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The editor's form: the Settings form's fields, then Save and Cancel, and Delete apart below */
+.custom-view-form .form-group {
+  margin-bottom: 16px;
+}
+
+.custom-view-values-group {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+/* The values: one scrolling area for both groups (the issues' values, then Jira's others) */
+.custom-view-value-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.custom-view-value-filter {
+  margin-bottom: 8px;
+}
+
+.custom-view-values-heading {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.custom-view-value-group:first-child .custom-view-values-heading {
+  margin-top: 0;
+}
+
+.custom-view-value-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.custom-view-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.custom-view-value input {
+  width: auto;
+  margin: 0;
+}
+
+.custom-view-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.custom-view-actions .btn {
+  flex: 1 1 0;
+}
+
+.custom-view-delete {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.custom-view-delete-question {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--text-main);
 }
 
 /* ==========================================================================

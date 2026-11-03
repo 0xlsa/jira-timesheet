@@ -102,14 +102,14 @@ describe('Changelog page wiring - controller', () => {
 describe('Changelog page wiring - styles', () => {
   it('slides the Changelog drawer in and out like the other drawers, and lays it out like them', () => {
     for (const selector of [
-      '.worklog-editor,\n.shortcuts-drawer,\n.changelog-drawer,\n.settings-drawer {\n  position: fixed;',
-      '.changelog-drawer.is-closed,\n.settings-drawer.is-closed {',
-      '  .changelog-drawer,\n  .changelog-drawer.is-closed,\n  .settings-drawer,',
+      '.worklog-editor,\n.shortcuts-drawer,\n.changelog-drawer,\n.custom-view-editor,\n.settings-drawer {\n  position: fixed;',
+      '.changelog-drawer.is-closed,\n.custom-view-editor.is-closed,\n.settings-drawer.is-closed {',
+      '  .changelog-drawer,\n  .changelog-drawer.is-closed,\n  .custom-view-editor,',
       '.changelog-drawer-body,', '.changelog-header,', '.changelog-title,', '.changelog-list,'
     ]) {
       assert.ok(css.includes(selector), `missing ${JSON.stringify(selector)}`);
     }
-    assert.match(css, /\.shortcuts-drawer,\n\.changelog-drawer,\n\.settings-drawer \{\n {2}z-index: 45;/);
+    assert.match(css, /\.shortcuts-drawer,\n\.changelog-drawer,\n\.custom-view-editor,\n\.settings-drawer \{\n {2}z-index: 45;/);
     assert.match(css, /\.header-icon-btn\[aria-controls="changelogDrawer"\]\[aria-expanded="true"\]/);
     assert.match(css, /\.header-new-badge \{[^}]*position: absolute;/);
   });

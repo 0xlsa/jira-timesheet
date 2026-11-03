@@ -90,6 +90,12 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 - A button in the URL field opens the entered instance in a new tab (valid HTTPS URLs only).
 - Instance URLs can include a context path, such as `https://jira.example.com/jira`.
 
+**Custom views of My Active Issues**
+- Tabs above My Active Issues' list: **All** (every issue, as before), and up to two custom views of your own, each with how many issues it lists. **+** creates a view; the selected view's ✎ renames, changes, or deletes it. The selected tab is remembered, and views changed in another tab show at once.
+- A view has a name (up to 30 characters, unique, not "All") and one condition: a field, **Equals** (one value) or **Is one of** (two or more values), and the values. The fields are Status and Priority (every value Jira lists, the ones your listed issues have first, with a filter for long lists), custom single-select and radio-button fields (values from the issues already listed), and Assignee, Reporter, and your Additional Assignment Fields, which only compare with **Me**. A view on a value no listed issue has says that no issues match it, until one does.
+- A view only narrows My Active Issues' issues: your in-progress issues and the ones you logged work on in the last 14 days, whatever **Show recently logged** says (the switch only decides whether All lists the recently logged ones). It adds nothing to the Jira search except the fields it compares and, while views exist, the recently logged issues the switch would add; it filters in your browser. Without views, the search is exactly as before. The running timer's issue is listed in All only; the header's timer controls stay available.
+- Views are saved per Jira site in the browser's extension storage. A view whose field is gone from Jira says so, with **Edit view**, instead of showing all issues.
+
 **What's New**
 - The **What's New** button in the header opens a drawer that shows what the latest release brings: its version, date, and changes under **New features**, **Improvements**, **Bug fixes**, and **Security updates** (only the ones with entries), with the release's highlights marked by a star. Only the latest release is shown; the full history stays in `CHANGELOG.md`. It works offline: the release notes are packaged with the extension.
 - After an update, a **NEW** badge on the button stays until you've seen the latest release notes in What's New. Opening another drawer, or closing the announcement below, doesn't remove it.
@@ -344,6 +350,9 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `BackgroundMessages.test.js` | The background script's `TEST_CONNECTION` and `FETCH_WORKLOGS` message handlers |
 | `Changelog.test.js` | The `CHANGELOG.md` format and every rule the generator checks, the development and release outputs (only the development one has `[Unreleased]`), the release check (empty `[Unreleased]`, version, and 1 to 3 highlights), the repository's own `CHANGELOG.md`, and the command line |
 | `ChangelogState.test.js` | Reading the generated release notes (unreleased changes only from the development output), when the update announcement and the NEW badge show (update, fresh install, an update from before What's New), and recording what was announced and read |
+| `CustomViews.test.js` | Custom views' rules: storage per site (and entries from other versions left untouched), names, the two-view limit, one condition, operators by field, matching by ID and by Me, values from the loaded issues, people reduced to whether they're you, and which custom fields qualify |
+| `CustomViewsScope.test.js` | The Jira search with views: the same JQL and one search, today's exact request without views, only allow-listed extra fields, the same issues (views only narrow them), no other person's identity, GET /field, the existing loader, and per-site storage |
+| `CustomViewsUI.test.js` | The view tabs (All by default, counts, the timer-only row in All only, empty and missing-field states, keyboard and ARIA) and the view editor (fields and operators, values, validation, save, delete, cancel) |
 | `ChangelogDrawer.test.js` | The What's New drawer (only the latest release, in full, under user-friendly category labels, with its highlights; the What's New — Unreleased preview, never read; read only once the latest is on screen; load failures) and the update announcement (at most three highlights; closing it never counts as reading), both showing release notes as text only |
 | `ChangelogPage.test.js` | What's New's place in the page: its header button and drawer, one drawer at a time, the announcement, the background's install record, and the build and packaging steps |
 
@@ -422,6 +431,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/
 │   │   ├── JiraClient.js              # Jira REST client
+│   │   ├── customViews.js             # Custom views of My Active Issues: storage, checks, matching
 │   │   ├── issueKeySearch.js          # Partial issue keys: JQL and matching
 │   │   └── createJiraClient.js        # Builds a client from connection settings
 │   ├── settings/
@@ -435,6 +445,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── issuePicker.js             # Issue field with key autocomplete
 │   │   ├── deleteWorklogDialog.js     # Delete worklog confirmation
 │   │   ├── changelogDrawer.js         # What's New drawer
+│   │   ├── customViewEditor.js        # Custom view editor drawer
 │   │   └── updateAnnouncement.js      # What's new, after an update
 │   ├── validation/
 │   │   └── JiraUrlValidator.js        # URL validation and origin checks

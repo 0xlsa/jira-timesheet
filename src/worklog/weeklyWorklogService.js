@@ -34,14 +34,16 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
  * @param {AbortSignal} [options.signal] - Cancels the requests
  * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields; none by default
  * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues
+ * @param {string[]} [options.viewFields] - The fields the site's custom views compare; none by default
  * @returns {Promise<Array<object>>} From JiraClient.getActiveIssues()
  */
-export async function loadActiveIssues(client, { now = new Date(), signal, assignmentFields = [], includeRecentlyLogged = true } = {}) {
+export async function loadActiveIssues(client, { now = new Date(), signal, assignmentFields = [], includeRecentlyLogged = true, viewFields = [] } = {}) {
   const { since, until } = recentlyLoggedWindow(now);
   return client.getActiveIssues(since, until, {
     signal,
     ...(assignmentFields.length && { assignmentFields }),
-    ...(!includeRecentlyLogged && { includeLogged: false })
+    ...(!includeRecentlyLogged && { includeLogged: false }),
+    ...(viewFields.length && { viewFields })
   });
 }
 

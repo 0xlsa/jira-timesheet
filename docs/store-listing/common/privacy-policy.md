@@ -27,6 +27,7 @@ The extension uses the browser's extension storage (`storage.local`) to keep:
 | API token (Jira Cloud) or personal access token (Data Center / Server) | To authenticate your requests to Jira |
 | The result of your last successful **Test Connection**: your Jira display name, username, account ID or user key, email address as Jira reports it, and, on Data Center / Server, the Jira version, deployment type, and server title | To show which account is connected |
 | When you last saved your settings | Kept with the settings |
+| Your custom views of My Active Issues, for each Jira site: their names, and the field, operator, and values each one filters on (Jira's IDs and names for statuses, priorities, and options; for a person, only "Me") | To show your views |
 
 It also stores your light or dark theme choice in the page's local storage.
 
@@ -40,6 +41,7 @@ To show and change your worklogs, the extension sends requests directly from you
 - **To show your week:** a search for issues with worklogs you authored in the selected week, which returns those issues' keys, summaries, and statuses, and your worklogs on them.
 - **When you look up an issue to log work on:** the issue key you typed (such as `ABC-12`), to find matching issues, which returns their keys, summaries, and statuses.
 - **When you log, edit, or delete work:** the worklog's date and start time, duration, and work description, or the request to delete it.
+- **With custom views of My Active Issues:** the search for your active issues also asks for the fields your views filter on (such as priority, reporter, or a custom field), and, when you create or edit a view, your Jira site's lists of statuses and priorities and, for custom fields, of fields. The search itself, and so the issues it finds, stays the same, and your views are never sent to Jira.
 
 Jira data received this way is used only to display your timesheet and is kept in memory while the page is open. Apart from the connection-test result described above, it isn't saved.
 
