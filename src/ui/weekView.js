@@ -404,10 +404,11 @@ function uniqueIssues(issues) {
  *
  * @param {HTMLElement} section
  * @param {object} options
- * @param {{ status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string, includeRecentlyLogged?: boolean }} options.state -
- *   Active Issues: `issues` when ready (JiraClient.getActiveIssues(): each with `inProgress` and
- *   `loggedInRange`), and whether recently logged issues were included (Show Recently Logged Issues);
- *   `message` for an error
+ * @param {{ status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string, includeRecentlyLogged?: boolean,
+ *   refreshing?: boolean }} options.state - Active's: `issues` when ready (JiraClient.getActiveIssues(): each with
+ *   `inProgress` and `loggedInRange`), and whether recently logged issues were included (Show Recently
+ *   Logged Issues); `refreshing` while they're loaded again (they stay shown meanwhile, with a spinner
+ *   beside the switch); `message` for an error
  * @param {boolean} options.expanded
  * @param {string} [options.baseUrl] - Jira instance URL used for issue links
  * @param {(expanded: boolean) => void} [options.onToggle] - Called after the header expands or collapses the section
@@ -530,7 +531,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   // Active's contents: the Show recently logged switch (Active's alone), then its issues, or why
   // there are none.
   const activeContent = fragment(
-    recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged),
+    recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged, state.refreshing === true),
     list,
     errorMessage,
     state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
@@ -544,7 +545,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     // once it has been searched.
     const selectedView = views?.items.find((view) => view.id === views.selectedId) ?? null;
     const searching = selectedView ? !selectedView.unavailable && selectedView.result?.status !== 'ready' && selectedView.result?.status !== 'error'
-      : state.status === 'loading';
+      : state.status === 'loading' || state.refreshing === true;
     body.replaceChildren(renderWorkingIssuesGroups(pending,
       selectedView ? viewCountLabel(selectedView) : String(rows.length),
       views ? fragment(
@@ -833,16 +834,21 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
   }));
 }
 
+// Said beside the switch while Active's issues load again, the ones shown staying meanwhile.
+export const REFRESHING_ISSUES = 'Updating the issues…';
+
 const RECENTLY_LOGGED_HINT = "Also show issues where you've logged work in the last 14 days, even if they're not currently assigned to you.";
 
 /**
  * The Show Recently Logged Issues switch, Active's own, below the view tabs: the Settings switch's look, smaller, with
  * its label on the left. Keeps focus across re-renders (its focus key), and reports a flip through
- * `onChange`.
+ * `onChange`. Beside it, a small spinner while Active's issues are loaded again (the issues shown
+ * stay meanwhile), announced through a status region.
  *
  * @param {{ checked: boolean, onChange: (checked: boolean) => void }} recentlyLogged
+ * @param {boolean} refreshing - Active's issues are being loaded again
  */
-function renderRecentlyLoggedSwitch({ checked, onChange }) {
+function renderRecentlyLoggedSwitch({ checked, onChange }, refreshing) {
   const input = h('input', {
     type: 'checkbox',
     id: 'recentlyLoggedSwitch',
@@ -857,11 +863,16 @@ function renderRecentlyLoggedSwitch({ checked, onChange }) {
     onChange(input.checked);
   });
   // The checkbox stays just before the drawn switch: `.switch-input:checked + .switch` styles it.
-  return h('label', { class: 'switch-row working-issues-recent', for: 'recentlyLoggedSwitch', title: RECENTLY_LOGGED_HINT },
+  const label = h('label', { class: 'switch-row working-issues-recent', for: 'recentlyLoggedSwitch', title: RECENTLY_LOGGED_HINT },
     h('span', {}, 'Show recently logged'),
     input,
     h('span', { class: 'switch', 'aria-hidden': 'true' }),
     h('span', { id: 'recentlyLoggedHint', class: 'sr-only' }, RECENTLY_LOGGED_HINT));
+  // Outside the label, so it's never part of the switch's name.
+  const status = h('span', { class: 'working-issues-recent-status', role: 'status' },
+    refreshing && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' }),
+    refreshing && h('span', { class: 'sr-only' }, REFRESHING_ISSUES));
+  return h('div', { class: 'working-issues-recent-row' }, label, status);
 }
 
 /**

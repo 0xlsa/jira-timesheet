@@ -67,7 +67,7 @@ describe('Custom views page wiring', () => {
   it('leaves Active Issues\' search as it was: no views in it', () => {
     const calls = [...js.matchAll(/workingIssues\.refresh\([^)]*\{([\s\S]*?)\}\);/g)].map((match) => match[1]);
     assert.equal(calls.length, 2);
-    assert.match(calls[0], /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true\n/);
+    assert.match(calls[0], /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true,\n\s*keepShown\n/);
     assert.match(calls[1], /includeRecentlyLogged: settings\.showRecentlyLoggedIssues\n/);
     for (const call of calls) assert.doesNotMatch(call, /view/i);
     assert.match(functionSource('workingIssuesOptions'), /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues \}/);

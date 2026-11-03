@@ -224,7 +224,7 @@ describe('Custom views - apart from Active Issues\' loading', () => {
     assert.equal(options.match(/workingIssues\.refresh\(/g).length, 2);
     assert.doesNotMatch(options, /viewFields|hasCustomViews/);
     assert.match(options, /includeRecentlyLogged: settings\.showRecentlyLoggedIssues\n/);
-    assert.match(options, /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true\n/);
+    assert.match(options, /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true,\n\s*keepShown\n/);
   });
 
   it('never fetches from the rules, the editor, or the view', () => {

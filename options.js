@@ -348,12 +348,18 @@ const assignmentFieldsSettings = createAssignmentFieldsSettings({
   }
 });
 
+// Flips of Show Recently Logged Issues so far: an older flip's save doesn't load the issues again.
+let recentlyLoggedFlips = 0;
+
 /**
  * Show Recently Logged Issues (the switch below Active's tab, in My Issues): saved as it changes, then
- * My Work loads again with or without the issues only logged recently.
+ * Active loads again with or without the issues only logged recently, keeping the issues shown
+ * until the new ones are in. Flipped again before that, only the last flip loads (and the loader
+ * cancels a load a newer one replaces).
  * @param {boolean} show
  */
 async function setShowRecentlyLoggedIssues(show) {
+  const flip = ++recentlyLoggedFlips;
   try {
     await settingsStore.saveShowRecentlyLoggedIssues(show);
     savedSettings = await settingsStore.load();
@@ -361,7 +367,8 @@ async function setShowRecentlyLoggedIssues(show) {
     console.warn('Could not save the Show Recently Logged Issues setting:', err);
     return;
   }
-  refreshActiveIssues();
+  if (flip !== recentlyLoggedFlips) return;
+  refreshActiveIssues({ keepShown: true });
 }
 
 /** The Additional Assignment Fields of a client's Jira site, from the saved settings. */
@@ -889,18 +896,29 @@ function confirmDiscardPending(id) {
 // Loads the My Work section's contents on its own: the worklogs load and show whatever
 // happens there. Asked with every week load, but it doesn't depend on the week, so it only loads
 // again on Sync, a change of settings, or a worklog change; a newer load cancels an older one.
-const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
+// A load that kept the issues shown and failed leaves them, and says why in a toast.
+const workingIssues = createWorkingIssuesLoader((state) => {
+  if (state?.refreshError) {
+    showToast(`Couldn't update your issues, so the ones shown are from before. ${state.refreshError}`, { durationMs: 8000 });
+    const { refreshError, ...shown } = state;
+    state = shown;
+  }
+  setWorkingIssuesState(state);
+});
 
 /**
  * Reloads the Active view's issues: Retry, a change of Issue Selection settings, and after a worklog
- * is logged, edited, or deleted, which can add a recently logged issue or remove one.
+ * is logged, edited, or deleted, which can add a recently logged issue or remove one. With
+ * `keepShown` (Show Recently Logged Issues), the issues shown stay until Jira's new ones replace them.
+ * @param {{ keepShown?: boolean }} [options]
  */
-function refreshActiveIssues() {
+function refreshActiveIssues({ keepShown = false } = {}) {
   if (!currentClient) return;
   workingIssues.refresh(currentClient, {
     force: true,
     assignmentFields: assignmentFieldsFor(currentClient),
-    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues === true
+    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues === true,
+    keepShown
   });
 }
 

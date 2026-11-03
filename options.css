@@ -1679,19 +1679,36 @@ body {
 }
 
 /* Show Recently Logged Issues, Active's own, below the view tabs: its label, then the Settings
-   switch, with smaller text, on a line of its own above the issues. */
+   switch, with smaller text, on a line of its own above the issues, then a small spinner while
+   Active's issues load again. */
+.working-issues-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 8px;
+}
+
 .switch-row.working-issues-recent {
   width: fit-content;
   gap: 8px;
   margin: 0;
-  padding: 0 0 8px;
   white-space: nowrap;
   font-size: 12px;
   color: var(--text-subtle);
 }
 
+.working-issues-recent-status {
+  display: inline-flex;
+  align-items: center;
+}
+
+.working-issues-recent-status .working-issues-spinner {
+  width: 12px;
+  height: 12px;
+}
+
 /* Without view tabs above it (no Jira site yet), the switch starts the group's contents */
-.working-issues-group-body > .working-issues-recent {
+.working-issues-group-body > .working-issues-recent-row {
   padding-top: 4px;
 }
 

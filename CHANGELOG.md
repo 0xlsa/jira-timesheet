@@ -31,3 +31,4 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 - My Active Issues is now called My Work, and its Active Issues list is now called My Issues, whose Active tab lists your issues as before.
 - My Work is shown below the selected day's worklogs.
 - In My Work, My Issues and Pending Worklogs are two groups that expand and collapse separately, instead of tabs. The Show recently logged switch is just below the Active tab.
+- Turning Show recently logged on or off keeps the issues listed, with a small spinner beside the switch, until the new list is in. If it can't be loaded, the issues stay and a message says why.

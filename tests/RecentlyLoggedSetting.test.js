@@ -89,7 +89,8 @@ describe('Show Recently Logged Issues - Active\'s switch in My Issues', () => {
     const { section, input } = render();
     assert.deepEqual(headerOf(section, 'active').children.map((child) => child.className), ['working-issues-group-heading']);
     const body = section.querySelector('#workingIssuesGroup-active');
-    assert.equal(body.children[0].className, 'switch-row working-issues-recent');
+    assert.equal(body.children[0].className, 'working-issues-recent-row');
+    assert.equal(body.children[0].children[0].className, 'switch-row working-issues-recent');
     assert.equal(body.children[1].className, 'working-issues-list');
     assert.equal(input.closest('button'), null);
     assert.equal(input.getAttribute('role'), 'switch');
@@ -101,7 +102,7 @@ describe('Show Recently Logged Issues - Active\'s switch in My Issues', () => {
     assert.equal(body.children[0].className, 'working-issues-viewbar');
     const panel = section.querySelector('#workingIssuesViewPanel');
     assert.equal(panel.getAttribute('aria-labelledby'), 'workingIssuesViewTab-all');
-    assert.equal(panel.children[0], input.closest('.working-issues-recent'));
+    assert.equal(panel.children[0], input.closest('.working-issues-recent-row'));
   });
 
   it('is hidden while a custom view is selected, and back with Active, as saved', () => {
@@ -196,12 +197,29 @@ describe('Show Recently Logged Issues - page', () => {
     assert.match(fn, /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues \}/);
   });
 
-  it('saves a flip on its own, then loads My Work again', () => {
+  it('saves a flip on its own, then loads My Work again, keeping the issues shown meanwhile', () => {
     const start = options.indexOf('async function setShowRecentlyLoggedIssues(show)');
     assert.ok(start > 0);
     const fn = options.slice(start, options.indexOf('\n}\n', start));
     assert.match(fn, /await settingsStore\.saveShowRecentlyLoggedIssues\(show\);\s*savedSettings = await settingsStore\.load\(\);/);
-    assert.ok(fn.indexOf('refreshActiveIssues();') > fn.indexOf('savedSettings = await settingsStore.load();'));
+    assert.ok(fn.indexOf('refreshActiveIssues({ keepShown: true });') > fn.indexOf('savedSettings = await settingsStore.load();'));
+  });
+
+  it('loads only for the last of quick flips', () => {
+    const start = options.indexOf('async function setShowRecentlyLoggedIssues(show)');
+    const fn = options.slice(start, options.indexOf('\n}\n', start));
+    assert.match(fn, /const flip = \+\+recentlyLoggedFlips;/);
+    assert.match(fn, /if \(flip !== recentlyLoggedFlips\) return;\s*refreshActiveIssues\(\{ keepShown: true \}\);/);
+  });
+
+  it('says in a toast when the issues couldn\'t be updated, keeping the ones shown', () => {
+    assert.match(options, /if \(state\?\.refreshError\) \{\s*showToast\(`Couldn't update your issues, so the ones shown are from before\. \$\{state\.refreshError\}`, \{ durationMs: 8000 \}\);/);
+    assert.match(options, /const \{ refreshError, \.\.\.shown \} = state;\s*state = shown;\s*\}\s*setWorkingIssuesState\(state\);/);
+  });
+
+  it('keeps the issues shown only for the switch: Retry, settings, and worklog changes load as before', () => {
+    const calls = [...options.matchAll(/refreshActiveIssues\((\{[^}]*\})?\)/g)].map((match) => match[1] ?? '');
+    assert.deepEqual(calls.filter((arg) => arg.includes('keepShown')), ['{ keepShown: true }']);
   });
 
   it('loads My Work with the saved value, every time', () => {
