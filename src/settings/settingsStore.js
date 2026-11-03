@@ -18,13 +18,13 @@
  *   chose; it's kept when the feature is turned off.
  * - publicHolidaysShowNext: the Show Next Public Holiday switch (the dashboard banner). Missing
  *   (saved before the switch existed) reads as on; it's kept when the feature is turned off.
- * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Active Issues). Off unless
+ * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Work). Off unless
  *   turned on: missing reads as off. Saved on its own.
  * - assignmentFieldsBySite: Additional Assignment Fields, per Jira site, so one site's fields never
  *   apply to another: { [site]: [{ id, name }] }, `site` being `${deploymentType}|${baseUrl}`
  *   (siteId() in src/timer/timeTrackingStore.js), `id` the custom field ID, and `name` its name when
  *   it was chosen (for display). Saved on its own, by saveAssignmentFields(). Missing or empty: none.
- * - customViewsBySite: the custom views of My Active Issues, per Jira site (`site` as above):
+ * - customViewsBySite: the custom views of My Work, per Jira site (`site` as above):
  *   { [site]: { version, views } } (src/jira/customViews.js). Saved on its own, by saveCustomViews(),
  *   which never touches another site's entry, nor one saved by another version of the extension.
  */

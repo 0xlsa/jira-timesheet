@@ -3,57 +3,67 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument, toHtml } from './support/fakeDom.js';
 import { h } from '../src/ui/dom.js';
-import { renderWorkingIssues, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE } from '../src/ui/weekView.js';
-import { openCustomViewEditor, NO_VALUES, VALUES_UNAVAILABLE, FIELDS_UNAVAILABLE, VALUES_LISTED, VALUES_OTHERS, NO_MATCHING_VALUES, VALUE_FILTER_THRESHOLD } from '../src/ui/customViewEditor.js';
-import { matchesView, validateViewDraft, SYSTEM_FIELDS } from '../src/jira/customViews.js';
+import { renderWorkingIssues, VIEW_SEARCHING, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE } from '../src/ui/weekView.js';
+import {
+  openCustomViewEditor, NO_VALUES, VALUES_UNAVAILABLE, FIELDS_UNAVAILABLE, NO_MATCHING_VALUES, NOT_IN_JIRA,
+  VIEW_SEARCH_HINT, VALUE_FILTER_THRESHOLD, VALUE_SEARCH_DELAY_MS
+} from '../src/ui/customViewEditor.js';
+import { validateViewDraft, describeView, SYSTEM_FIELDS, ALL_VIEW_ID } from '../src/jira/customViews.js';
 
 const SITE = 'cloud|https://acme.atlassian.net';
 const HOSTILE = '<img src=x onerror=alert(1)>';
 
-const issue = (key, statusId, { priority = null, assigneeIsMe = true } = {}) => ({
+const issue = (key, statusName = 'In Progress') => ({
   issueId: String(10000 + Number(key.split('-')[1])),
   issueKey: key,
   issueSummary: `Summary of ${key}`,
-  issueStatus: { name: statusId === '3' ? 'In Progress' : 'In Review', categoryKey: 'indeterminate' },
+  issueStatus: { name: statusName, categoryKey: 'indeterminate' },
   inProgress: true,
-  loggedInRange: false,
-  viewFields: { status: { id: statusId, label: statusId === '3' ? 'In Progress' : 'In Review' }, priority, assignee: { isCurrentUser: assigneeIsMe } }
+  loggedInRange: false
 });
-const ISSUES = [issue('KAN-1', '3'), issue('KAN-2', '4'), issue('KAN-3', '3', { assigneeIsMe: false })];
+/** Active's list. */
+const ACTIVE = [issue('KAN-1'), issue('KAN-2', 'In Review')];
 
-const condition = (fieldId, values, operator = 'equals') => ({ field: { id: fieldId, name: fieldId }, operator, values });
-const QUEUE = { id: 'queue', name: 'Development Queue', conditions: [condition('status', [{ id: '3', label: 'In Progress' }])] };
-const REVIEW = { id: 'review', name: 'Ready for QA', conditions: [condition('status', [{ id: '4', label: 'In Review' }])] };
-const NOTHING = { id: 'nothing', name: 'Nothing', conditions: [condition('status', [{ id: '9', label: 'Gone' }])] };
+const condition = (fieldId, values, operator = 'equals') => ({ field: { id: fieldId, name: fieldId === 'reporter' ? 'Reporter' : fieldId === 'status' ? 'Status' : fieldId }, operator, values });
+const REPORTED = { id: 'reported', name: 'Reported', conditions: [condition('reporter', [{ currentUser: true, label: 'Me' }])] };
+const QUEUE = { id: 'queue', name: 'Development Queue', conditions: [condition('status', [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }], 'isOneOf')] };
 
-/** renderWorkingIssues()'s `views`, from saved views, recording what's chosen. */
-function viewsOptions(saved, { selectedId = 'all', unavailable = [], canCreate = saved.length < 2 } = {}) {
+const ready = (issues, { total = issues.length, hasMore = false } = {}) => ({ status: 'ready', issues, total, hasMore, message: '' });
+/** The Reported view's own search: issues Active Issues doesn't list. */
+const REPORTED_RESULT = ready([issue('OPS-7', 'Backlog'), issue('OPS-8', 'Done')]);
+
+/** renderWorkingIssues()'s `views`, from saved views and their results, recording what's asked. */
+function viewsOptions(saved, { selectedId = ALL_VIEW_ID, unavailable = [], results = {}, canCreate = saved.length < 2 } = {}) {
   const calls = [];
   return {
     calls,
     views: {
-      items: saved.map((view) => ({ id: view.id, name: view.name, unavailable: unavailable.includes(view.id), matches: (i) => matchesView(i, view) })),
+      items: saved.map((view) => ({
+        id: view.id, name: view.name, description: describeView(view), unavailable: unavailable.includes(view.id), result: results[view.id] ?? null
+      })),
       selectedId,
       canCreate,
       onSelect: (id) => calls.push(['select', id]),
       onCreate: () => calls.push(['create']),
-      onEdit: (id) => calls.push(['edit', id])
+      onEdit: (id) => calls.push(['edit', id]),
+      onRefresh: (id) => calls.push(['refresh', id])
     }
   };
 }
 
-/** The running timer, on an issue Jira's list doesn't have: All lists it anyway. */
+/** The running timer, on an issue Jira's list doesn't have: Active lists it anyway. */
 const RUNNING = { id: 'run', site: SITE, issueId: '10099', issueKey: 'KAN-99', issueSummary: 'Timed', startedAt: 1, accumulatedMs: 0, resumedAt: 1 };
 
-function render({ issues = ISSUES, status = 'ready', views, running = RUNNING, pending = true } = {}) {
-  const section = h('section', { id: 'workingIssues' });
+function render({ issues = ACTIVE, status = 'ready', views, running = RUNNING, pending = true, section = h('section', { id: 'workingIssues' }), timerCalls = [], groupsExpanded, onGroupToggle } = {}) {
   renderWorkingIssues(section, {
-    state: status === 'ready' ? { status, issues, includeRecentlyLogged: false, viewFields: ['status', 'assignee'] } : { status, message: 'Failed' },
+    state: status === 'ready' ? { status, issues, includeRecentlyLogged: false } : { status, message: 'Failed' },
     expanded: true,
     onRetry: () => {},
-    onLogWork: () => {},
-    timer: { site: SITE, running, now: 2, onStart() {}, onStop() {} },
+    onLogWork: (row) => timerCalls.push(['log', row.issueKey]),
+    timer: { site: SITE, running, now: 2, onStart: (row) => timerCalls.push(['start', row.issueKey]), onStop() {} },
     pending: pending ? { entries: [{ id: 'p1', site: SITE, issueId: '10001', issueKey: 'KAN-1', issueSummary: 'One', startedAt: 1, stoppedAt: 61001, timeSpentSeconds: 60, comment: '' }], site: SITE, now: 2, onEdit() {}, onDiscard() {}, onSubmit() {} } : undefined,
+    groupsExpanded,
+    onGroupToggle,
     recentlyLogged: { checked: false, onChange() {} },
     views
   });
@@ -62,120 +72,163 @@ function render({ issues = ISSUES, status = 'ready', views, running = RUNNING, p
 
 const tabs = (section) => section.querySelectorAll('[role="tab"]');
 const tabTexts = (section) => tabs(section).map((tab) => tab.textContent);
-const rowKeys = (section) => section.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent);
-const activeHeader = (section) => section.querySelector('#workingIssuesGroupToggle-active').textContent;
+const group = (section, id) => section.querySelectorAll('.working-issues-group').find((el) => el.getAttribute('data-group') === id);
+const rowKeys = (el) => el.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent);
+const groupIds = (section) => section.querySelectorAll('.working-issues-group').map((el) => el.getAttribute('data-group'));
 
-describe('Custom views - tabs in My Active Issues', () => {
+describe('Custom views - tabs in My Issues', () => {
   let restoreDocument;
   beforeEach(() => { restoreDocument = installFakeDocument(); });
   afterEach(() => restoreDocument());
 
+  const myIssues = (section) => group(section, 'active');
+  const header = (section) => section.querySelector('#workingIssuesGroupToggle-active').textContent;
+
   it('shows no tabs without custom views options, as before', () => {
     const section = render();
-    assert.equal(section.querySelector('[role="tablist"]'), null);
-    assert.deepEqual(rowKeys(section), ['KAN-99', 'KAN-1', 'KAN-2', 'KAN-3']);
+    assert.deepEqual(groupIds(section), ['active', 'pending']);
+    assert.equal(tabs(section).length, 0);
+    assert.equal(header(section), 'My Issues (3)');
   });
 
-  it('selects All by default, with its count, and a + button for the first view', () => {
-    const { views } = viewsOptions([]);
+  it('keeps one My Issues group, with no Views group: Active and the custom views side by side in it', () => {
+    const { views } = viewsOptions([REPORTED, QUEUE]);
     const section = render({ views });
-    assert.deepEqual(tabTexts(section), ['All (4)']);
+    assert.deepEqual(groupIds(section), ['active', 'pending']);
+    assert.deepEqual(section.querySelectorAll('.working-issues-group-toggle').map((el) => el.textContent), ['My Issues (3)', 'Pending Worklogs (1)']);
+    assert.equal(section.querySelectorAll('[role="tablist"]').length, 1);
+    assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported', 'Development Queue']);
+    assert.equal(myIssues(section).querySelector('.working-issues-viewbar').querySelectorAll('[role="tab"]').length, 3);
+  });
+
+  it('selects Active by default, with its whole list, the timer-only row, and Show recently logged', () => {
+    const { views } = viewsOptions([REPORTED], { selectedId: ALL_VIEW_ID, results: { reported: REPORTED_RESULT } });
+    const section = render({ views });
     assert.equal(tabs(section)[0].getAttribute('aria-selected'), 'true');
-    assert.ok(section.querySelector('[data-action="add-view"]'));
+    assert.deepEqual(rowKeys(section), ['KAN-99', 'KAN-1', 'KAN-2']);
+    assert.ok(section.querySelector('#recentlyLoggedSwitch'));
     assert.equal(section.querySelector('[data-action="edit-view"]'), null);
+    assert.equal(section.querySelector('.working-issues-view-query'), null);
   });
 
-  it('counts each tab\'s issues, and hides + once there are two views', () => {
-    const { views } = viewsOptions([QUEUE, REVIEW]);
-    const section = render({ views });
-    assert.deepEqual(tabTexts(section), ['All (4)', 'Development Queue (2)', 'Ready for QA (1)']);
-    assert.equal(section.querySelector('[data-action="add-view"]'), null);
+  it('shows Active when the saved selection no longer exists', () => {
+    const { views } = viewsOptions([REPORTED], { selectedId: 'deleted' });
+    assert.equal(tabs(render({ views }))[0].getAttribute('aria-selected'), 'true');
   });
 
-  it('lists only the selected view\'s issues, without the timer-only row, and the group header counts them', () => {
-    const { views } = viewsOptions([QUEUE, REVIEW], { selectedId: 'queue' });
+  it('shows a selected custom view\'s own results in the one list, instead of Active\'s, without the switch', () => {
+    const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: REPORTED_RESULT } });
     const section = render({ views });
-    assert.deepEqual(rowKeys(section), ['KAN-1', 'KAN-3']);
-    assert.equal(activeHeader(section), 'Active Issues (2)');
-    // The running timer stays in the header, with its controls.
-    assert.ok(!section.querySelector('.working-issues-timer').classList.contains('hidden'));
-    assert.ok(section.querySelector('.working-issues-timer').querySelector('[data-timer-action="stop"]'));
+    assert.deepEqual(rowKeys(section), ['OPS-7', 'OPS-8'], 'Active\'s issues aren\'t listed too');
+    assert.equal(section.querySelectorAll('.working-issues-list').length, 1);
+    assert.equal(section.querySelector('.working-issues-view-query').textContent, 'Jira search: Reporter is Me');
+    assert.equal(section.querySelector('#recentlyLoggedSwitch'), null);
+    assert.equal(header(section), 'My Issues (2)');
+    assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-reported');
   });
 
-  it('lists every issue, with the timer-only row, in All', () => {
-    const { views } = viewsOptions([QUEUE]);
-    const section = render({ views });
-    assert.deepEqual(rowKeys(section), ['KAN-99', 'KAN-1', 'KAN-2', 'KAN-3']);
-    assert.equal(activeHeader(section), 'Active Issues (4)');
+  it('counts each tab: Active its rows once loaded, a custom view once searched, 20+ when more match', () => {
+    const many = (n) => Array.from({ length: n }, (_, i) => issue(`OPS-${i + 1}`));
+    const { views } = viewsOptions([REPORTED, QUEUE], { selectedId: ALL_VIEW_ID, results: { reported: ready(many(20), { total: 147, hasMore: true }), queue: ready(many(20), { total: 20 }) } });
+    assert.deepEqual(tabTexts(render({ views })), ['Active (3)', 'Reported (20+)', 'Development Queue (20)']);
+    assert.deepEqual(tabTexts(render({ views, status: 'loading' })), ['Active', 'Reported (20+)', 'Development Queue (20)']);
+    const { views: six } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many(6)) } });
+    const section = render({ views: six });
+    assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported (6)']);
+    assert.equal(header(section), 'My Issues (6)');
   });
 
-  it('shows All when the saved selection no longer exists', () => {
-    const { views } = viewsOptions([QUEUE], { selectedId: 'deleted' });
-    const section = render({ views });
-    assert.equal(section.querySelector('[aria-selected="true"]').dataset.view, 'all');
-    assert.deepEqual(rowKeys(section), ['KAN-99', 'KAN-1', 'KAN-2', 'KAN-3']);
+  it('says when more issues match than it lists, with Jira\'s count where it gives one', () => {
+    const many = Array.from({ length: 20 }, (_, i) => issue(`OPS-${i + 1}`));
+    const withTotal = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many, { total: 147, hasMore: true }) } });
+    const section = render({ views: withTotal.views });
+    assert.equal(section.querySelector('.working-issues-view-more').textContent, 'Showing the first 20 of 147 matching issues.');
+    assert.equal(rowKeys(section).length, 20);
+    assert.equal(header(section), 'My Issues (20+)');
+    const cloudMore = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many, { total: null, hasMore: true }) } });
+    assert.equal(render({ views: cloudMore.views }).querySelector('.working-issues-view-more').textContent, 'Showing the first 20 matching issues.');
+    const exactly = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many, { total: 20 }) } });
+    assert.equal(render({ views: exactly.views }).querySelector('.working-issues-view-more'), null);
   });
 
-  it('says when no issue matches the selected view', () => {
-    const { views } = viewsOptions([NOTHING], { selectedId: 'nothing' });
-    const section = render({ views });
-    assert.deepEqual(rowKeys(section), []);
-    assert.equal(section.querySelector('.working-issues-empty').textContent, VIEW_NO_MATCHES);
-    assert.equal(VIEW_NO_MATCHES, 'No issues match this view.');
-    assert.deepEqual(tabTexts(section), ['All (4)', 'Nothing (0)']);
+  it('never lists the timer-only row in a custom view', () => {
+    const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: REPORTED_RESULT } });
+    assert.ok(!rowKeys(render({ views })).includes('KAN-99'));
   });
 
-  it('says when the view\'s field is gone from Jira, with Edit, and never falls back to All', () => {
-    const { views, calls } = viewsOptions([QUEUE], { selectedId: 'queue', unavailable: ['queue'] });
+  it('says it\'s searching Jira until the view\'s results are in, without a count', () => {
+    for (const result of [null, { status: 'loading', issues: [], total: null, hasMore: false, message: '' }]) {
+      const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: result } });
+      const section = render({ views });
+      const panel = section.querySelector('#workingIssuesViewPanel');
+      assert.equal(panel.querySelector('.working-issues-empty').textContent, VIEW_SEARCHING);
+      assert.equal(panel.getAttribute('aria-busy'), 'true');
+      assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported']);
+      assert.equal(header(section), 'My Issues');
+    }
+  });
+
+  it('says when no issue matches the view', () => {
+    const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready([]) } });
     const section = render({ views });
-    assert.deepEqual(rowKeys(section), []);
-    const message = section.querySelector('.working-issues-message');
-    assert.equal(message.querySelector('p').textContent, VIEW_FIELD_UNAVAILABLE);
-    assert.equal(VIEW_FIELD_UNAVAILABLE, "This view's field is no longer available in Jira.");
+    assert.equal(section.querySelector('#workingIssuesViewPanel').querySelector('.working-issues-empty').textContent, VIEW_NO_MATCHES);
+    assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported (0)']);
+  });
+
+  it('says why the search failed, with Retry, which searches again', () => {
+    const { views, calls } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: { status: 'error', issues: [], total: null, hasMore: false, message: 'Jira refused the search.' } } });
+    const section = render({ views });
+    const message = section.querySelector('#workingIssuesViewPanel').querySelector('.working-issues-message');
+    assert.match(message.textContent, /Jira refused the search\./);
     message.querySelector('button').click();
-    assert.deepEqual(calls, [['edit', 'queue']]);
-    // Its tab has no count, and says why to screen readers.
-    assert.equal(tabs(section)[1].textContent, 'Development Queue, field unavailable');
-    assert.ok(tabs(section)[1].classList.contains('is-unavailable'));
+    assert.deepEqual(calls, [['refresh', 'reported']]);
   });
 
-  it('shows the views\' tabs without counts while the issues load, with the loading message', () => {
-    const { views } = viewsOptions([QUEUE], { selectedId: 'queue' });
-    const section = render({ views, status: 'loading' });
-    assert.deepEqual(tabTexts(section), ['All', 'Development Queue']);
-    assert.equal(section.querySelector('.working-issues-empty').textContent, 'Retrieving issues from Jira…');
-  });
-
-  it('chooses a tab with a click, the selected one\'s edit button, and + for a new view', () => {
-    const { views, calls } = viewsOptions([QUEUE], { selectedId: 'queue' });
+  it('says when the view\'s field is gone from Jira, with Edit, and never falls back to Active', () => {
+    const { views, calls } = viewsOptions([REPORTED], { selectedId: 'reported', unavailable: ['reported'] });
     const section = render({ views });
-    tabs(section)[1].click();
-    tabs(section)[0].click();
+    const message = section.querySelector('#workingIssuesViewPanel').querySelector('.working-issues-message');
+    assert.equal(message.querySelector('p').textContent, VIEW_FIELD_UNAVAILABLE);
+    message.querySelector('button').click();
+    assert.deepEqual(calls, [['edit', 'reported']]);
+    assert.deepEqual(rowKeys(section), []);
+    assert.equal(tabs(section)[1].classList.contains('is-unavailable'), true);
+  });
+
+  it('has + for a new view, until there are two, and the edit button only for a selected custom view', () => {
+    const { views, calls } = viewsOptions([REPORTED], { selectedId: 'reported' });
+    const section = render({ views });
+    const bar = section.querySelector('.working-issues-viewbar');
+    assert.deepEqual(bar.children.map((child) => child.getAttribute('data-action') ?? child.getAttribute('role')), ['tablist', 'edit-view', 'add-view']);
     section.querySelector('[data-action="edit-view"]').click();
     section.querySelector('[data-action="add-view"]').click();
-    assert.deepEqual(calls, [['select', 'all'], ['edit', 'queue'], ['create']]);
-    assert.equal(section.querySelector('[data-action="edit-view"]').getAttribute('aria-label'), 'Edit the Development Queue view');
-    assert.equal(section.querySelector('[data-action="add-view"]').getAttribute('aria-label'), 'New custom view');
+    assert.deepEqual(calls, [['edit', 'reported'], ['create']]);
+    assert.equal(section.querySelector('[data-action="edit-view"]').getAttribute('aria-label'), 'Edit the Reported view');
+    assert.equal(render({ views: viewsOptions([REPORTED, QUEUE]).views }).querySelector('[data-action="add-view"]'), null);
+    assert.ok(render({ views: viewsOptions([]).views }).querySelector('[data-action="add-view"]'));
+    assert.equal(section.querySelector('[data-action="refresh-view"]'), null);
+  });
+
+  it('chooses a tab with a click', () => {
+    const { views, calls } = viewsOptions([REPORTED, QUEUE], { selectedId: ALL_VIEW_ID });
+    const section = render({ views });
+    tabs(section)[0].click();
+    tabs(section)[2].click();
+    tabs(section)[1].click();
+    assert.deepEqual(calls, [['select', 'queue'], ['select', 'reported']]);
   });
 
   it('is a WAI-ARIA tablist: one tab in the tab order, a labelled panel', () => {
-    const { views } = viewsOptions([QUEUE, REVIEW], { selectedId: 'review' });
+    const { views } = viewsOptions([REPORTED, QUEUE], { selectedId: ALL_VIEW_ID });
     const section = render({ views });
-    const tablist = section.querySelector('[role="tablist"]');
-    assert.equal(tablist.getAttribute('aria-label'), 'Views of My Active Issues');
-    assert.deepEqual(tabs(section).map((tab) => [tab.dataset.view, tab.getAttribute('aria-selected'), tab.getAttribute('tabindex'), tab.getAttribute('aria-controls')]), [
-      ['all', 'false', '-1', 'workingIssuesViewPanel'],
-      ['queue', 'false', '-1', 'workingIssuesViewPanel'],
-      ['review', 'true', '0', 'workingIssuesViewPanel']
-    ]);
-    const panel = section.querySelector('#workingIssuesViewPanel');
-    assert.equal(panel.getAttribute('role'), 'tabpanel');
-    assert.equal(panel.getAttribute('aria-labelledby'), 'workingIssuesViewTab-review');
-    assert.ok(panel.querySelector('.working-issues-list'));
+    assert.equal(section.querySelector('[role="tablist"]').getAttribute('aria-label'), 'Views of My Issues');
+    assert.deepEqual(tabs(section).map((tab) => [tab.getAttribute('aria-selected'), tab.getAttribute('tabindex')]), [['true', '0'], ['false', '-1'], ['false', '-1']]);
+    assert.equal(tabs(section)[1].getAttribute('title'), 'Reporter is Me');
+    assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-all');
   });
 
   it('moves between tabs with the arrow keys, Home, and End, focusing and choosing the new one', () => {
-    const { views, calls } = viewsOptions([QUEUE, REVIEW]);
+    const { views, calls } = viewsOptions([REPORTED, QUEUE], { selectedId: ALL_VIEW_ID });
     const section = render({ views });
     const press = (key) => section.querySelector('[role="tablist"]').dispatchEvent({ type: 'keydown', key });
     press('ArrowRight');
@@ -185,102 +238,49 @@ describe('Custom views - tabs in My Active Issues', () => {
     press('End');
     press('Home');
     assert.equal(document.activeElement, tabs(section)[0]);
-    assert.deepEqual(calls, [['select', 'queue'], ['select', 'review'], ['select', 'review']]);
+    assert.deepEqual(calls, [['select', 'reported'], ['select', 'queue'], ['select', 'queue']]);
   });
 
   it('keeps focus on the chosen tab when the section is drawn again', () => {
-    const { views } = viewsOptions([QUEUE]);
+    const { views } = viewsOptions([REPORTED, QUEUE], { selectedId: ALL_VIEW_ID });
     const section = render({ views });
-    tabs(section)[1].focus();
-    renderWorkingIssues(section, {
-      state: { status: 'ready', issues: ISSUES, includeRecentlyLogged: false }, expanded: true, views: { ...views, selectedId: 'queue' }
-    });
-    assert.equal(document.activeElement, tabs(section)[1]);
-    assert.equal(tabs(section)[1].getAttribute('aria-selected'), 'true');
+    tabs(section)[2].focus();
+    render({ views: { ...views, selectedId: 'queue' }, section });
+    assert.equal(document.activeElement, tabs(section)[2]);
+    assert.equal(tabs(section)[2].getAttribute('aria-selected'), 'true');
   });
 
-  it('leaves Pending Worklogs, the groups, and Show recently logged as they are', () => {
-    const { views } = viewsOptions([QUEUE], { selectedId: 'queue' });
+  it('gives a custom view\'s rows the same timer and log work buttons, on the same timer, with their own focus keys', () => {
+    const timerCalls = [];
+    const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: REPORTED_RESULT } });
+    const panel = render({ views, timerCalls }).querySelector('#workingIssuesViewPanel');
+    panel.querySelector('.working-issue-timer-btn').click();
+    panel.querySelector('.working-issue-log-btn').click();
+    assert.deepEqual(timerCalls, [['start', 'OPS-7'], ['log', 'OPS-7']]);
+    assert.equal(panel.querySelector('.working-issue-timer-btn').getAttribute('data-focus-key'), `view-row:timer:${SITE}|OPS-7`);
+  });
+
+  it('leaves Pending Worklogs and its group as they are', () => {
+    const { views } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: REPORTED_RESULT } });
     const section = render({ views });
-    assert.deepEqual(section.querySelector('.working-issues-body').childNodes.map((g) => g.dataset.group), ['active', 'pending']);
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (1)');
-    assert.ok(section.querySelector('#recentlyLoggedSwitch'));
-    // The tabs are in the Active Issues group, not the header or Pending Worklogs.
-    assert.ok(section.querySelector('#workingIssuesGroup-active').querySelector('[role="tablist"]'));
-    assert.equal(section.querySelector('#workingIssuesGroup-pending').querySelector('[role="tablist"]'), null);
+    const pending = group(section, 'pending');
+    assert.equal(pending.querySelectorAll('[role="tab"]').length, 0);
+    assert.equal(pending.querySelectorAll('.pending-worklog').length, 1);
   });
 
-  it('shows the tabs without the groups too (before the timer has loaded)', () => {
-    const { views } = viewsOptions([QUEUE], { selectedId: 'queue' });
-    const section = render({ views, pending: false, running: null });
-    assert.deepEqual(rowKeys(section), ['KAN-1', 'KAN-3']);
-    assert.ok(section.querySelector('[role="tablist"]'));
+  it('shows the tabs without the Pending Worklogs group too (before the timer has loaded)', () => {
+    const { views } = viewsOptions([REPORTED]);
+    const section = render({ views, pending: false });
+    assert.deepEqual(groupIds(section), ['active']);
+    assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported']);
   });
 
-  it('draws All and every custom view as the same tab, only the selected one in the pressed style', () => {
-    for (const saved of [[], [QUEUE], [QUEUE, REVIEW]]) {
-      for (const selectedId of ['all', ...saved.map((view) => view.id)]) {
-        const { views } = viewsOptions(saved, { selectedId });
-        const section = render({ views });
-        assert.ok(tabs(section).every((tab) => tab.getAttribute('class').split(' ')[0] === 'working-issues-view-tab'), 'one class for every tab');
-        assert.deepEqual(tabs(section).map((tab) => tab.classList.contains('is-selected')), ['all', ...saved.map((view) => view.id)].map((id) => id === selectedId));
-        assert.equal(tabs(section).length, saved.length + 1);
-        assert.equal(Boolean(section.querySelector('[data-action="add-view"]')), saved.length < 2);
-      }
-    }
-  });
-
-  describe('with Show recently logged off', () => {
-    // Loaded with the recently logged issues (the page asks for them whenever there are views): KAN-4
-    // is only there through a recent worklog, in a To Do status.
-    const LOGGED_ONLY = { ...issue('KAN-4', '10413'), inProgress: false, loggedInRange: true,
-      issueStatus: { name: 'Selected for Development', categoryKey: 'new' }, viewFields: { status: { id: '10413', label: 'Selected for Development' } } };
-    const SELECTED = { id: 'selected', name: 'Selected', conditions: [condition('status', [{ id: '10413', label: 'Selected for Development' }])] };
-    const renderWith = ({ checked, selectedId, issues = [...ISSUES, LOGGED_ONLY] }) => {
-      const section = h('section', { id: 'workingIssues' });
-      const { views } = viewsOptions([QUEUE, SELECTED], { selectedId });
-      renderWorkingIssues(section, {
-        state: { status: 'ready', issues, includeRecentlyLogged: true, viewFields: ['status'] },
-        expanded: true,
-        pending: { entries: [], site: SITE, now: 2, onEdit() {}, onDiscard() {} },
-        recentlyLogged: { checked, onChange() {} },
-        views
-      });
-      return section;
-    };
-
-    it('lists a recently logged issue in the view it matches', () => {
-      const section = renderWith({ checked: false, selectedId: 'selected' });
-      assert.deepEqual(rowKeys(section), ['KAN-4']);
-      assert.equal(activeHeader(section), 'Active Issues (1)');
-    });
-
-    it('leaves it out of All, which lists the in-progress issues only, as the switch says', () => {
-      const section = renderWith({ checked: false, selectedId: 'all' });
-      assert.deepEqual(rowKeys(section), ['KAN-1', 'KAN-2', 'KAN-3']);
-      assert.deepEqual(tabTexts(section), ['All (3)', 'Development Queue (2)', 'Selected (1)']);
-      assert.equal(section.querySelector('.working-issues-subtitle').textContent, '3 issues · In progress');
-    });
-
-    it('says there\'s nothing in progress in All when only recently logged issues are loaded', () => {
-      const section = renderWith({ checked: false, selectedId: 'all', issues: [LOGGED_ONLY] });
-      assert.deepEqual(rowKeys(section), []);
-      assert.equal(section.querySelector('.working-issues-empty').textContent, 'No issues in progress.');
-      assert.deepEqual(tabTexts(section), ['All (0)', 'Development Queue (0)', 'Selected (1)']);
-    });
-
-    it('lists it in All too once the switch is on', () => {
-      const section = renderWith({ checked: true, selectedId: 'all' });
-      assert.deepEqual(rowKeys(section), ['KAN-1', 'KAN-2', 'KAN-3', 'KAN-4']);
-      assert.equal(section.querySelector('.working-issues-subtitle').textContent, '4 issues · In progress and recently logged');
-    });
-  });
-
-  it('shows view names as text, never as markup', () => {
-    const { views } = viewsOptions([{ ...QUEUE, name: HOSTILE }], { selectedId: 'queue' });
+  it('shows view names and issues as text, never as markup', () => {
+    const view = { id: 'x', name: HOSTILE, conditions: [condition('status', [{ id: '3', label: HOSTILE }])] };
+    const { views } = viewsOptions([view], { selectedId: 'x', results: { x: ready([{ ...issue('OPS-1'), issueSummary: HOSTILE }]) } });
     const section = render({ views });
-    assert.match(toHtml(section), /&lt;img src=x onerror=alert\(1\)&gt;/);
     assert.equal(section.querySelectorAll('img').length, 0);
+    assert.match(toHtml(section), /&lt;img src=x onerror=alert\(1\)&gt;/);
   });
 });
 
@@ -306,7 +306,7 @@ describe('Custom views - editor', () => {
     customfield_10100: [{ id: '10200', label: 'Platform' }]
   };
 
-  function open({ view = null, views = [], loadValues, loadCustomFields, onSave, onDelete } = {}) {
+  function open({ view = null, views = [], loadValues, loadCustomFields, onSave, onDelete, searchDelayMs } = {}) {
     const root = h('aside', { class: 'custom-view-editor hidden' });
     const calls = [];
     const editor = openCustomViewEditor(root, {
@@ -317,7 +317,8 @@ describe('Custom views - editor', () => {
       validate: (draft) => validateViewDraft(draft, { views, editingId: view?.id }),
       onSave: onSave ?? (async (saved) => { calls.push(['save', saved]); }),
       onDelete: view ? (onDelete ?? (async () => { calls.push(['delete']); })) : undefined,
-      onClose: () => calls.push(['close'])
+      onClose: () => calls.push(['close']),
+      searchDelayMs
     });
     const $ = (selector) => root.querySelector(selector);
     const choose = (selector, value) => {
@@ -334,7 +335,11 @@ describe('Custom views - editor', () => {
     };
     const submit = () => $('form').dispatchEvent({ type: 'submit' });
     const valueLabels = () => root.querySelectorAll('.custom-view-value').map((label) => label.querySelector('span').textContent);
-    return { root, editor, calls, $, choose, check, submit, valueLabels };
+    const search = (text) => {
+      $('#customViewValueSearch').value = text;
+      $('#customViewValueSearch').dispatchEvent({ type: 'input' });
+    };
+    return { root, editor, calls, $, choose, check, submit, valueLabels, search };
   }
 
   it('opens to create a view, focused on its name, with the fields grouped', () => {
@@ -350,9 +355,12 @@ describe('Custom views - editor', () => {
     ]);
     assert.equal($('#customViewOperator').disabled, true);
     assert.equal($('[data-action="delete-view"]'), null);
+    // Where a view's issues come from: its own search, not Active Issues.
+    assert.equal($('.custom-view-hint').textContent, VIEW_SEARCH_HINT);
+    assert.match(VIEW_SEARCH_HINT, /first 20 issues you can see in Jira that match, whether Active lists them or not/);
   });
 
-  it('offers the values the issues have, one for Equals and several for Is one of', async () => {
+  it('offers the values Jira lists, one for Equals and several for Is one of', async () => {
     const { $, choose, valueLabels, root } = open();
     choose('#customViewField', 'status');
     await flush();
@@ -451,11 +459,12 @@ describe('Custom views - editor', () => {
     assert.deepEqual(root.querySelectorAll('input[name="customViewValue"]').map((input) => input.checked), [true, true]);
   });
 
-  it('keeps a saved value the issues don\'t have now, saying so', async () => {
+  it('keeps a saved status Jira doesn\'t list any more, saying so', async () => {
     const view = { id: 'queue', name: 'Queue', conditions: [condition('status', [{ id: '7', label: 'Blocked' }])] };
     const { valueLabels, root, submit, calls } = open({ view, views: [view] });
     await flush();
-    assert.deepEqual(valueLabels(), ['In Progress', 'In Review', 'Blocked (not in your current issues)']);
+    assert.deepEqual(valueLabels(), ['In Progress', 'In Review', 'Blocked']);
+    assert.equal(root.querySelector('.custom-view-value-note').textContent, ` (${NOT_IN_JIRA})`);
     assert.equal(root.querySelectorAll('input[name="customViewValue"]')[2].checked, true);
     submit();
     await flush();
@@ -495,80 +504,15 @@ describe('Custom views - editor', () => {
     assert.equal($('#customViewValues').textContent, VALUES_UNAVAILABLE);
   });
 
-  it('says when the issues have no values for the field', async () => {
+  it('says when Jira has no values for the field', async () => {
     const { $, choose } = open();
     choose('#customViewField', 'priority');
     await flush();
     assert.equal($('#customViewValues').textContent, NO_VALUES);
   });
 
-  it('offers the values of the issues loaded since, keeping what\'s chosen', async () => {
-    let values = [{ id: '10100', label: 'Demo' }, { id: '3', label: 'In Progress' }];
-    const { editor, choose, check, valueLabels, root } = open({ loadValues: async () => values });
-    choose('#customViewField', 'status');
-    await flush();
-    choose('#customViewOperator', 'isOneOf');
-    check('Demo');
-    assert.deepEqual(valueLabels(), ['Demo', 'In Progress']);
-    values = [...values, { id: '10102', label: 'Selected for Development' }];
-    editor.refreshValues();
-    await flush();
-    assert.deepEqual(valueLabels(), ['Demo', 'In Progress', 'Selected for Development']);
-    assert.deepEqual(root.querySelectorAll('input[name="customViewValue"]').map((input) => input.checked), [true, false, false]);
-  });
-
-  it('keeps the values shown when loading them again fails, and does nothing closed or without a field', async () => {
-    let fail = false;
-    const calls = [];
-    const { editor, choose, valueLabels, $ } = open({
-      loadValues: async () => {
-        calls.push(true);
-        if (fail) throw new Error('no');
-        return [{ id: '3', label: 'In Progress' }];
-      }
-    });
-    editor.refreshValues();
-    assert.equal(calls.length, 0, 'no field chosen yet');
-    choose('#customViewField', 'status');
-    await flush();
-    fail = true;
-    editor.refreshValues();
-    await flush();
-    assert.deepEqual(valueLabels(), ['In Progress']);
-    assert.doesNotMatch($('#customViewValues').textContent, /Couldn't load/);
-    editor.close();
-    editor.refreshValues();
-    assert.equal(calls.length, 2);
-  });
-
-  it('offers Jira\'s other values after the listed issues\' ones, under their headings', async () => {
-    const values = [
-      { id: '11817', label: 'Demo', listed: true }, { id: '3', label: 'In Progress', listed: true },
-      { id: '12912', label: 'Backlog', listed: false }, { id: '10413', label: 'Selected for Development', listed: false }
-    ];
-    const { root, choose, valueLabels, check, submit, $, calls } = open({ loadValues: async () => values });
-    $('#customViewName').value = 'Selected';
-    choose('#customViewField', 'status');
-    await flush();
-    assert.deepEqual(root.querySelectorAll('.custom-view-values-heading').map((el) => el.textContent), [VALUES_LISTED, VALUES_OTHERS]);
-    assert.deepEqual(VALUES_LISTED, 'In your active issues');
-    assert.deepEqual(VALUES_OTHERS, 'Also in Jira');
-    assert.deepEqual(valueLabels(), ['Demo', 'In Progress', 'Backlog', 'Selected for Development']);
-    check('Selected for Development');
-    submit();
-    await flush();
-    assert.deepEqual(calls[0][1].conditions[0].values, [{ id: '10413', label: 'Selected for Development' }]);
-  });
-
-  it('shows no headings when the values are of one kind', async () => {
-    const { root, choose } = open({ loadValues: async () => [{ id: '3', label: 'In Progress', listed: true }] });
-    choose('#customViewField', 'status');
-    await flush();
-    assert.equal(root.querySelectorAll('.custom-view-values-heading').length, 0);
-  });
-
   it('filters a long list by name, keeping what\'s chosen, and Enter doesn\'t save', async () => {
-    const values = Array.from({ length: VALUE_FILTER_THRESHOLD + 2 }, (_, i) => ({ id: String(i + 1), label: i === 5 ? 'Selected for Development' : `Status ${i + 1}`, listed: i < 3 }));
+    const values = Array.from({ length: VALUE_FILTER_THRESHOLD + 2 }, (_, i) => ({ id: String(i + 1), label: i === 5 ? 'Selected for Development' : `Status ${i + 1}` }));
     const { root, choose, check, $, calls } = open({ loadValues: async () => values });
     choose('#customViewField', 'status');
     await flush();
@@ -580,8 +524,6 @@ describe('Custom views - editor', () => {
     filter.dispatchEvent({ type: 'input' });
     const visible = root.querySelectorAll('li').filter((li) => !li.classList.contains('hidden'));
     assert.deepEqual(visible.map((li) => li.textContent), ['Selected for Development']);
-    // The issues' group has nothing matching: its heading goes too.
-    assert.deepEqual(root.querySelectorAll('.custom-view-value-group').map((g) => g.classList.contains('hidden')), [true, false]);
     assert.equal(root.querySelectorAll('input[name="customViewValue"]').find((input) => input.value === '1').checked, true, 'still chosen');
     // dispatchEvent() answers false when a listener prevented the default (submitting the form).
     assert.equal(filter.dispatchEvent({ type: 'keydown', key: 'Enter' }), false);
@@ -592,10 +534,110 @@ describe('Custom views - editor', () => {
   });
 
   it('has no filter for a short list', async () => {
-    const { $, choose } = open({ loadValues: async () => [{ id: '3', label: 'In Progress', listed: true }] });
+    const { $, choose } = open({ loadValues: async () => [{ id: '3', label: 'In Progress' }] });
     choose('#customViewField', 'status');
     await flush();
     assert.equal($('#customViewValueFilter'), null);
+  });
+
+  describe('a custom field\'s values, searched in Jira', () => {
+    const TEAM = { id: 'customfield_10100', name: 'Team', kind: 'option' };
+    const OPTIONS = ['Platform', 'Platform Ops', 'Product', 'Cisco UC Apps'];
+    function openTeam(extra = {}) {
+      const asked = [];
+      const editor = open({
+        loadCustomFields: async () => [TEAM],
+        loadValues: async (field, query) => {
+          asked.push([field.id, query]);
+          return OPTIONS.filter((name) => name.toLowerCase().startsWith(query.toLowerCase())).map((name) => ({ id: name, label: name }));
+        },
+        ...extra
+      });
+      return { ...editor, asked };
+    }
+
+    it('lists Jira\'s suggestions at once, with a search box', async () => {
+      const { $, choose, valueLabels, asked } = openTeam();
+      await flush();
+      choose('#customViewField', 'customfield_10100');
+      await flush();
+      assert.deepEqual(asked, [['customfield_10100', '']]);
+      assert.deepEqual(valueLabels(), OPTIONS);
+      assert.equal($('#customViewValueSearch').getAttribute('aria-label'), 'Search values in Jira');
+    });
+
+    it('searches Jira once typing pauses, keeping the search box (and focus) as it is', async () => {
+      const { $, choose, valueLabels, asked, search } = openTeam();
+      await flush();
+      choose('#customViewField', 'customfield_10100');
+      await flush();
+      const box = $('#customViewValueSearch');
+      box.focus();
+      search('Pl');
+      search('Pla');
+      assert.equal(asked.length, 1, 'not yet: typing hasn\'t paused');
+      mock.timers.tick(VALUE_SEARCH_DELAY_MS);
+      await flush();
+      assert.deepEqual(asked.at(-1), ['customfield_10100', 'Pla']);
+      assert.equal(asked.length, 2, 'once, for what was typed last');
+      assert.deepEqual(valueLabels(), ['Platform', 'Platform Ops']);
+      assert.equal($('#customViewValueSearch'), box);
+      assert.equal(document.activeElement, box);
+    });
+
+    it('keeps the chosen values listed, checked, whatever the search shows, and saves them by name', async () => {
+      const { $, choose, check, valueLabels, search, submit, calls, root } = openTeam();
+      await flush();
+      $('#customViewName').value = 'Teams';
+      choose('#customViewField', 'customfield_10100');
+      await flush();
+      choose('#customViewOperator', 'isOneOf');
+      check('Platform');
+      search('Pro');
+      mock.timers.tick(VALUE_SEARCH_DELAY_MS);
+      await flush();
+      assert.deepEqual(valueLabels(), ['Platform', 'Product']);
+      check('Product');
+      assert.deepEqual(root.querySelectorAll('input[name="customViewValue"]').map((input) => input.checked), [true, true]);
+      submit();
+      await flush();
+      assert.deepEqual(calls[0][1].conditions[0], {
+        field: { id: 'customfield_10100', name: 'Team' }, operator: 'isOneOf',
+        values: [{ id: 'Platform', label: 'Platform' }, { id: 'Product', label: 'Product' }]
+      });
+    });
+
+    it('searches at once on Enter, which doesn\'t save the view', async () => {
+      const { $, choose, asked, calls, search } = openTeam();
+      await flush();
+      choose('#customViewField', 'customfield_10100');
+      await flush();
+      search('Cis');
+      // Before typing pauses.
+      assert.equal($('#customViewValueSearch').dispatchEvent({ type: 'keydown', key: 'Enter' }), false);
+      await flush();
+      assert.deepEqual(asked.at(-1), ['customfield_10100', 'Cis']);
+      mock.timers.tick(VALUE_SEARCH_DELAY_MS);
+      await flush();
+      assert.equal(asked.length, 2, 'not again once the pause is over');
+      assert.deepEqual(calls, []);
+    });
+
+    it('says when nothing matches, or Jira can\'t be asked', async () => {
+      const { $, choose, search } = openTeam();
+      await flush();
+      choose('#customViewField', 'customfield_10100');
+      await flush();
+      search('zzz');
+      mock.timers.tick(VALUE_SEARCH_DELAY_MS);
+      await flush();
+      assert.equal($('#customViewValueResults').textContent, NO_MATCHING_VALUES);
+      const failing = openTeam({ loadValues: async () => { throw new Error('no'); } });
+      await flush();
+      failing.choose('#customViewField', 'customfield_10100');
+      await flush();
+      assert.equal(failing.$('#customViewValueResults').textContent, VALUES_UNAVAILABLE);
+    });
   });
 
   it('deletes a view only after confirming, and Keep it goes back', async () => {
@@ -625,7 +667,7 @@ describe('Custom views - editor', () => {
 
   it('shows names and values as text, never as markup', async () => {
     const view = { id: 'x', name: HOSTILE, conditions: [condition('status', [{ id: '3', label: HOSTILE }])] };
-    const { root } = open({ view, views: [view], loadValues: async () => [{ id: '3', label: HOSTILE }] });
+    const { root } = open({ view, views: [view], loadValues: async () => [{ id: '3', label: HOSTILE }, { id: '4', label: 'Other' }] });
     await flush();
     root.querySelector('[data-action="delete-view"]').click();
     assert.equal(root.querySelectorAll('img').length, 0);
@@ -638,7 +680,7 @@ describe('Custom views - tab styles', () => {
   /** A rule's declarations, by its exact selector. */
   const rule = (selector) => css.match(new RegExp(`^${selector.replace(/[.[\]()*+?^$|\\]/g, '\\$&')} \\{([^}]*)\\}`, 'm'))?.[1] ?? '';
 
-  it('gives every tab the issue key badges\' shape, bordered, with nothing just for All', () => {
+  it('gives every tab the issue key badges\' shape, bordered, with nothing just for Active', () => {
     const tab = rule('.working-issues-view-tab');
     assert.match(tab, /border-radius: var\(--radius-sm\);/);
     assert.match(rule('.issue-key-badge'), /border-radius: var\(--radius-sm\);/, 'the same corners as the issue keys');

@@ -4,7 +4,10 @@ import {
   CUSTOM_VIEWS_VERSION,
   MAX_CUSTOM_VIEWS,
   MAX_VIEW_NAME_LENGTH,
+  CUSTOM_VIEW_RESULT_LIMIT,
+  RESERVED_VIEW_NAMES,
   ALL_VIEW_ID,
+  ALL_VIEW_NAME,
   OPERATORS,
   ME_VALUE,
   SYSTEM_FIELDS,
@@ -17,15 +20,13 @@ import {
   normalizeCustomViewsBySite,
   nameProblem,
   validateViewDraft,
-  requiredViewFields,
-  toViewFieldValues,
-  matchesCondition,
-  matchesView,
-  valueOptions,
   isViewAvailable,
   usesCustomOptionField,
   parseNamedValues,
-  mergeValueOptions
+  parseFieldSuggestions,
+  buildCustomViewJql,
+  jqlString,
+  describeView
 } from '../src/jira/customViews.js';
 
 const statusCondition = (ids, operator = ids.length > 1 ? 'isOneOf' : 'equals') => ({
@@ -67,7 +68,8 @@ describe('Custom views - storage', () => {
     const { views } = normalizeSiteViews({ version: 1, views: [
       { id: 'bad id!', name: 'X', conditions: [statusCondition(['1'])] },
       { id: 'all', name: 'Everything', conditions: [statusCondition(['1'])] },
-      { id: 'e', name: 'All', conditions: [statusCondition(['1'])] },
+      { id: 'e', name: 'Active', conditions: [statusCondition(['1'])] },
+      { id: 'f2', name: 'All', conditions: [statusCondition(['1'])] },
       { id: 'f', name: '   ', conditions: [statusCondition(['1'])] },
       { id: 'g', name: 'x'.repeat(31), conditions: [statusCondition(['1'])] },
       { id: 'h', name: 'Two conditions', conditions: [statusCondition(['1']), statusCondition(['2'])] },
@@ -156,9 +158,13 @@ describe('Custom views - validating a new or edited view', () => {
     assert.match(validateViewDraft(draft({ name: 'x'.repeat(31) }), { views: [] }).errors.name, /at most 30 characters/);
   });
 
-  it('reserves All, in any letter case', () => {
+  it('reserves Active (the built-in view\'s name) and All, in any letter case', () => {
+    assert.deepEqual([ALL_VIEW_ID, ALL_VIEW_NAME], ['all', 'Active']);
+    assert.deepEqual(RESERVED_VIEW_NAMES, ['Active', 'All']);
+    for (const name of ['Active', 'active', ' ACTIVE ']) assert.match(validateViewDraft(draft({ name }), { views: [] }).errors.name, /"Active" can't be a custom view's name/);
     for (const name of ['All', 'all', ' ALL ']) assert.match(validateViewDraft(draft({ name }), { views: [] }).errors.name, /"All"/);
     assert.match(nameProblem('aLl'), /"All"/);
+    assert.equal(nameProblem('Active work'), '');
   });
 
   it('rejects a name another view has, in any letter case, but not the edited view\'s own', () => {
@@ -198,176 +204,15 @@ describe('Custom views - validating a new or edited view', () => {
   });
 });
 
-describe('Custom views - fields and matching', () => {
-  const me = { accountId: 'me' };
-  const someone = { accountId: 'other', displayName: 'Someone Else', emailAddress: 'someone@example.com' };
-  const isCurrentUser = (person) => person.accountId === 'me';
-  const fields = {
-    status: { id: '3', name: 'In Progress', statusCategory: { key: 'indeterminate' } },
-    priority: { id: '2', name: 'High', iconUrl: 'https://x' },
-    assignee: someone,
-    reporter: me,
-    customfield_10050: me,
-    customfield_10100: { self: 'https://x', id: '10200', value: 'Platform' },
-    customfield_10101: { id: '10300', value: 'Yes' },
-    customfield_10102: [{ id: '1', value: 'A' }, { id: '2', value: 'B' }],
-    customfield_10103: { id: '1', value: 'Parent', child: { id: '2', value: 'Child' } }
-  };
-  const ids = ['status', 'priority', 'assignee', 'reporter', 'customfield_10050', 'customfield_10100', 'customfield_10101', 'customfield_10102', 'customfield_10104'];
-  const values = toViewFieldValues(fields, ids, { userFieldIds: ['customfield_10050'], isCurrentUser });
-
-  it('reduces statuses, priorities, and single options to their ID and name', () => {
-    assert.deepEqual(values.status, { id: '3', label: 'In Progress' });
-    assert.deepEqual(values.priority, { id: '2', label: 'High' });
-    assert.deepEqual(values.customfield_10100, { id: '10200', label: 'Platform' });
-    assert.deepEqual(values.customfield_10101, { id: '10300', label: 'Yes' });
-  });
-
-  it('reduces people to whether they\'re the current user, keeping nothing else about them', () => {
-    assert.deepEqual(values.assignee, { isCurrentUser: false });
-    assert.deepEqual(values.reporter, { isCurrentUser: true });
-    assert.deepEqual(values.customfield_10050, { isCurrentUser: true });
-    const json = JSON.stringify(values);
-    for (const secret of ['other', 'Someone Else', 'someone@example.com']) assert.ok(!json.includes(secret), secret);
-  });
-
-  it('gives no value for multiple options, a missing field, or an empty one', () => {
-    assert.equal(values.customfield_10102, null);
-    assert.equal(values.customfield_10104, null);
-    assert.equal(toViewFieldValues({ assignee: null }, ['assignee'], { isCurrentUser }).assignee, null);
-    assert.equal(toViewFieldValues({}, ['priority'], { isCurrentUser }).priority, null);
-  });
-
-  it('never reads a person as an option: a user custom field that isn\'t an assignment field gives no value', () => {
-    assert.equal(toViewFieldValues({ customfield_10050: someone }, ['customfield_10050'], { isCurrentUser }).customfield_10050, null);
-  });
-
-  it('ignores fields views don\'t support', () => {
-    assert.deepEqual(toViewFieldValues({ summary: 'x' }, ['summary', 'worklog'], { isCurrentUser }), {});
-  });
-
-  const issueWith = (viewFields) => ({ issueKey: 'KAN-1', viewFields });
-
-  it('matches Equals and Is one of by ID', () => {
-    const issue = issueWith({ status: { id: '3', label: 'In Progress' } });
-    assert.equal(matchesView(issue, view('a', 'A', statusCondition(['3']))), true);
-    assert.equal(matchesView(issue, view('a', 'A', statusCondition(['4']))), false);
-    assert.equal(matchesView(issue, view('a', 'A', statusCondition(['4', '3']))), true);
-    assert.equal(matchesView(issue, view('a', 'A', statusCondition(['4', '5']))), false);
-  });
-
-  it('matches by ID even when the name changed in Jira', () => {
-    assert.equal(matchesCondition(issueWith({ status: { id: '3', label: 'Doing' } }), statusCondition(['3'])), true);
-  });
-
-  it('matches priority and custom single-select and radio-button fields', () => {
-    const issue = issueWith({ priority: { id: '2', label: 'High' }, customfield_10100: { id: '10200', label: 'Platform' }, customfield_10101: { id: '10300', label: 'Yes' } });
-    const condition = (id, valueId) => ({ field: { id, name: id }, operator: 'equals', values: [{ id: valueId, label: valueId }] });
-    assert.equal(matchesCondition(issue, condition('priority', '2')), true);
-    assert.equal(matchesCondition(issue, condition('customfield_10100', '10200')), true);
-    assert.equal(matchesCondition(issue, condition('customfield_10101', '10300')), true);
-    assert.equal(matchesCondition(issue, condition('customfield_10101', '10301')), false);
-  });
-
-  it('matches Assignee, Reporter, and an Additional Assignment Field equal to Me', () => {
-    const issue = issueWith({ assignee: { isCurrentUser: false }, reporter: { isCurrentUser: true }, customfield_10050: { isCurrentUser: true } });
-    assert.equal(matchesCondition(issue, meCondition('assignee')), false);
-    assert.equal(matchesCondition(issue, meCondition('reporter')), true);
-    assert.equal(matchesCondition(issue, meCondition('customfield_10050')), true);
-  });
-
-  it('never matches an issue without a value for the field, or loaded without it', () => {
-    assert.equal(matchesCondition(issueWith({ status: null }), statusCondition(['3'])), false);
-    assert.equal(matchesCondition(issueWith({}), statusCondition(['3'])), false);
-    assert.equal(matchesCondition({ issueKey: 'KAN-1' }, meCondition('assignee')), false);
-    assert.equal(matchesView({ issueKey: 'KAN-1' }, { conditions: [] }), false);
-  });
-
-  it('offers the values the loaded issues have, once each, by name; Me alone for user fields', () => {
-    const issues = [
-      issueWith({ status: { id: '3', label: 'In Progress' } }),
-      issueWith({ status: { id: '4', label: 'In Review' } }),
-      issueWith({ status: { id: '3', label: 'In Progress' } }),
-      issueWith({ status: null }),
-      { issueKey: 'KAN-9' }
-    ];
-    assert.deepEqual(valueOptions(issues, STATUS), [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }]);
-    assert.deepEqual(valueOptions(issues, PRIORITY), []);
-    assert.deepEqual(valueOptions(issues, ASSIGNEE), [{ currentUser: true, label: 'Me' }]);
-  });
-
-  it('lists the fields the views compare, each once, in order', () => {
-    assert.deepEqual(requiredViewFields([]), []);
-    assert.deepEqual(requiredViewFields([view('a', 'A', statusCondition(['1'])), view('b', 'B', meCondition('reporter')), view('c', 'C', statusCondition(['2']))]),
-      ['status', 'reporter']);
-  });
-
+describe('Custom views - fields', () => {
   it('offers the standard fields: Status, Priority, Assignee, Reporter', () => {
     assert.deepEqual(SYSTEM_FIELDS.map((f) => [f.id, f.kind]), [['status', 'option'], ['priority', 'option'], ['assignee', 'user'], ['reporter', 'user']]);
-    assert.equal(ALL_VIEW_ID, 'all');
     assert.deepEqual(OPERATORS, { EQUALS: 'equals', IS_ONE_OF: 'isOneOf' });
   });
-});
 
-describe('Custom views - Status values from the loaded issues', () => {
-  const isCurrentUser = () => false;
-  /** An issue as getActiveIssues() gives it with `viewFields: ['status']`, from Jira's raw status. */
-  const loaded = (key, rawStatus) => ({ issueKey: key, viewFields: toViewFieldValues({ status: rawStatus }, ['status'], { isCurrentUser }) });
-  const status = (id, name, categoryKey = 'indeterminate') => ({ id, name, statusCategory: { key: categoryKey } });
-  const labels = (issues) => valueOptions(issues, STATUS).map((option) => option.label);
-
-  it('offers the status of every loaded issue, whatever its category', () => {
-    const issues = [
-      loaded('P-1', status('10100', 'Demo')),
-      loaded('P-2', status('3', 'In Progress')),
-      loaded('P-3', status('10101', 'Verify')),
-      // To Do category: listed through a recent worklog (Show recently logged), and offered all the same.
-      loaded('P-4', status('10102', 'Selected for Development', 'new')),
-      loaded('P-5', status('10002', 'Done', 'done'))
-    ];
-    assert.deepEqual(valueOptions(issues, STATUS), [
-      { id: '10100', label: 'Demo' }, { id: '10002', label: 'Done' }, { id: '3', label: 'In Progress' },
-      { id: '10102', label: 'Selected for Development' }, { id: '10101', label: 'Verify' }
-    ]);
-  });
-
-  it('lists each status once, by its stable ID, with its name', () => {
-    const issues = [loaded('P-1', status('3', 'In Progress')), loaded('P-2', status('3', 'In Progress')), loaded('P-3', status(3, 'In Progress'))];
-    assert.deepEqual(valueOptions(issues, STATUS), [{ id: '3', label: 'In Progress' }]);
-  });
-
-  it('tells apart statuses that share a name but not an ID (two workflows)', () => {
-    const issues = [loaded('A-1', status('3', 'In Progress')), loaded('B-1', status('10500', 'In Progress'))];
-    // Same name: ordered by ID.
-    assert.deepEqual(valueOptions(issues, STATUS), [{ id: '10500', label: 'In Progress' }, { id: '3', label: 'In Progress' }]);
-  });
-
-  it('hard-codes no status: any name Jira gives is offered', () => {
-    const names = ['Ready for QA', 'Waiting for Customer', 'En cours', 'Bloqué', '進行中'];
-    const issues = names.map((name, index) => loaded(`P-${index + 1}`, status(String(20000 + index), name)));
-    assert.deepEqual(labels(issues).sort(), [...names].sort());
-  });
-
-  it('skips malformed statuses safely, keeping the others', () => {
-    const issues = [
-      loaded('P-1', { name: 'No ID' }),
-      loaded('P-2', { id: '7' }),
-      loaded('P-3', { id: '8', name: '   ' }),
-      loaded('P-4', null),
-      loaded('P-5', [status('9', 'In a list')]),
-      loaded('P-6', 'In Progress'),
-      { issueKey: 'P-7' },
-      { issueKey: 'P-8', viewFields: { status: { label: 'No ID' } } },
-      loaded('P-9', status('3', 'In Progress'))
-    ];
-    assert.deepEqual(valueOptions(issues, STATUS), [{ id: '3', label: 'In Progress' }]);
-  });
-
-  it('follows the issues: a new load offers its statuses', () => {
-    const before = [loaded('P-1', status('3', 'In Progress'))];
-    const after = [...before, loaded('P-2', status('10102', 'Selected for Development', 'new'))];
-    assert.deepEqual(labels(before), ['In Progress']);
-    assert.deepEqual(labels(after), ['In Progress', 'Selected for Development']);
+  it('describes a view\'s search for its panel', () => {
+    assert.equal(describeView(view('a', 'A', meCondition('reporter', 'Reporter'))), 'Reporter is Me');
+    assert.equal(describeView(view('b', 'B', statusCondition(['1', '2']))), 'Status is one of Status 1, Status 2');
   });
 });
 
@@ -448,17 +293,117 @@ describe('Custom views - Jira\'s lists of statuses and priorities', () => {
     assert.throws(() => parseNamedValues({ statuses: [] }), /unexpected list of values/);
     assert.throws(() => parseNamedValues(null), /unexpected list of values/);
   });
+});
 
-  it('puts the listed issues\' values first, then Jira\'s others, each ID once', () => {
-    const listed = [{ id: '11817', label: 'Demo' }, { id: '3', label: 'In Progress' }];
-    const fromJira = [{ id: '12912', label: 'Backlog' }, { id: '11817', label: 'Demo' }, { id: '10413', label: 'Selected for Development' }];
-    assert.deepEqual(mergeValueOptions(listed, fromJira), [
-      { id: '11817', label: 'Demo', listed: true },
-      { id: '3', label: 'In Progress', listed: true },
-      { id: '12912', label: 'Backlog', listed: false },
-      { id: '10413', label: 'Selected for Development', listed: false }
+describe('Custom views - their own JQL', () => {
+  const jql = (condition, context) => buildCustomViewJql({ conditions: [condition] }, context);
+  const option = (fieldId, operator, labels) => ({
+    field: { id: fieldId, name: fieldId }, operator, values: labels.map((label, index) => ({ id: label, label: labels[index] }))
+  });
+  const ORDER = ' ORDER BY updated DESC, key DESC';
+
+  it('compares Reporter and Assignee with currentUser()', () => {
+    assert.equal(jql(meCondition('reporter')), `reporter = currentUser()${ORDER}`);
+    assert.equal(jql(meCondition('assignee')), `assignee = currentUser()${ORDER}`);
+  });
+
+  it('compares an Additional Assignment Field with currentUser(), by its number, while it is one', () => {
+    assert.equal(jql(meCondition('customfield_10050'), { assignmentFieldIds: ['customfield_10050'] }), `cf[10050] = currentUser()${ORDER}`);
+    assert.throws(() => jql(meCondition('customfield_10050'), { assignmentFieldIds: [] }), /no longer available/);
+  });
+
+  it('compares Status by its IDs: Equals and Is one of', () => {
+    assert.equal(jql(statusCondition(['10413'])), `status = 10413${ORDER}`);
+    assert.equal(jql(statusCondition(['10413', '3'])), `status in (10413, 3)${ORDER}`);
+  });
+
+  it('compares Priority by its IDs', () => {
+    const priority = (ids, operator) => ({ field: { id: 'priority', name: 'Priority' }, operator, values: ids.map((id) => ({ id, label: `P${id}` })) });
+    assert.equal(jql(priority(['2'], 'equals')), `priority = 2${ORDER}`);
+    assert.equal(jql(priority(['1', '2'], 'isOneOf')), `priority in (1, 2)${ORDER}`);
+  });
+
+  it('compares a custom single-select or radio-button field by the option\'s quoted name', () => {
+    assert.equal(jql(option('customfield_11300', 'equals', ['Platform'])), `cf[11300] = "Platform"${ORDER}`);
+    assert.equal(jql(option('customfield_12802', 'isOneOf', ['Yes', 'Cisco UC Apps'])), `cf[12802] in ("Yes", "Cisco UC Apps")${ORDER}`);
+  });
+
+  it('keeps every custom option name inside its quotes: an injection attempt stays one name', () => {
+    const attempt = 'x") OR project = SECRET OR (cf[1] = "y';
+    assert.equal(jql(option('customfield_11300', 'equals', [attempt])),
+      `cf[11300] = "x\\") OR project = SECRET OR (cf[1] = \\"y"${ORDER}`);
+    assert.equal(jql(option('customfield_11300', 'equals', ['back\\slash "quoted"'])), `cf[11300] = "back\\\\slash \\"quoted\\""${ORDER}`);
+    assert.equal(jqlString('O\'Brien'), '"O\'Brien"');
+  });
+
+  it('refuses names a JQL string can\'t carry, such as line breaks', () => {
+    assert.throws(() => jql(option('customfield_11300', 'equals', ['two\nlines'])), /isn't valid/);
+    assert.throws(() => jqlString('tab\there'), /can't be searched/);
+  });
+
+  it('refuses Status and Priority values that aren\'t Jira\'s numeric IDs', () => {
+    for (const id of ['1 OR 1=1', '3)', 'In Progress', '-1', '1.5', '']) {
+      assert.throws(() => jql({ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id, label: 'x' }] }), /isn't valid/, id);
+      assert.throws(() => jql({ field: { id: 'priority', name: 'Priority' }, operator: 'equals', values: [{ id, label: 'x' }] }), /isn't valid/, id);
+    }
+  });
+
+  it('refuses unsupported fields and operators, and anything but one condition', () => {
+    assert.throws(() => jql({ field: { id: 'project', name: 'Project' }, operator: 'equals', values: [{ id: '1', label: 'X' }] }), /isn't valid/);
+    assert.throws(() => jql({ field: { id: 'status) OR (1', name: 'S' }, operator: 'equals', values: [{ id: '1', label: 'X' }] }), /isn't valid/);
+    assert.throws(() => jql({ ...statusCondition(['1']), operator: 'notIn' }), /isn't valid/);
+    assert.throws(() => jql({ ...statusCondition(['1']), operator: 'isNot' }), /isn't valid/);
+    assert.throws(() => buildCustomViewJql({ conditions: [] }), /exactly one condition/);
+    assert.throws(() => buildCustomViewJql({ conditions: [statusCondition(['1']), statusCondition(['2'])] }), /exactly one condition/);
+    assert.throws(() => buildCustomViewJql(null), /exactly one condition/);
+  });
+
+  it('never compares a person but Me: an account or a name is refused', () => {
+    for (const values of [[{ id: 'someone', label: 'Someone' }], [{ accountId: 'abc' }], [{ currentUser: true }, { currentUser: true }]]) {
+      assert.throws(() => jql({ field: { id: 'assignee', name: 'Assignee' }, operator: 'equals', values }), /isn't valid/);
+    }
+  });
+
+  it('never asks Active Issues\' restrictions: a Status view finds every issue in that status', () => {
+    const query = jql(statusCondition(['3']));
+    assert.doesNotMatch(query, /currentUser|worklog|statusCategory|assignee/);
+  });
+
+  it('orders the issues by the latest update, then by key, so the first ones are always the same', () => {
+    assert.match(jql(statusCondition(['3'])), / ORDER BY updated DESC, key DESC$/);
+    assert.equal(CUSTOM_VIEW_RESULT_LIMIT, 20);
+  });
+});
+
+describe('Custom views - custom option values from Jira\'s suggestions', () => {
+  it('reads the suggestions\' JQL values as names: unquoted, unescaped, each once, in Jira\'s order', () => {
+    assert.deepEqual(parseFieldSuggestions({ results: [
+      { value: 'Sega', displayName: '<b>Se</b>ga' },
+      { value: '"Cisco UC Apps"', displayName: 'Cisco UC Apps' },
+      { value: '"say \\"hi\\""', displayName: 'say "hi"' },
+      { value: 'Sega' },
+      { value: '' },
+      { displayName: 'No value' },
+      null
+    ] }), [
+      { id: 'Sega', label: 'Sega' },
+      { id: 'Cisco UC Apps', label: 'Cisco UC Apps' },
+      { id: 'say "hi"', label: 'say "hi"' }
     ]);
-    assert.deepEqual(mergeValueOptions(listed), listed.map((value) => ({ ...value, listed: true })));
-    assert.deepEqual(mergeValueOptions([], fromJira).map((value) => value.listed), [false, false, false]);
+  });
+
+  it('never reads the suggestions\' markup', () => {
+    assert.deepEqual(parseFieldSuggestions({ results: [{ value: 'Migrate', displayName: '<b>Mig</b>rate' }] }), [{ id: 'Migrate', label: 'Migrate' }]);
+  });
+
+  it('refuses a response that isn\'t a list of suggestions', () => {
+    assert.throws(() => parseFieldSuggestions([]), /unexpected suggestions/);
+    assert.throws(() => parseFieldSuggestions(null), /unexpected suggestions/);
+  });
+
+  it('stores a suggested option by its name, which the view\'s JQL compares', () => {
+    const condition = normalizeCondition({ field: { id: 'customfield_11300', name: 'Team' }, operator: 'equals', values: parseFieldSuggestions({ results: [{ value: '"Cisco UC Apps"' }] }) });
+    assert.deepEqual(condition.values, [{ id: 'Cisco UC Apps', label: 'Cisco UC Apps' }]);
+    assert.equal(buildCustomViewJql({ conditions: [condition] }), 'cf[11300] = "Cisco UC Apps" ORDER BY updated DESC, key DESC');
   });
 });

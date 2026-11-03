@@ -23,7 +23,7 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
 }
 
 /**
- * Fetches the issues for My Active Issues: those assigned to the current user that are in
+ * Fetches the issues for My Issues' Active view: those assigned to the current user that are in
  * progress, and, with Show Recently Logged Issues on, those the user logged work on in the last
  * 14 days (recentlyLoggedWindow(), ending now). Doesn't depend on the week displayed, and is
  * independent of loadWeek(): one failing doesn't affect the other.
@@ -34,16 +34,14 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
  * @param {AbortSignal} [options.signal] - Cancels the requests
  * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields; none by default
  * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues
- * @param {string[]} [options.viewFields] - The fields the site's custom views compare; none by default
  * @returns {Promise<Array<object>>} From JiraClient.getActiveIssues()
  */
-export async function loadActiveIssues(client, { now = new Date(), signal, assignmentFields = [], includeRecentlyLogged = true, viewFields = [] } = {}) {
+export async function loadActiveIssues(client, { now = new Date(), signal, assignmentFields = [], includeRecentlyLogged = true } = {}) {
   const { since, until } = recentlyLoggedWindow(now);
   return client.getActiveIssues(since, until, {
     signal,
     ...(assignmentFields.length && { assignmentFields }),
-    ...(!includeRecentlyLogged && { includeLogged: false }),
-    ...(viewFields.length && { viewFields })
+    ...(!includeRecentlyLogged && { includeLogged: false })
   });
 }
 

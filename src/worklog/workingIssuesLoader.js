@@ -1,25 +1,22 @@
 /**
- * Loads the My Active Issues section's contents and reports each state it goes through. A newer
+ * Loads My Issues' Active view and reports each state it goes through. A newer
  * load cancels an older one, so a slow answer never replaces a newer one (after a Sync or a change
  * of settings). The list doesn't depend on the week displayed: loading what's already shown (same
- * Jira site, Additional Assignment Fields, Show Recently Logged Issues, and custom view fields), or
- * already loading, does nothing unless forced. No DOM: the page controller renders the states.
- *
- * Custom views (src/jira/customViews.js) use this same load: their fields (`viewFields`) are only
- * added to what it returns, and they filter its issues on the page.
+ * Jira site, Additional Assignment Fields, and Show Recently Logged Issues), or already loading,
+ * does nothing unless forced. No DOM: the page controller renders the states.
  */
 
 import { loadActiveIssues } from './weeklyWorklogService.js';
 
 /**
  * @param {(state: { status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string,
- *   includeRecentlyLogged?: boolean, viewFields?: string[] } | null) => void}
+ *   includeRecentlyLogged?: boolean } | null) => void}
  *   onChange - Called with each new state; null when there's nothing to show
  * @param {object} [options]
  * @param {(err: Error) => void} [options.logError=console.error] - Reports a failed load
  * @param {() => Date} [options.now] - The clock that ends the recently logged window
  * @returns {{ refresh: (client: object, options?: { force?: boolean, assignmentFields?: Array<{ id: string }>,
- *   includeRecentlyLogged?: boolean, viewFields?: string[] }) => Promise<void>, clear: () => void }}
+ *   includeRecentlyLogged?: boolean }) => Promise<void>, clear: () => void }}
  */
 export function createWorkingIssuesLoader(onChange, { logError = (err) => console.error('Failed to load active issues:', err), now = () => new Date() } = {}) {
   // Load in flight, cancelled when a newer one starts: { controller, key }.
@@ -40,13 +37,10 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
      *   different set loads again
      * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues; a change
      *   loads again
-     * @param {string[]} [options.viewFields] - The fields custom views compare (reported back with the
-     *   issues as `viewFields`); a different set loads again
      */
-    async refresh(client, { force = false, assignmentFields = [], includeRecentlyLogged = true, viewFields = [] } = {}) {
+    async refresh(client, { force = false, assignmentFields = [], includeRecentlyLogged = true } = {}) {
       const fieldsKey = assignmentFields.map((field) => field.id).join(',');
-      const key = `${client.deploymentType}|${client.baseUrl}|${includeRecentlyLogged ? 'logged' : 'assigned'}${fieldsKey ? `|${fieldsKey}` : ''}` +
-        `${viewFields.length ? `|views:${viewFields.join(',')}` : ''}`;
+      const key = `${client.deploymentType}|${client.baseUrl}|${includeRecentlyLogged ? 'logged' : 'assigned'}${fieldsKey ? `|${fieldsKey}` : ''}`;
       if (!force && (request?.key === key || (!request && shownKey === key))) return;
 
       request?.controller.abort();
@@ -56,10 +50,10 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
 
       onChange({ status: 'loading' });
       try {
-        const issues = await loadActiveIssues(client, { now: now(), signal: current.controller.signal, assignmentFields, includeRecentlyLogged, viewFields });
+        const issues = await loadActiveIssues(client, { now: now(), signal: current.controller.signal, assignmentFields, includeRecentlyLogged });
         if (current.controller.signal.aborted) return;
         shownKey = key;
-        onChange({ status: 'ready', issues, includeRecentlyLogged, ...(viewFields.length && { viewFields }) });
+        onChange({ status: 'ready', issues, includeRecentlyLogged });
       } catch (err) {
         if (current.controller.signal.aborted) return;
         logError(err);

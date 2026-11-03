@@ -200,7 +200,7 @@ describe('Day panel - collapsing the selected day', () => {
     assert.equal(page.body().querySelectorAll('.worklog-item').length, 3);
   });
 
-  it('keeps My Active Issues below the day\'s worklogs, expanded or collapsed', () => {
+  it('keeps My Work below the day\'s worklogs, expanded or collapsed', () => {
     const container = h('div', {});
     const order = (dayExpanded) => {
       renderWeek(container, WEEK, {
@@ -237,7 +237,7 @@ describe('Day panel - page and styles', () => {
   const options = readFileSync(new URL('../options.js', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
 
-  it('keeps one state for every day in localStorage, as My Active Issues does: collapsed until expanded', () => {
+  it('keeps one state for every day in localStorage, as My Work does: collapsed until expanded', () => {
     assert.match(options, /\nlet isDayPanelExpanded = localStorage\.getItem\('jts-day-panel-expanded'\) === 'true';\n/);
     const start = options.indexOf('function renderDays(');
     const fn = options.slice(start, options.indexOf('\n}\n', start));
@@ -258,7 +258,7 @@ describe('Day panel - page and styles', () => {
     }
   });
 
-  it('shares My Active Issues\' chevron, turned while collapsed', () => {
+  it('shares My Work\' chevron, turned while collapsed', () => {
     assert.match(css, /\.working-issues-chevron,\n\.day-panel-chevron \{\s*flex-shrink: 0;\s*width: 16px;\s*height: 16px;/);
     assert.match(css, /\.working-issues\.is-collapsed \.working-issues-chevron,\n\.day-panel\.is-collapsed \.day-panel-chevron \{\s*transform: rotate\(-90deg\);/);
   });

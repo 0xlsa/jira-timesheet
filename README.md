@@ -18,7 +18,7 @@
 
 ## Screenshots
 
-The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. A banner shows the next public holiday, and My Active Issues shows a running timer even when it's collapsed. It has light and dark themes.
+The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. A banner shows the next public holiday, and My Work shows a running timer even when it's collapsed. It has light and dark themes.
 
 ![Timesheet for Jira: weekly overview, light theme](docs/screenshots/weekly-overview-light.png)
 
@@ -90,11 +90,14 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 - A button in the URL field opens the entered instance in a new tab (valid HTTPS URLs only).
 - Instance URLs can include a context path, such as `https://jira.example.com/jira`.
 
-**Custom views of My Active Issues**
-- Tabs above My Active Issues' list: **All** (every issue, as before), and up to two custom views of your own, each with how many issues it lists. **+** creates a view; the selected view's ✎ renames, changes, or deletes it. The selected tab is remembered, and views changed in another tab show at once.
-- A view has a name (up to 30 characters, unique, not "All") and one condition: a field, **Equals** (one value) or **Is one of** (two or more values), and the values. The fields are Status and Priority (every value Jira lists, the ones your listed issues have first, with a filter for long lists), custom single-select and radio-button fields (values from the issues already listed), and Assignee, Reporter, and your Additional Assignment Fields, which only compare with **Me**. A view on a value no listed issue has says that no issues match it, until one does.
-- A view only narrows My Active Issues' issues: your in-progress issues and the ones you logged work on in the last 14 days, whatever **Show recently logged** says (the switch only decides whether All lists the recently logged ones). It adds nothing to the Jira search except the fields it compares and, while views exist, the recently logged issues the switch would add; it filters in your browser. Without views, the search is exactly as before. The running timer's issue is listed in All only; the header's timer controls stay available.
-- Views are saved per Jira site in the browser's extension storage. A view whose field is gone from Jira says so, with **Edit view**, instead of showing all issues.
+**Custom views of My Work**
+- My Work has two groups, each expanding and collapsing on its own: **My Issues** and **Pending Worklogs**.
+- At the top of My Issues, its views side by side as tabs, each with its count: **Active** (the built-in view: your issues, exactly as before) and up to two custom views of your own per Jira site (**20+** when more match). **+** creates a view, until there are two; the selected custom view's ✎ renames, changes, or deletes it. The one list below shows the selected view. The selected tab is remembered, and views changed in another tab show at once.
+- **Show recently logged** belongs to Active: it's just below the tabs while Active is selected, and hidden while a custom view is. It never changes a custom view's results.
+- A custom view is a Jira search of its own, apart from Active: it lists the first 20 issues you can see in Jira that match its condition, whether Active lists them or not, most recently updated first (then by key, so the same issues come back in the same order). It makes one request and never asks for more pages; when more issues match, it says so ("Showing the first 20 of 147 matching issues."; Jira Cloud's search doesn't give the count, so there it says "Showing the first 20 matching issues."). A view is searched when it's shown (selected, with My Issues expanded), then kept for as long as the page is open; **Sync** searches again, as does **Retry** after a failure.
+- A view has a name (up to 30 characters, unique, not "Active" or "All") and one condition: a field, **Equals** (one value) or **Is one of** (two or more values), and the values. The fields are Status and Priority (every value Jira lists, with a filter for long lists), custom single-select and radio-button fields (the values Jira suggests as you type), and Assignee, Reporter, and your Additional Assignment Fields, which only compare with **Me**.
+- The view's JQL is built from its condition alone, from allow-listed fields and operators: statuses and priorities by Jira's IDs, a custom field's options by name, in quotes (Jira Data Center doesn't accept option IDs in JQL, so an option renamed in Jira stops matching until you edit the view), and Me as `currentUser()`. Nothing you type goes into the JQL unquoted, and no other person can be chosen.
+- Views are saved per Jira site in the browser's extension storage; the issues they find are only kept while the page is open. A view whose field is gone from Jira says so, with **Edit view**. A custom view's rows have the same timer and log work buttons as Active's, on the same timer; only Active lists the running timer's issue when Jira doesn't.
 
 **What's New**
 - The **What's New** button in the header opens a drawer that shows what the latest release brings: its version, date, and changes under **New features**, **Improvements**, **Bug fixes**, and **Security updates** (only the ones with entries), with the release's highlights marked by a star. Only the latest release is shown; the full history stays in `CHANGELOG.md`. It works offline: the release notes are packaged with the extension.
@@ -350,9 +353,10 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `BackgroundMessages.test.js` | The background script's `TEST_CONNECTION` and `FETCH_WORKLOGS` message handlers |
 | `Changelog.test.js` | The `CHANGELOG.md` format and every rule the generator checks, the development and release outputs (only the development one has `[Unreleased]`), the release check (empty `[Unreleased]`, version, and 1 to 3 highlights), the repository's own `CHANGELOG.md`, and the command line |
 | `ChangelogState.test.js` | Reading the generated release notes (unreleased changes only from the development output), when the update announcement and the NEW badge show (update, fresh install, an update from before What's New), and recording what was announced and read |
-| `CustomViews.test.js` | Custom views' rules: storage per site (and entries from other versions left untouched), names, the two-view limit, one condition, operators by field, matching by ID and by Me, values from the loaded issues, people reduced to whether they're you, and which custom fields qualify |
-| `CustomViewsScope.test.js` | The Jira search with views: the same JQL and one search, today's exact request without views, only allow-listed extra fields, the same issues (views only narrow them), no other person's identity, GET /field, the existing loader, and per-site storage |
-| `CustomViewsUI.test.js` | The view tabs (All by default, counts, the timer-only row in All only, empty and missing-field states, keyboard and ARIA) and the view editor (fields and operators, values, validation, save, delete, cancel) |
+| `CustomViews.test.js` | Custom views' rules: storage per site (and entries from other versions left untouched), names (Active and All reserved), the two-view limit, one condition, operators by field, Me only for people, which custom fields qualify, the views' JQL (IDs, quoted option names, `currentUser()`, refused fields, operators, and values, injection attempts, the stable order), and Jira's value suggestions |
+| `CustomViewsScope.test.js` | Active's search exactly as before, and each view's own search: one request of 20 on Cloud and Data Center / Server, issues outside Active Issues, Jira's total and "more match", no other page, no person read, Jira's refusals, the value suggestions, GET /field, the lists of statuses and priorities, and per-site storage |
+| `CustomViewSearch.test.js` | The views' results for the page: searched once when shown, no duplicate searches, refresh and Sync, edited and deleted views' results dropped, late answers ignored, and failures |
+| `CustomViewsUI.test.js` | The view tabs in My Issues (Active and the custom views side by side, one list, Active by default with Show recently logged, counts and 20+, + and ✎, what each view searches, the searching, empty, more-match, error, and missing-field states, the same timer buttons with no timer-only row, keyboard and ARIA) and the view editor (fields and operators, Jira's values, a custom field's values searched as you type, validation, save, delete, cancel) |
 | `ChangelogDrawer.test.js` | The What's New drawer (only the latest release, in full, under user-friendly category labels, with its highlights; the What's New — Unreleased preview, never read; read only once the latest is on screen; load failures) and the update announcement (at most three highlights; closing it never counts as reading), both showing release notes as text only |
 | `ChangelogPage.test.js` | What's New's place in the page: its header button and drawer, one drawer at a time, the announcement, the background's install record, and the build and packaging steps |
 
@@ -402,6 +406,9 @@ graph TD
 | Find the week's worklogs | `GET /rest/api/3/search/jql`, paged with `nextPageToken` | `GET /rest/api/2/search`, paged with `startAt` |
 | Suggest issues for a typed key | `GET /rest/api/3/search/jql` with `maxResults=10&fields=summary,status` | `GET /rest/api/2/search` with `validateQuery=warn&maxResults=10&fields=summary,status` |
 | Look up the exact typed key (when it isn't among the suggestions) | `GET /rest/api/3/issue/{key}?fields=summary,status` | `GET /rest/api/2/issue/{key}?fields=summary,status` |
+| A custom view's issues (one page, never more) | `GET /rest/api/3/search/jql` with the view's JQL and `maxResults=20&fields=summary,status` | `GET /rest/api/2/search` with the view's JQL and `startAt=0&maxResults=20&fields=summary,status` |
+| A custom view's values: statuses, priorities, fields | `GET /rest/api/3/status`, `GET /rest/api/3/priority/search`, `GET /rest/api/3/field` | `GET /rest/api/2/status`, `GET /rest/api/2/priority`, `GET /rest/api/2/field` |
+| A custom field's values for a view, as you type | `GET /rest/api/3/jql/autocompletedata/suggestions?fieldName=cf[…]&fieldValue=…` | `GET /rest/api/2/jql/autocompletedata/suggestions?fieldName=cf[…]&fieldValue=…` |
 | All worklogs of an issue (when it has more than 20) | `GET /rest/api/3/issue/{issue}/worklog` | `GET /rest/api/2/issue/{issue}/worklog` |
 | Log work | `POST /rest/api/3/issue/{issue}/worklog` | `POST /rest/api/2/issue/{issue}/worklog` |
 | Edit a worklog | `PUT /rest/api/3/issue/{issue}/worklog/{id}` | `PUT /rest/api/2/issue/{issue}/worklog/{id}` |
@@ -431,7 +438,8 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/
 │   │   ├── JiraClient.js              # Jira REST client
-│   │   ├── customViews.js             # Custom views of My Active Issues: storage, checks, matching
+│   │   ├── customViews.js             # Custom views of My Issues: storage, checks, their JQL
+│   │   ├── customViewSearch.js        # Custom views' search results, kept for the page
 │   │   ├── issueKeySearch.js          # Partial issue keys: JQL and matching
 │   │   └── createJiraClient.js        # Builds a client from connection settings
 │   ├── settings/

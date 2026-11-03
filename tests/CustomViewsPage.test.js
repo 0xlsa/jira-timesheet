@@ -20,53 +20,71 @@ describe('Custom views page wiring', () => {
     assert.match(html, /<aside id="customViewEditor" class="custom-view-editor hidden" role="dialog" aria-modal="false"><\/aside>/);
   });
 
-  it('remembers the selected view in localStorage, and shows All by default', () => {
+  it('remembers the selected view in localStorage, and shows Active by default', () => {
     assert.match(js, /let selectedViewId = localStorage\.getItem\('jts-working-issues-view'\) \|\| ALL_VIEW_ID;/);
     assert.match(functionSource('selectView'), /localStorage\.setItem\('jts-working-issues-view', id\);/);
-    assert.match(functionSource('customViewsOptions'), /selectedId: views\.some\(\(view\) => view\.id === selectedViewId\) \? selectedViewId : ALL_VIEW_ID/);
+    assert.match(functionSource('customViewsOptions'), /const selectedId = views\.some\(\(view\) => view\.id === selectedViewId\) \? selectedViewId : ALL_VIEW_ID;/);
   });
 
-  it('gives My Active Issues the views of its Jira site only', () => {
+  it('has no Views group: My Issues and Pending Worklogs only', () => {
+    assert.doesNotMatch(js, /jts-working-issues-views-expanded|workingIssuesGroupsExpanded\.views/);
+    assert.match(js, /const workingIssuesGroupsExpanded = \{\s*active: [^\n]*\n\s*pending: [^\n]*\n\};/);
+  });
+
+  it('gives My Work the views of its Jira site only', () => {
     assert.match(functionSource('workingIssuesOptions'), /views: customViewsOptions\(\)/);
     assert.match(functionSource('customViewsFor'), /customViewsForSite\(settings, siteId\(client\.deploymentType, client\.baseUrl\)\)/);
   });
 
-  it('asks the one existing search for the views\' fields, in both of its calls', () => {
-    const calls = [...js.matchAll(/workingIssues\.refresh\([^)]*\{([\s\S]*?)\}\);/g)].map((match) => match[1]);
-    assert.equal(calls.length, 2);
-    assert.match(calls[0], /viewFields: viewFieldsFor\(currentClient\)/);
-    assert.match(calls[1], /viewFields: viewFieldsFor\(client, settings\)/);
-    // Views and the editor reload through it, unforced (only when the fields changed).
-    assert.match(functionSource('updateCustomViews'), /refreshActiveIssues\(\{ force: false \}\);/);
-    assert.match(functionSource('listedFieldValues'), /editorViewField = field\.id;\s*updateCustomViews\(\);/);
+  it('runs each view\'s own search with its JQL, keyed by the Jira site and the JQL', () => {
+    const search = functionSource('viewSearchFor');
+    assert.match(search, /jql = buildCustomViewJql\(view, \{ assignmentFieldIds: context\.assignmentFieldIds \}\);/);
+    assert.match(search, /key: `\$\{siteId\(client\.deploymentType, client\.baseUrl\)\}\\n\$\{jql\}`/);
+    assert.match(search, /run: \(signal\) => client\.searchCustomViewIssues\(jql, \{ signal \}\)/);
+    assert.match(search, /if \(!isViewAvailable\(view, context\)\) return null;/);
   });
 
-  it('gives the open editor the values of each new load of the issues', () => {
-    assert.match(functionSource('setWorkingIssuesState'), /if \(state\?\.status === 'ready'\) customViewEditor\?\.refreshValues\(\);/);
+  it('searches a custom view only once it shows: My Work and My Issues expanded, the view selected', () => {
+    const options = functionSource('customViewsOptions');
+    assert.match(options, /if \(selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded\.active\) viewSearch\.load\(selectedSearch\.key, selectedSearch\.run\);/);
+    // Active has no search of its own here: searches holds custom views only.
+    assert.match(options, /const searches = new Map\(views\.map\(\(view\) => \[view\.id, viewSearchFor\(client, view, context\)\]\)\);/);
+    // Expanding either draws it again, which searches the selected view.
+    const toggles = functionSource('workingIssuesOptions');
+    assert.match(toggles, /if \(expanded && workingIssuesGroupsExpanded\.active\) setWorkingIssuesState\(workingIssuesState\);/);
+    assert.match(toggles, /if \(group === 'active' && expanded\) setWorkingIssuesState\(workingIssuesState\);/);
+    assert.match(functionSource('selectView'), /setWorkingIssuesState\(workingIssuesState\);/);
+  });
+
+  it('drops the results of views that are gone or changed, and searches again on Retry and Sync', () => {
+    assert.match(functionSource('customViewsOptions'), /viewSearch\.retain\(\[\.\.\.searches\.values\(\)\]\.filter\(Boolean\)\.map\(\(search\) => search\.key\)\);/);
+    assert.match(functionSource('customViewsOptions'), /onRefresh: \(id\) => \{[\s\S]*?viewSearch\.refresh\(search\.key, search\.run\);/);
+    const load = js.slice(js.indexOf('async function loadAndRenderWorklogs('));
+    assert.match(load, /if \(options\.force\) viewSearch\.clear\(\);/);
+    assert.match(js, /const viewSearch = createCustomViewSearch\(\(\) => \{\s*if \(workingIssuesState\) setWorkingIssuesState\(workingIssuesState\);\s*\}\);/);
+  });
+
+  it('leaves Active Issues\' search as it was: no views in it', () => {
+    const calls = [...js.matchAll(/workingIssues\.refresh\([^)]*\{([\s\S]*?)\}\);/g)].map((match) => match[1]);
+    assert.equal(calls.length, 2);
+    assert.match(calls[0], /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true\n/);
+    assert.match(calls[1], /includeRecentlyLogged: settings\.showRecentlyLoggedIssues\n/);
+    for (const call of calls) assert.doesNotMatch(call, /view/i);
+    assert.match(functionSource('workingIssuesOptions'), /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues \}/);
+  });
+
+  it('offers every status and priority Jira lists, a custom field\'s suggested values, and Me', () => {
+    const values = functionSource('fieldValues');
+    assert.match(values, /if \(field\.kind === 'user'\) return \[\{ \.\.\.ME_VALUE \}\];/);
+    assert.match(values, /await jiraFieldValues\(currentClient, field\)/);
+    assert.match(values, /return currentClient\.getFieldValueSuggestions\(field\.id, query\);/);
+    assert.match(functionSource('jiraFieldValues'), /client\.getStatuses\(\) : client\.getPriorities\(\)/);
+    assert.doesNotMatch(values, /searchIssues|getActiveIssues|workingIssues/);
   });
 
   it('asks for the same issues as the list shown: the saved settings follow what each load reads', () => {
     const load = js.slice(js.indexOf('async function loadAndRenderWorklogs('));
     assert.match(load, /settings = await settingsStore\.load\(\);\s*\/\/[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*savedSettings = settings;/);
-  });
-
-  it('offers every status and priority Jira lists, the listed issues\' first, without another issue search', () => {
-    const lists = functionSource('jiraFieldValues');
-    assert.match(lists, /field\.id !== 'status' && field\.id !== 'priority'\)\) return Promise\.resolve\(null\);/);
-    assert.match(lists, /client\.getStatuses\(\) : client\.getPriorities\(\)/);
-    assert.doesNotMatch(lists, /searchIssues|getActiveIssues|workingIssues\.refresh/);
-    const values = functionSource('fieldValues');
-    assert.match(values, /Promise\.allSettled\(\[listedFieldValues\(field\), jiraFieldValues\(currentClient, field\)\]\)/);
-    assert.match(values, /return mergeValueOptions\(listed\.value \?\? \[\], fromJira\.value \?\? \[\]\);/);
-  });
-
-  it('loads the recently logged issues for views whatever the switch says, and only when there are views', () => {
-    const calls = [...js.matchAll(/workingIssues\.refresh\([^)]*\{([\s\S]*?)\}\);/g)].map((match) => match[1]);
-    assert.match(calls[0], /includeRecentlyLogged: savedSettings\?\.showRecentlyLoggedIssues === true \|\| hasCustomViews\(currentClient\),/);
-    assert.match(calls[1], /includeRecentlyLogged: settings\.showRecentlyLoggedIssues \|\| hasCustomViews\(client, settings\),/);
-    assert.match(functionSource('hasCustomViews'), /return customViewsFor\(client, settings\)\.views\.length > 0;/);
-    // All follows the switch, which the page passes as is.
-    assert.match(functionSource('workingIssuesOptions'), /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues \}/);
   });
 
   it('follows views changed in another tab', () => {
@@ -97,15 +115,19 @@ describe('Custom views page wiring', () => {
     assert.match(editor, /await settingsStore\.saveCustomViews\(site, views\);/);
   });
 
-  it('shows All after the selected view is deleted', () => {
-    assert.match(functionSource('openViewEditor'), /await store\(views\.filter\(\(item\) => item\.id !== view\.id\), ALL_VIEW_ID\);/);
+  it('shows the saved view, and Active after the selected view is deleted', () => {
+    const editor = functionSource('openViewEditor');
+    assert.match(editor, /await store\(view \? views\.map\([\s\S]*?, saved\.id\);/);
+    assert.match(editor, /await store\(views\.filter\(\(item\) => item\.id !== view\.id\), ALL_VIEW_ID\);/);
   });
 
-  it('describes the locally stored views and the extra fields in the privacy policy', () => {
+  it('describes the locally stored views and their own searches in the privacy policy', () => {
     const policy = read('../docs/store-listing/common/privacy-policy.md');
-    assert.match(policy, /\| Your custom views of My Active Issues, for each Jira site:/);
+    assert.match(policy, /\| Your custom views of My Work, for each Jira site:/);
     assert.match(policy, /for a person, only "Me"/);
-    assert.match(policy, /\*\*With custom views of My Active Issues:\*\* the search for your active issues also asks for the fields your views filter on/);
-    assert.match(policy, /your views are never sent to Jira/);
+    assert.match(policy, /The issues they find aren't stored\./);
+    assert.match(policy, /\*\*With custom views of My Work:\*\* each view you open runs its own search/);
+    assert.match(policy, /returns the first 20 matching issues you can see in Jira/);
+    assert.match(policy, /Your views themselves are never sent to Jira, only the searches built from them\./);
   });
 });

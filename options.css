@@ -961,10 +961,10 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  padding: 20px 22px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .day-panel-header {
@@ -983,7 +983,7 @@ body {
   font-weight: inherit;
 }
 
-/* The header button: chevron, then the date and its count, as My Active Issues' header */
+/* The header button: chevron, then the date and its count, as My Work's header */
 .day-panel-toggle {
   display: flex;
   align-items: center;
@@ -1044,7 +1044,7 @@ body {
 }
 
 /* Circular add worklog button in the selected day's heading, and the timer and log work buttons
-   of each My Active Issues row */
+   of each My Work row */
 .working-issue-timer-btn,
 .working-issues-view-btn,
 .working-issue-log-btn,
@@ -1103,7 +1103,7 @@ body {
   border-color: var(--danger);
 }
 
-/* Play (Start, and Resume while paused) in My Active Issues and the Log work panel: solid primary
+/* Play (Start, and Resume while paused) in My Work and the Log work panel: solid primary
    blue with a white icon, as the Log work button. Pause keeps the neutral style. */
 .working-issue-timer-btn[data-timer-action="start"],
 .working-issue-timer-btn[data-timer-action="resume"] {
@@ -1130,7 +1130,7 @@ body {
 .worklog-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 /* Individual Worklog Item */
@@ -1146,7 +1146,7 @@ body {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: 10px 14px;
   transition: border-color var(--transition);
 }
 
@@ -1255,12 +1255,15 @@ body {
   min-width: 0;
 }
 
+/* One line, cut with an ellipsis; the full title is the tooltip (the span's title). */
 .issue-summary {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
   line-height: 1.4;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .worklog-duration-badge {
@@ -1371,7 +1374,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px 14px;
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--text-subtle);
   flex-wrap: wrap;
@@ -1398,7 +1401,7 @@ body {
   line-height: 1.45;
 }
 
-/* My Active Issues: collapsible list of the user's issues in progress or with work logged this week,
+/* My Work: collapsible list of the user's issues in progress or with work logged this week,
    between the weekday cards and the selected-day panel. Kept compact so the timesheet stays in front. */
 .working-issues {
   background-color: var(--bg-card);
@@ -1617,8 +1620,8 @@ body {
   white-space: nowrap;
 }
 
-/* Active Issues and Pending Worklogs groups, one below the other in the section's body. Each header
-   expands and collapses its own group; a click anywhere on it but the switch toggles. */
+/* My Issues and Pending Worklogs groups, one below the other in the section's body. Each header
+   expands and collapses its own group; a click anywhere on it toggles. */
 .working-issues-group-header {
   display: flex;
   flex-wrap: wrap;
@@ -1670,20 +1673,26 @@ body {
   transform: rotate(-90deg);
 }
 
-/* Space between the Active Issues list and the Pending Worklogs header */
+/* Space between a group's contents and the next group's header */
 .working-issues-group + .working-issues-group {
   margin-top: 4px;
 }
 
-/* Show Recently Logged Issues, at the right of the Active Issues header: its label, then the
-   Settings switch, with smaller text. At narrow widths it wraps below the title. */
+/* Show Recently Logged Issues, Active's own, below the view tabs: its label, then the Settings
+   switch, with smaller text, on a line of its own above the issues. */
 .switch-row.working-issues-recent {
+  width: fit-content;
   gap: 8px;
-  margin: 0 0 0 auto;
-  padding: 4px 0;
+  margin: 0;
+  padding: 0 0 8px;
   white-space: nowrap;
   font-size: 12px;
   color: var(--text-subtle);
+}
+
+/* Without view tabs above it (no Jira site yet), the switch starts the group's contents */
+.working-issues-group-body > .working-issues-recent {
+  padding-top: 4px;
 }
 
 .working-issues-empty {
@@ -1859,7 +1868,7 @@ body {
   .issue-summary {
     grid-column: 1 / -1;
     grid-row: 2;
-    margin-top: 8px;
+    margin-top: 6px;
     padding-top: 0;
   }
 
@@ -2815,10 +2824,11 @@ body {
 
 /* ==========================================================================
    CUSTOM VIEWS
-   My Active Issues' view tabs (src/ui/weekView.js), and the editor drawer (src/ui/customViewEditor.js).
+   The view tabs in My Issues (src/ui/weekView.js), and the editor drawer (src/ui/customViewEditor.js).
    ========================================================================== */
 
-/* The tabs (All and the custom views), then the selected view's edit button and the + button */
+/* The tabs (Active and the custom views), side by side, then the selected custom view's edit button
+   and the + button */
 .working-issues-viewbar {
   display: flex;
   flex-wrap: wrap;
@@ -2835,7 +2845,7 @@ body {
   min-width: 0;
 }
 
-/* Every tab, All and the custom views alike, has the same shape: the issue key badges' slightly rounded
+/* Every tab, Active and the custom views alike, has the same shape: the issue key badges' slightly rounded
    corners and padding. Unselected: the duration presets' look (the Log work panel's 15m / 30m / 1h);
    selected: the issue key badges' colours. */
 .working-issues-view-tab {
@@ -2899,8 +2909,30 @@ body {
   height: 14px;
 }
 
-/* The editor's form: the Settings form's fields, then Save and Cancel, and Delete apart below */
-.custom-view-form .form-group {
+/* What the selected view searches ("Jira search: Reporter is Me"), above its results */
+.working-issues-view-query {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.working-issues-view-query-label {
+  font-weight: 600;
+}
+
+/* More issues match than the view lists */
+.working-issues-view-more {
+  margin: 0;
+  padding: 8px 0 2px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+/* The editor's form: what a view is, the Settings form's fields, then Save and Cancel, and Delete
+   apart below */
+.custom-view-form .form-group,
+.custom-view-hint {
   margin-bottom: 16px;
 }
 
@@ -2910,7 +2942,7 @@ body {
   min-width: 0;
 }
 
-/* The values: one scrolling area for both groups (the issues' values, then Jira's others) */
+/* The values, in one scrolling area */
 .custom-view-value-scroll {
   max-height: 300px;
   overflow-y: auto;
@@ -2918,19 +2950,6 @@ body {
 
 .custom-view-value-filter {
   margin-bottom: 8px;
-}
-
-.custom-view-values-heading {
-  margin: 8px 0 2px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--text-muted);
-}
-
-.custom-view-value-group:first-child .custom-view-values-heading {
-  margin-top: 0;
 }
 
 .custom-view-value-list {
@@ -2953,6 +2972,10 @@ body {
 .custom-view-value input {
   width: auto;
   margin: 0;
+}
+
+.custom-view-value-note {
+  color: var(--text-muted);
 }
 
 .custom-view-actions {

@@ -5,7 +5,7 @@ import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
 import { buildActiveIssuesJql, isInProgress, hasWorklogBetween } from './activeIssues.js';
 import { parseUserPickerFields } from './assignmentFields.js';
-import { parseSingleSelectFields, parseNamedValues, toViewFieldValues, REQUESTABLE_VIEW_FIELD } from './customViews.js';
+import { parseSingleSelectFields, parseNamedValues, parseFieldSuggestions, CUSTOM_VIEW_RESULT_LIMIT } from './customViews.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -519,7 +519,7 @@ export class JiraClient {
       return this.#currentUser;
     }
 
-    // The week's worklogs and My Active Issues load at the same time: one request serves both.
+    // The week's worklogs and My Work load at the same time: one request serves both.
     this.#currentUserRequest ??= (async () => {
       const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
 
@@ -1124,6 +1124,70 @@ export class JiraClient {
   }
 
   /**
+   * Suggests values for a custom single-select or radio-button field, as Jira's JQL search box does
+   * (`GET /jql/autocompletedata/suggestions`; v3 on Cloud, with the v2 fallback; v2 on Data Center /
+   * Server). Every user can ask, with no administrator access: it covers all the field's options,
+   * those whose name starts with `query`, a few at a time (Jira decides how many).
+   *
+   * @param {string} fieldId - `customfield_<number>`
+   * @param {string} [query] - The start of the names wanted; all by default
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal]
+   * @returns {Promise<Array<{ id: string, label: string }>>} Each option's name, as both `id` and
+   *   `label` (see src/jira/customViews.js). Rejects with a user-facing Error when Jira can't be asked
+   */
+  async getFieldValueSuggestions(fieldId, query = '', { signal } = {}) {
+    const number = /^customfield_(\d+)$/.exec(String(fieldId))?.[1];
+    if (!number) throw new Error('Values can only be suggested for custom fields.');
+    const params = new URLSearchParams({ fieldName: `cf[${number}]`, fieldValue: String(query) });
+    try {
+      return parseFieldSuggestions(await this.#getJson(this.#apiPath(`jql/autocompletedata/suggestions?${params}`), signal));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Runs a custom view's own Jira search (its JQL from buildCustomViewJql()): one request for the
+   * first CUSTOM_VIEW_RESULT_LIMIT issues in the JQL's order, and no other page. Each issue only has
+   * what a row shows (key, summary, and status): no person is ever read.
+   *
+   * @param {string} jql
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<{ issues: Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }>,
+   *   total: number | null, hasMore: boolean }>} The issues, each once, in Jira's order; `total`, how many
+   *   match, where Jira says (Data Center / Server; Cloud's search doesn't); `hasMore` when more match
+   *   than were returned. Rejects with a user-facing Error (with `status` for HTTP errors) when Jira
+   *   can't be searched
+   */
+  async searchCustomViewIssues(jql, { signal } = {}) {
+    try {
+      const result = await this.searchIssues(jql, { maxResults: CUSTOM_VIEW_RESULT_LIMIT, fields: ['summary', 'status'], signal });
+      const issues = [];
+      const seen = new Set();
+      for (const issue of Array.isArray(result?.issues) ? result.issues : []) {
+        const issueKey = String(issue?.key ?? '');
+        const id = String(issue?.id ?? issueKey);
+        if (!issueKey || seen.has(id)) continue;
+        seen.add(id);
+        issues.push({
+          issueId: String(issue.id ?? ''),
+          issueKey,
+          issueSummary: issue.fields?.summary || '',
+          issueStatus: toIssueStatus(issue.fields?.status)
+        });
+      }
+      const total = typeof result?.total === 'number' ? result.total : null;
+      // Data Center / Server counts the matches; Cloud only says whether there's another page.
+      const hasMore = total !== null ? total > issues.length : result?.isLast === false || Boolean(result?.nextPageToken);
+      return { issues, total, hasMore };
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
    * Every field the user can see: `GET /field` (v3 on Cloud, with the v2 fallback; v2 on Data
    * Center / Server), in one response.
    * @param {AbortSignal} [signal]
@@ -1164,12 +1228,6 @@ export class JiraClient {
    * Without `includeLogged` (Show Recently Logged Issues turned off), only the assigned issues are
    * searched, and no worklogs are read.
    *
-   * With `viewFields` (the fields the site's custom views compare, src/jira/customViews.js), each
-   * issue also gets `viewFields`: those fields reduced to what views compare, people to
-   * `{ isCurrentUser }`. The search's JQL is the same; only the fields it returns grow, by the
-   * allow-listed ones it doesn't ask for already (priority, reporter, custom fields). Without
-   * `viewFields`, the request and the issues are exactly as without custom views.
-   *
    * @param {Date | string} startDate - Start of the range, included (e.g. Monday 00:00, or 14 days ago)
    * @param {Date | string} endDate - End of the range, included (e.g. Sunday 23:59:59.999, or now)
    * @param {object} [options]
@@ -1177,25 +1235,20 @@ export class JiraClient {
    * @param {Array<{ id: string }>} [options.assignmentFields] - Additional assignment fields (custom
    *   field IDs, from normalizeAssignmentFields()); none by default
    * @param {boolean} [options.includeLogged=true] - Also list the issues the user logged work on in the range
-   * @param {string[]} [options.viewFields] - The fields custom views compare; none by default
    * @returns {Promise<Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null,
-   *   inProgress: boolean, loggedInRange: boolean, viewFields?: object }>>} Each issue once (by issue ID), with at least one
+   *   inProgress: boolean, loggedInRange: boolean }>>} Each issue once (by issue ID), with at least one
    *   flag: in-progress issues first, then the others, each group most recently updated first.
    *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
    */
-  async getActiveIssues(startDate, endDate, { signal, assignmentFields = [], includeLogged = true, viewFields } = {}) {
+  async getActiveIssues(startDate, endDate, { signal, assignmentFields = [], includeLogged = true } = {}) {
     const range = this.#worklogSearchRange(startDate, endDate);
     const fieldIds = assignmentFields.map((field) => field.id);
-    const searchFields = ['summary', 'status', 'assignee', ...fieldIds, ...(includeLogged ? ['worklog'] : [])];
-    // Custom views only add fields to what the search returns, never to what it finds.
-    const extraFields = (viewFields ?? []).filter((id, index, ids) =>
-      REQUESTABLE_VIEW_FIELD.test(id) && !searchFields.includes(id) && ids.indexOf(id) === index);
     try {
       const [currentUser, issues] = await Promise.all([
         this.getCurrentUser(),
         this.#searchAllIssues(
           buildActiveIssuesJql(range.jqlStartDate, range.jqlEndDate, fieldIds, { includeLogged }),
-          [...searchFields, ...extraFields], signal)
+          ['summary', 'status', 'assignee', ...fieldIds, ...(includeLogged ? ['worklog'] : [])], signal)
       ]);
 
       // A page boundary can move while paging, so an issue may come back twice: keep it once.
@@ -1221,13 +1274,7 @@ export class JiraClient {
               fieldIds.some((fieldId) => isSameUser(issue.fields?.[fieldId], currentUser))),
           // Found through the buffered worklog dates, or in progress: either way, only the user's
           // worklog in the range itself counts. Not checked at all when it doesn't count.
-          loggedInRange: includeLogged && await this.#hasWorklogInRange(issue, range, currentUser, signal),
-          ...(viewFields && {
-            viewFields: toViewFieldValues(issue.fields ?? {}, viewFields, {
-              userFieldIds: fieldIds,
-              isCurrentUser: (person) => isSameUser(person, currentUser)
-            })
-          })
+          loggedInRange: includeLogged && await this.#hasWorklogInRange(issue, range, currentUser, signal)
         };
         if (active.inProgress) inProgress.push(active);
         else if (active.loggedInRange) loggedOnly.push(active);

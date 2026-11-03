@@ -63,7 +63,7 @@ describe('Timer - elapsed time format', () => {
   });
 });
 
-describe('Timer - My Active Issues controls', () => {
+describe('Timer - My Work controls', () => {
   let restoreDocument;
   before(() => { restoreDocument = installFakeDocument(); });
   after(() => restoreDocument());

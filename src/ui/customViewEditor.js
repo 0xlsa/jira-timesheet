@@ -1,30 +1,33 @@
 /**
  * The custom view editor: a drawer, in the same place as the other drawers, to create or edit a
- * custom view of My Active Issues (src/jira/customViews.js): its name, and its one condition (a
+ * custom view of My Work (src/jira/customViews.js): its name, and its one condition (a
  * field, an operator, and values). Editing also offers Delete, which asks once more.
  *
  * Only what the chosen field allows is offered: Equals alone, and Me alone, for a user field
  * (Assignee, Reporter, an Additional Assignment Field); for the others, Equals (one value) or Is
- * one of (two or more), with the values the issues already loaded have. Those follow the issues:
- * when they load again, refreshValues() offers their values, keeping what's chosen. Nothing is
- * saved until Save, and only through `onSave`; checking is `validate`'s (validateViewDraft()).
+ * one of (two or more). Status and Priority offer every value Jira lists; a custom field's values
+ * are searched in Jira as the user types (Jira's suggestions), the chosen ones staying listed.
+ * Nothing is saved until Save, and only through `onSave`; checking is `validate`'s (validateViewDraft()).
  */
 
 import { h, svg, fragment } from './dom.js';
 import { showPanel, hidePanel } from './panel.js';
-import { OPERATORS, OPERATOR_LABELS, MAX_VIEW_NAME_LENGTH, operatorsFor, conditionKind } from '../jira/customViews.js';
+import { OPERATORS, OPERATOR_LABELS, MAX_VIEW_NAME_LENGTH, CUSTOM_VIEW_RESULT_LIMIT, operatorsFor, conditionKind } from '../jira/customViews.js';
 
 export const LOADING_VALUES = 'Loading values…';
-export const NO_VALUES = 'None of your active issues has a value for this field.';
+export const NO_VALUES = 'Jira has no values for this field.';
 export const VALUES_UNAVAILABLE = "Couldn't load the values from Jira.";
 export const LOADING_FIELDS = 'Loading custom fields…';
 export const FIELDS_UNAVAILABLE = "Couldn't load the custom fields from Jira. The standard fields can still be used.";
-export const VALUES_LISTED = 'In your active issues';
-export const VALUES_OTHERS = 'Also in Jira';
 export const NO_MATCHING_VALUES = 'No values match.';
+// A saved status or priority that Jira doesn't list any more.
+export const NOT_IN_JIRA = "not in Jira's list";
+export const VIEW_SEARCH_HINT = `A view is a Jira search of its own: it lists the first ${CUSTOM_VIEW_RESULT_LIMIT} issues you can see in Jira that match, whether Active lists them or not.`;
 
 // Lists longer than this get a box to filter them by name.
 export const VALUE_FILTER_THRESHOLD = 10;
+// A custom field's values are searched in Jira once typing pauses this long.
+export const VALUE_SEARCH_DELAY_MS = 250;
 
 const closeIcon = () => svg('svg', {
   class: 'icon', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'aria-hidden': 'true'
@@ -45,28 +48,41 @@ const valueKey = (value) => (value.currentUser ? 'me' : value.id);
  *   The fields to offer at once (the standard ones and the Additional Assignment Fields)
  * @param {() => Promise<Array<{ id: string, name: string, kind: 'option' }>>} [options.loadCustomFields] -
  *   The site's custom single-select fields, offered once loaded
- * @param {(field: object) => Promise<Array<{ id: string, label: string } | { currentUser: true, label: string }>>} options.loadValues
+ * @param {(field: object, query: string) => Promise<Array<{ id: string, label: string } | { currentUser: true, label: string }>>} options.loadValues -
+ *   The values to offer for a field; for a custom field, those whose name starts with `query`
  * @param {(draft: object) => { errors: object, view: object | null }} options.validate
  * @param {(view: { name: string, conditions: Array<object> }) => Promise<void>} options.onSave - Rejects
  *   with a user-facing Error when it couldn't be saved
  * @param {() => Promise<void>} [options.onDelete] - Editing only; rejects like onSave
  * @param {() => void} options.onClose - Called as soon as the editor closes
- * @returns {{ close: () => void, refreshValues: () => void, readonly isOpen: boolean }}
+ * @param {number} [options.searchDelayMs=VALUE_SEARCH_DELAY_MS] - The pause in typing before a custom
+ *   field's values are searched
+ * @returns {{ close: () => void, readonly isOpen: boolean }}
  */
-export function openCustomViewEditor(root, { view, fields, loadCustomFields, loadValues, validate, onSave, onDelete, onClose }) {
+export function openCustomViewEditor(root, { view, fields, loadCustomFields, loadValues, validate, onSave, onDelete, onClose, searchDelayMs = VALUE_SEARCH_DELAY_MS }) {
   const editing = Boolean(view);
   const condition = view?.conditions[0] ?? null;
-  // The form's values: the chosen field, operator, and values (by key).
+  // The form's values: the chosen field, operator, and values (by key, in the order chosen).
   let field = null;
   let operator = condition?.operator ?? OPERATORS.EQUALS;
-  let selected = new Set(condition ? condition.values.map(valueKey) : []);
+  let chosen = new Map(condition ? condition.values.map((value) => [valueKey(value), value]) : []);
+  // The values offered (Jira's), and those drawn (with the chosen ones of a searched field).
   let options = [];
+  let shown = [];
   let isOpen = true;
   let busy = false;
   let valuesRequest = 0;
-  // What the values are filtered by, kept while they're drawn again.
+  let searchTimer = null;
+  // What the values are filtered by (or, for a custom field, searched for), kept while they're drawn again.
   let valueFilter = '';
   const knownFields = [...fields];
+  // A custom field's search box, kept while its results are drawn again so typing keeps focus.
+  const searchInput = h('input', {
+    type: 'search', id: 'customViewValueSearch', class: 'custom-view-input custom-view-value-filter',
+    placeholder: 'Search values in Jira', 'aria-label': 'Search values in Jira', 'aria-controls': 'customViewValueResults',
+    autocomplete: 'off', spellcheck: 'false'
+  });
+  const searchResults = h('div', { id: 'customViewValueResults' });
 
   const nameInput = h('input', {
     type: 'text', id: 'customViewName', class: 'custom-view-input', maxlength: String(MAX_VIEW_NAME_LENGTH),
@@ -90,6 +106,7 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
   const deleteArea = editing ? h('div', { class: 'custom-view-delete' }) : null;
 
   const form = h('form', { class: 'custom-view-form', novalidate: true },
+    h('p', { class: 'field-hint custom-view-hint' }, VIEW_SEARCH_HINT),
     h('div', { class: 'form-group' },
       h('label', { for: 'customViewName', class: 'form-label' }, 'Name'),
       nameInput,
@@ -147,64 +164,77 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
     operatorSelect.disabled = !field || allowed.length < 2;
   }
 
-  /** Draws the values: radio buttons for Equals, checkboxes for Is one of. */
+  /** Whether the chosen field's values are searched in Jira as the user types (a custom field). */
+  const isSearchedField = (item) => item?.kind === 'option' && item.id.startsWith('customfield_');
+
+  /**
+   * Draws the values: radio buttons for Equals, checkboxes for Is one of. A custom field has a
+   * search box, then its chosen values and Jira's others; the other fields their whole list, with
+   * a filter when it's long. `message` says why there are none (loading, or Jira couldn't be asked).
+   */
   function renderValues(message) {
     const multiple = operator === OPERATORS.IS_ONE_OF;
     valuesLegend.textContent = multiple ? 'Values' : 'Value';
-    if (message) {
-      valuesBox.replaceChildren(h('p', { class: 'field-hint', role: 'status' }, message));
-      return;
-    }
     if (!field) {
       valuesBox.replaceChildren(h('p', { class: 'field-hint' }, 'Choose a field first.'));
+      return;
+    }
+    // Equals keeps one value at most.
+    if (!multiple && chosen.size > 1) chosen = new Map([...chosen].slice(0, 1));
+    const item = (option, index) => {
+      const key = valueKey(option);
+      const input = h('input', {
+        type: multiple ? 'checkbox' : 'radio', name: 'customViewValue', id: `customViewValue-${index}`, value: key
+      });
+      input.checked = chosen.has(key);
+      return h('li', { 'data-label': option.label.toLowerCase() },
+        h('label', { class: 'custom-view-value', for: `customViewValue-${index}` }, input,
+          h('span', {}, option.label),
+          option.note && h('span', { class: 'custom-view-value-note' }, ` (${option.note})`)));
+    };
+
+    if (isSearchedField(field)) {
+      // The chosen values stay listed, checked, whatever the search shows.
+      shown = [...chosen.values(), ...options.filter((option) => !chosen.has(valueKey(option)))];
+      const status = message || (options.length === 0 ? (valueFilter.trim() ? NO_MATCHING_VALUES : NO_VALUES) : '');
+      searchResults.replaceChildren(fragment(
+        status && h('p', { class: 'field-hint', role: 'status' }, status),
+        shown.length > 0 && h('div', { class: 'custom-view-value-scroll' },
+          h('ul', { class: 'custom-view-value-list' }, shown.map(item)))));
+      if (valuesBox.firstChild !== searchInput) {
+        searchInput.value = valueFilter;
+        valuesBox.replaceChildren(searchInput, searchResults);
+      }
+      return;
+    }
+
+    shown = options;
+    if (message) {
+      valuesBox.replaceChildren(h('p', { class: 'field-hint', role: 'status' }, message));
       return;
     }
     if (options.length === 0) {
       valuesBox.replaceChildren(h('p', { class: 'field-hint', role: 'status' }, NO_VALUES));
       return;
     }
-    // Equals keeps one value at most.
-    if (!multiple && selected.size > 1) selected = new Set([...selected].slice(0, 1));
-    const item = (option) => {
-      const index = options.indexOf(option);
-      const key = valueKey(option);
-      const input = h('input', {
-        type: multiple ? 'checkbox' : 'radio', name: 'customViewValue', id: `customViewValue-${index}`, value: key
-      });
-      input.checked = selected.has(key);
-      return h('li', { 'data-label': option.label.toLowerCase() },
-        h('label', { class: 'custom-view-value', for: `customViewValue-${index}` }, input, h('span', {}, option.label)));
-    };
-    // The values the listed issues have first, then Jira's others (Status and Priority), each under
-    // its heading; one list without headings when there's only one kind.
-    const listed = options.filter((option) => option.listed !== false);
-    const others = options.filter((option) => option.listed === false);
-    const groups = listed.length && others.length ? [[VALUES_LISTED, listed], [VALUES_OTHERS, others]] : [[null, options]];
     const filter = options.length > VALUE_FILTER_THRESHOLD && h('input', {
       type: 'search', id: 'customViewValueFilter', class: 'custom-view-input custom-view-value-filter',
       placeholder: 'Filter values', 'aria-label': 'Filter values', autocomplete: 'off', spellcheck: 'false'
     });
     const noMatch = h('p', { class: 'field-hint hidden', role: 'status' }, NO_MATCHING_VALUES);
-    const lists = h('div', { class: 'custom-view-value-scroll' }, groups.map(([heading, values]) => h('div', { class: 'custom-view-value-group' },
-      heading && h('p', { class: 'custom-view-values-heading' }, heading),
-      h('ul', { class: 'custom-view-value-list' }, values.map(item)))));
-    valuesBox.replaceChildren(fragment(filter, lists, noMatch));
+    const list = h('ul', { class: 'custom-view-value-list' }, options.map(item));
+    valuesBox.replaceChildren(fragment(filter, h('div', { class: 'custom-view-value-scroll' }, list), noMatch));
 
-    /** Shows only the values whose name has the filter's text, and the headings of groups with some. */
+    /** Shows only the values whose name has the filter's text. */
     const applyFilter = () => {
       const wanted = valueFilter.trim().toLowerCase();
-      let shown = 0;
-      for (const group of lists.querySelectorAll('.custom-view-value-group')) {
-        let groupShown = 0;
-        for (const li of group.querySelectorAll('li')) {
-          const visible = !wanted || li.dataset.label.includes(wanted);
-          li.classList.toggle('hidden', !visible);
-          if (visible) groupShown++;
-        }
-        group.classList.toggle('hidden', groupShown === 0);
-        shown += groupShown;
+      let count = 0;
+      for (const li of list.querySelectorAll('li')) {
+        const visible = !wanted || li.dataset.label.includes(wanted);
+        li.classList.toggle('hidden', !visible);
+        if (visible) count++;
       }
-      noMatch.classList.toggle('hidden', shown > 0);
+      noMatch.classList.toggle('hidden', count > 0);
     };
     if (filter) {
       filter.value = valueFilter;
@@ -223,37 +253,37 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
   }
 
   /**
-   * Loads the values for the chosen field, adding the view's saved ones the issues don't have now.
-   * `quiet` (the issues loaded again) keeps the values shown while loading, and after a failure.
+   * Loads the values for the chosen field: Me for a user field; Jira's whole list for Status and
+   * Priority, adding the view's saved values Jira doesn't list any more (marked); Jira's
+   * suggestions for what's typed for a custom field.
    */
-  async function showValues({ quiet = false } = {}) {
+  async function showValues() {
     const request = ++valuesRequest;
+    clearTimeout(searchTimer);
     if (!field) {
       options = [];
       renderValues();
       return;
     }
-    if (!quiet) {
-      options = [];
-      renderValues(LOADING_VALUES);
-    }
+    options = [];
+    renderValues(LOADING_VALUES);
     let loaded;
     try {
-      loaded = await loadValues(field);
+      loaded = await loadValues(field, isSearchedField(field) ? valueFilter.trim() : '');
     } catch {
-      if (request === valuesRequest && isOpen && !quiet) renderValues(VALUES_UNAVAILABLE);
+      if (request === valuesRequest && isOpen) renderValues(VALUES_UNAVAILABLE);
       return;
     }
     if (request !== valuesRequest || !isOpen) return;
-    const saved = condition && condition.field.id === field.id && conditionKind(condition) === field.kind ? condition.values : [];
     options = [...loaded];
-    for (const value of saved) {
-      if (!options.some((option) => valueKey(option) === valueKey(value))) options.push({ ...value, label: `${value.label} (not in your current issues)` });
+    if (field.kind === 'user') {
+      // Me is a user field's only value: chosen already.
+      chosen = new Map(options.slice(0, 1).map((option) => [valueKey(option), option]));
+    } else if (!isSearchedField(field)) {
+      for (const value of chosen.values()) {
+        if (!options.some((option) => valueKey(option) === valueKey(value))) options.push({ ...value, note: NOT_IN_JIRA });
+      }
     }
-    const available = new Set(options.map(valueKey));
-    selected = new Set([...selected].filter((key) => available.has(key)));
-    // Me is a user field's only value: chosen already.
-    if (field.kind === 'user') selected = new Set(['me']);
     renderValues();
   }
 
@@ -263,8 +293,11 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
    */
   function chooseField(id, { keepValues = false } = {}) {
     const next = knownFields.find((item) => item.id === id) ?? null;
-    if (next?.id !== field?.id) valueFilter = '';
-    if (!keepValues && next?.id !== field?.id) selected = new Set();
+    if (next?.id !== field?.id) {
+      valueFilter = '';
+      searchInput.value = '';
+      if (!keepValues) chosen = new Map();
+    }
     field = next;
     fieldSelect.value = field?.id ?? '';
     renderOperators();
@@ -290,6 +323,7 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
   function close() {
     if (!isOpen) return;
     isOpen = false;
+    clearTimeout(searchTimer);
     hidePanel(root);
     onClose();
   }
@@ -300,8 +334,7 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
       name: nameInput.value,
       field: field && { id: field.id, name: field.name, kind: field.kind },
       operator,
-      values: options.filter((option) => selected.has(valueKey(option)))
-        .map((option) => (option.currentUser ? { currentUser: true, label: 'Me' } : { id: option.id, label: option.label.replace(/ \(not in your current issues\)$/, '') }))
+      values: [...chosen.values()].map((value) => (value.currentUser ? { currentUser: true, label: 'Me' } : { id: value.id, label: value.label }))
     };
     const { errors: found, view: valid } = validate(draft);
     showErrors(found);
@@ -358,10 +391,23 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
   });
   valuesBox.addEventListener('change', (event) => {
     const input = event.target.closest?.('input[name="customViewValue"]');
-    if (!input) return;
-    if (input.type === 'radio') selected = new Set([input.value]);
-    else if (input.checked) selected.add(input.value);
-    else selected.delete(input.value);
+    const option = input && shown.find((value) => valueKey(value) === input.value);
+    if (!option) return;
+    if (input.type === 'radio') chosen = new Map([[input.value, option]]);
+    else if (input.checked) chosen.set(input.value, option);
+    else chosen.delete(input.value);
+  });
+  // A custom field's values: searched in Jira once typing pauses.
+  searchInput.addEventListener('input', () => {
+    valueFilter = searchInput.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(showValues, searchDelayMs);
+  });
+  // Enter searches; it doesn't save the view.
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    showValues();
   });
   contents.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action;
@@ -408,10 +454,6 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
 
   return {
     close,
-    /** The issues loaded again: offers the chosen field's values from them, keeping what's chosen. */
-    refreshValues() {
-      if (isOpen && field) showValues({ quiet: true });
-    },
     get isOpen() {
       return isOpen;
     }

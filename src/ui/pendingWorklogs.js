@@ -1,5 +1,5 @@
 /**
- * The Pending Worklogs group of My Active Issues: the stopped timer sessions kept in this browser
+ * The Pending Worklogs group of My Work: the stopped timer sessions kept in this browser
  * (`timeTracking.pending`, see src/timer/timeTrackingStore.js), one row each, with Submit, Edit,
  * and Discard. Pure DOM rendering; the page controller submits (src/worklog/pendingSubmission.js),
  * edits, and discards.

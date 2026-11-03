@@ -21,7 +21,7 @@ const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
 // The add button's accessible label ("26 October").
 const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' });
 
-// Subtitle of the My Active Issues section, by state.
+// Subtitle of the My Work section, by state.
 const WORKING_ISSUES_SUBTITLES = {
   loading: 'Retrieving issues from Jira…',
   ready: 'In progress and recently logged',
@@ -30,9 +30,10 @@ const WORKING_ISSUES_SUBTITLES = {
 // Ready, with Show Recently Logged Issues turned off.
 const WORKING_ISSUES_ASSIGNED_ONLY = 'In progress';
 
-// A custom view's list, when no issue matches it, or when its field is gone from Jira.
+// A custom view's list while it's searched, when no issue matches it, or when its field is gone from Jira.
+export const VIEW_SEARCHING = 'Searching Jira…';
 export const VIEW_NO_MATCHES = 'No issues match this view.';
-export const VIEW_FIELD_UNAVAILABLE = "This view's field is no longer available in Jira."
+export const VIEW_FIELD_UNAVAILABLE = "This view's field is no longer available in Jira.";
 
 /** The section's subtitle for a state. */
 const workingIssuesSubtitle = (state) =>
@@ -166,7 +167,7 @@ function renderElapsed(running, now, className) {
 }
 
 /**
- * Updates the running timer's elapsed times in a My Active Issues section (its row and the header)
+ * Updates the running timer's elapsed times in a My Work section (its row and the header)
  * without rebuilding anything else, so focus and the list stay as they are. A paused timer's time
  * isn't updated: it doesn't change.
  * @param {HTMLElement} section
@@ -183,7 +184,7 @@ export function updateWorkingIssuesTimer(section, now) {
 
 /**
  * True when the row's issue is the one the timer is running on (same site and issue).
- * @param {object} issue - A My Active Issues row's issue
+ * @param {object} issue - A My Work row's issue
  * @param {{ site: string, running: object | null }} timer
  * @returns {boolean}
  */
@@ -239,21 +240,22 @@ const TIMER_ACTIONS = {
  * keep focus.
  * @param {object} issue
  * @param {{ site: string, running: object | null, busy?: boolean, unavailable?: string, now: number }} timer
+ * @param {string} [scope] - Prefixes the buttons' focus keys (renderWorkingIssue())
  * @returns {HTMLElement}
  */
-function renderIssueTimer(issue, timer) {
+function renderIssueTimer(issue, timer, scope = '') {
   const timed = isTimedIssue(issue, timer);
   const paused = timed && isPaused(timer.running);
   const focusKey = `${issue.site ?? timer.site}|${issue.issueKey}`;
   // The first button keeps its place through start, pause, and resume, so focus stays on it.
   return h('span', { class: 'working-issue-timer' },
     timed && renderElapsed(timer.running, timer.now, 'working-issue-elapsed'),
-    renderTimerButton(!timed ? 'start' : paused ? 'resume' : 'pause', issue.issueKey, timer, `timer:${focusKey}`),
-    timed && renderTimerButton('stop', issue.issueKey, timer, `timer-stop:${focusKey}`));
+    renderTimerButton(!timed ? 'start' : paused ? 'resume' : 'pause', issue.issueKey, timer, `${scope}timer:${focusKey}`),
+    timed && renderTimerButton('stop', issue.issueKey, timer, `${scope}timer-stop:${focusKey}`));
 }
 
 /**
- * Builds one timer button, for a My Active Issues row or the header. While a change is in progress
+ * Builds one timer button, for a My Work row or the header. While a change is in progress
  * (or the timer is unavailable), it's marked disabled with aria-disabled, so it keeps focus.
  * @param {'start' | 'pause' | 'resume' | 'stop'} action
  * @param {string} issueKey
@@ -291,7 +293,7 @@ function runTimerAction(timer, action, issue) {
 
 /**
  * A timer button's icon: 'play' (start or resume), 'pause', or 'stop' (a square). For the Log work
- * panel, `true` is stop and `false` play. Shared by My Active Issues and the Log work panel.
+ * panel, `true` is stop and `false` play. Shared by My Work and the Log work panel.
  * @param {'play' | 'pause' | 'stop' | boolean} kind
  * @returns {SVGElement}
  */
@@ -306,7 +308,7 @@ export function renderTimerIcon(kind) {
 }
 
 /**
- * Builds one row of the My Active Issues list: issue key (a link to Jira), summary, status, the
+ * Builds one row of the My Work list: issue key (a link to Jira), summary, status, the
  * timer controls (when given), and the log work (plus) button.
  *
  * A row for the running timer's issue on another Jira site (see withRunningIssue()) links to that
@@ -317,9 +319,11 @@ export function renderTimerIcon(kind) {
  * @param {boolean} canLogWork - Show the log work button
  * @param {object} [timer] - Timer options from renderWorkingIssues(); no timer controls without them
  * @param {number} index - The row's position, which its buttons report (keys can repeat across sites)
+ * @param {string} [scope] - Prefixes the timer buttons' focus keys: '' for Active, 'view-row:'
+ *   for a view's rows, so the same issue in both lists keeps focus where it was
  * @returns {HTMLElement}
  */
-function renderWorkingIssue(issue, baseUrl, canLogWork, timer, index) {
+function renderWorkingIssue(issue, baseUrl, canLogWork, timer, index, scope = '') {
   const otherSite = Boolean(issue.site && timer && issue.site !== timer.site);
   const issueBaseUrl = otherSite ? siteBaseUrl(issue.site) : baseUrl;
   return h('li', { class: `working-issue${timer ? ' has-timer' : ''}${issue.timerOnly ? ' is-timer-only' : ''}`, 'data-row-index': String(index) },
@@ -327,7 +331,7 @@ function renderWorkingIssue(issue, baseUrl, canLogWork, timer, index) {
       issue.issueKey),
     h('span', { class: 'working-issue-summary', title: issue.issueSummary || '' }, issue.issueSummary),
     h('span', { class: 'working-issue-status' }, renderIssueStatusBadge(issue.issueStatus)),
-    timer && renderIssueTimer(issue, timer),
+    timer && renderIssueTimer(issue, timer, scope),
     canLogWork && !otherSite && h('button', { type: 'button', class: 'working-issue-log-btn', 'data-issue-key': issue.issueKey, 'aria-label': `Log work on ${issue.issueKey}`, title: 'Log work' },
       buttonIcon(
         svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
@@ -393,16 +397,17 @@ function uniqueIssues(issues) {
 }
 
 /**
- * Renders the My Active Issues section: a header button that expands and collapses it (count and
- * subtitle included), and below it the issues, or why there are none to show. The first call
- * builds the header; later calls on the same section update it in place, so the header button
- * keeps focus when the issues arrive.
+ * Renders the My Work section: a header button that expands and collapses it (count and
+ * subtitle included), and below it the My Issues group (with its views) and the Pending Worklogs
+ * group. The first call builds the header; later calls on the same section update it in place, so
+ * the header button keeps focus when the issues arrive.
  *
  * @param {HTMLElement} section
  * @param {object} options
  * @param {{ status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string, includeRecentlyLogged?: boolean }} options.state -
- *   `issues` when ready (JiraClient.getActiveIssues(): each with `inProgress` and `loggedInRange`),
- *   and whether recently logged issues were included (Show Recently Logged Issues); `message` for an error
+ *   Active Issues: `issues` when ready (JiraClient.getActiveIssues(): each with `inProgress` and
+ *   `loggedInRange`), and whether recently logged issues were included (Show Recently Logged Issues);
+ *   `message` for an error
  * @param {boolean} options.expanded
  * @param {string} [options.baseUrl] - Jira instance URL used for issue links
  * @param {(expanded: boolean) => void} [options.onToggle] - Called after the header expands or collapses the section
@@ -419,7 +424,7 @@ function uniqueIssues(issues) {
  * @param {() => void} options.timer.onStop - Called when the running issue's Stop button is clicked
  * @param {() => void} [options.timer.onPause] - Called when the running issue's Pause button is clicked
  * @param {() => void} [options.timer.onResume] - Called when the paused issue's Resume button is clicked
- * @param {object} [options.pending] - The pending worklogs; with them, the expanded section has an Active
+ * @param {object} [options.pending] - The pending worklogs; with them, the expanded section has a My
  *   Issues group and a Pending Worklogs group, one below the other (the header, collapsed or not, stays the same)
  * @param {Array<object>} options.pending.entries - `timeTracking.pending`, as stored
  * @param {string} options.pending.site - The connected Jira site's ID
@@ -428,24 +433,29 @@ function uniqueIssues(issues) {
  * @param {(id: string) => void} [options.pending.onSubmit] - Called with a pending worklog's ID from its Submit button
  * @param {number} [options.pending.now] - For a submission left running too long
  * @param {{ active?: boolean, pending?: boolean }} [options.groupsExpanded] - Whether each group is
- *   expanded (only with `pending`); each is unless `false`
+ *   expanded; each is unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle] - Called
  *   after a group's header expands or collapses that group (never the other)
- * @param {object} [options.recentlyLogged] - The Show Recently Logged Issues switch, at the right of
- *   the Active Issues group's header (so only with `pending`); no switch without it
+ * @param {object} [options.recentlyLogged] - The Show Recently Logged Issues switch, Active's own:
+ *   below the view tabs while Active is selected (so only with the groups); no switch without it
  * @param {boolean} options.recentlyLogged.checked - Whether it's on
  * @param {(checked: boolean) => void} options.recentlyLogged.onChange - Called when the user flips it
- * @param {object} [options.views] - Custom views (src/jira/customViews.js): tabs above the issues, All
- *   first; no tabs without it. The selected view narrows Jira's issues, every one loaded (recently
- *   logged ones too, whatever the switch); All lists them as Show recently logged says, and only All
- *   lists the running timer's issue when Jira doesn't
- * @param {Array<{ id: string, name: string, unavailable: boolean, matches: (issue: object) => boolean }>} options.views.items -
- *   The custom views; `unavailable` when the view's field is gone from Jira
- * @param {string} options.views.selectedId - ALL_VIEW_ID or a view's ID (an unknown one shows All)
- * @param {boolean} options.views.canCreate - Show the + button (fewer than two views)
+ * @param {object} [options.views] - Custom views (src/jira/customViews.js): tabs at the top of My Issues,
+ *   Active (the built-in view) first, then the custom views, with the selected custom view's edit
+ *   button and + for a new view; no tabs without it. The one list below shows the selected view:
+ *   Active's issues (with the running timer's issue when Jira doesn't list it), or a custom view's
+ *   own Jira search, whose rows have the same timer and log work buttons and no timer-only row.
+ * @param {Array<{ id: string, name: string, description: string, unavailable: boolean,
+ *   result: { status: 'loading' | 'ready' | 'error', issues: Array<object>, total: number | null, hasMore: boolean, message: string } | null }>} options.views.items -
+ *   The custom views: `description` says what they search ("Reporter is Me"), `unavailable` when the
+ *   field is gone from Jira, and `result` their search's, null until searched
+ * @param {string} options.views.selectedId - ALL_VIEW_ID or a custom view's ID (an unknown one shows Active)
+ * @param {boolean} options.views.canCreate - Offer + (fewer than two views)
  * @param {(id: string) => void} options.views.onSelect - Called with a tab's view ID when it's chosen
- * @param {() => void} options.views.onCreate - Called from the + button
+ * @param {() => void} options.views.onCreate - Called from +
  * @param {(id: string) => void} options.views.onEdit - Called with the selected view's ID from its edit button
+ * @param {(id: string) => void} options.views.onRefresh - Called with the selected view's ID from its
+ *   error's Retry
  */
 export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, recentlyLogged, views }) {
   let toggle = section.querySelector('.working-issues-toggle');
@@ -454,7 +464,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       svg('svg', { class: 'working-issues-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
         svg('polyline', { points: '6 9 12 15 18 9' })),
       h('span', { class: 'working-issues-titles' },
-        h('span', { class: 'working-issues-title' }, 'My Active Issues'),
+        h('span', { class: 'working-issues-title' }, 'My Work'),
         h('span', { class: 'working-issues-subtitle' }),
         h('span', { class: 'working-issues-pending-count hidden' })),
       h('span', { class: 'working-issues-indicator' }));
@@ -481,13 +491,8 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   // focus key.
   const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
-  // One row per issue, and the badge counts the rows. With custom views, the issues are loaded with
-  // the recently logged ones even while Show recently logged is off (views filter them all): All then
-  // lists only the in-progress ones, as the switch says.
-  const loaded = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
-  const listsRecentlyLogged = state.includeRecentlyLogged !== false && (recentlyLogged?.checked ?? true);
-  const issues = listsRecentlyLogged ? loaded : loaded.filter((issue) => issue.inProgress);
-  state = { ...state, includeRecentlyLogged: listsRecentlyLogged };
+  // One row per issue, and the badge counts the rows.
+  const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
   section.className = `working-issues is-${state.status}`;
 
   // When ready, the subtitle leads with how many issues are listed ("9 issues · In progress and …").
@@ -514,14 +519,81 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     onRetry();
   });
 
-  // All lists Jira's issues, with the running timer's issue even when Jira's list doesn't include it;
-  // a custom view only the issues it matches, and nothing while its field is unavailable.
-  const selectedView = views?.items.find((view) => view.id === views.selectedId) ?? null;
-  const allRows = withRunningIssue(issues, timer);
-  const rows = !selectedView ? allRows : selectedView.unavailable ? [] : loaded.filter(selectedView.matches);
-  const list = rows.length > 0 && h('ul', { class: 'working-issues-list' },
-    rows.map((issue, index) => renderWorkingIssue(issue, baseUrl, Boolean(onLogWork), timer, index)));
-  if (list && (onLogWork || timer)) {
+  // The running timer's issue is listed even when Jira's list doesn't include it.
+  const rows = withRunningIssue(issues, timer);
+  const list = renderIssueList(rows, { baseUrl, onLogWork, timer });
+
+  const errorMessage = state.status === 'error' && h('div', { class: 'working-issues-message', role: 'status' },
+    h('p', {}, state.message || workingIssuesSubtitle(state)),
+    retryButton);
+
+  // Active's contents: the Show recently logged switch (Active's alone), then its issues, or why
+  // there are none.
+  const activeContent = fragment(
+    recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged),
+    list,
+    errorMessage,
+    state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
+    state.status === 'ready' && !list && h('p', { class: 'working-issues-empty' },
+      state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.'));
+
+  const body = section.querySelector('.working-issues-body');
+  if (pending || views) {
+    // The selected custom view, or null for Active. The one list below the tabs shows it, and the
+    // header counts it: Active's rows from the start (0 until Jira's issues are in), a custom view's
+    // once it has been searched.
+    const selectedView = views?.items.find((view) => view.id === views.selectedId) ?? null;
+    const searching = selectedView ? !selectedView.unavailable && selectedView.result?.status !== 'ready' && selectedView.result?.status !== 'error'
+      : state.status === 'loading';
+    body.replaceChildren(renderWorkingIssuesGroups(pending,
+      selectedView ? viewCountLabel(selectedView) : String(rows.length),
+      views ? fragment(
+        renderViewTabs(views, selectedView, state.status === 'ready' ? rows.length : null),
+        h('div', {
+          id: 'workingIssuesViewPanel', class: 'working-issues-view-panel', role: 'tabpanel',
+          'aria-labelledby': `workingIssuesViewTab-${selectedView?.id ?? ALL_VIEW_ID}`, 'aria-busy': searching ? 'true' : undefined
+        }, selectedView ? renderViewResults(selectedView, views, { baseUrl, onLogWork, timer }) : activeContent)) : activeContent,
+      { groupsExpanded, onGroupToggle }));
+  } else {
+    body.replaceChildren(fragment(list, errorMessage));
+  }
+  // Nothing to show below the header (loading, or no issues, without the groups).
+  body.classList.toggle('is-empty', body.childNodes.length === 0);
+
+  setWorkingIssuesExpanded(section, expanded);
+
+  if (focusKey) {
+    const all = [...section.querySelectorAll('[data-focus-key]')];
+    const target = all.find((el) => el.dataset.focusKey === focusKey) ||
+      // Stop leaves the issue's other timer button (now Start), in the same list; a submitted or
+      // discarded pending worklog leaves the Pending Worklogs group's header.
+      (/^(view-row:)?timer-stop:/.test(focusKey) ? all.find((el) => el.dataset.focusKey === focusKey.replace('timer-stop:', 'timer:')) : null) ||
+      (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'group:pending') : null) ||
+      // A view's button that's gone (Retry once it worked, Edit view once the field is back, a row of
+      // results searched again): the selected view's tab.
+      (focusKey.startsWith('view-') ? all.find((el) => el.getAttribute('role') === 'tab' && el.getAttribute('aria-selected') === 'true') : null) ||
+      // The header's controls go when the timer stops: back to the header button.
+      (focusKey.startsWith('header-timer') ? toggle : null);
+    target?.focus();
+  }
+}
+
+/**
+ * Builds a list of issue rows (Active's, or a custom view's) and handles its timer and log work
+ * buttons; null without rows.
+ * @param {Array<object>} rows
+ * @param {object} options
+ * @param {string} options.baseUrl
+ * @param {(issue: object) => void} [options.onLogWork]
+ * @param {object} [options.timer]
+ * @param {string} [options.scope] - The rows' focus key scope (renderWorkingIssue())
+ * @returns {HTMLElement | null}
+ */
+function renderIssueList(rows, { baseUrl, onLogWork, timer, scope = '' }) {
+  if (rows.length === 0) return null;
+  const list = h('ul', { class: 'working-issues-list' },
+    rows.map((issue, index) => renderWorkingIssue(issue, baseUrl, Boolean(onLogWork), timer, index, scope)));
+  if (onLogWork || timer) {
     list.addEventListener('click', (event) => {
       const logBtn = onLogWork && event.target.closest('.working-issue-log-btn');
       const timerBtn = timer && event.target.closest('.working-issue-timer-btn');
@@ -535,92 +607,43 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       else runTimerAction(timer, timerBtn.dataset.timerAction, issue);
     });
   }
-
-  const errorMessage = state.status === 'error' && h('div', { class: 'working-issues-message', role: 'status' },
-    h('p', {}, state.message || workingIssuesSubtitle(state)),
-    retryButton);
-
-  // A custom view whose field is gone says so, with Edit to choose another; it never falls back to All.
-  const editViewButton = selectedView?.unavailable ? h('button', {
-    type: 'button', class: 'btn btn-secondary btn-sm', 'data-focus-key': 'view-edit-unavailable'
-  }, 'Edit view') : null;
-  editViewButton?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    views.onEdit(selectedView.id);
-  });
-  const unavailableMessage = editViewButton && h('div', { class: 'working-issues-message', role: 'status' },
-    h('p', {}, VIEW_FIELD_UNAVAILABLE), editViewButton);
-  const noMatches = state.status === 'ready' && !list && selectedView && !selectedView.unavailable &&
-    h('p', { class: 'working-issues-empty' }, VIEW_NO_MATCHES);
-
-  const viewTabs = (content) => (views ? fragment(
-    renderViewTabs(views, selectedView, state.status === 'ready' ? viewCounts(views, loaded, allRows) : null),
-    h('div', { id: 'workingIssuesViewPanel', class: 'working-issues-view-panel', role: 'tabpanel', 'aria-labelledby': `workingIssuesViewTab-${selectedView?.id ?? ALL_VIEW_ID}` },
-      content)) : content);
-
-  const body = section.querySelector('.working-issues-body');
-  if (pending) {
-    // Each group's header counts what its list shows, from the start: 0 until Jira's issues are in.
-    // With custom views, that's the selected view's list.
-    body.replaceChildren(renderWorkingIssuesGroups(pending, rows.length,
-      viewTabs(fragment(
-        list,
-        errorMessage,
-        unavailableMessage,
-        state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
-        noMatches,
-        state.status === 'ready' && !list && !selectedView && h('p', { class: 'working-issues-empty' },
-          state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.'))),
-      { groupsExpanded, onGroupToggle, recentlyLogged }));
-  } else {
-    body.replaceChildren(viewTabs(fragment(list, errorMessage, unavailableMessage, noMatches)));
-  }
-  // Nothing to show below the header (loading, or no issues, without the groups).
-  body.classList.toggle('is-empty', body.childNodes.length === 0);
-
-  setWorkingIssuesExpanded(section, expanded);
-
-  if (focusKey) {
-    const all = [...section.querySelectorAll('[data-focus-key]')];
-    const target = all.find((el) => el.dataset.focusKey === focusKey) ||
-      // Stop leaves the issue's other timer button (now Start); a submitted or discarded pending
-      // worklog leaves the Pending Worklogs group's header.
-      (focusKey.startsWith('timer-stop:') ? all.find((el) => el.dataset.focusKey === `timer:${focusKey.slice('timer-stop:'.length)}`) : null) ||
-      (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'group:pending') : null) ||
-      // The header's controls go when the timer stops: back to the header button.
-      (focusKey.startsWith('header-timer') ? toggle : null);
-    target?.focus();
-  }
+  return list;
 }
 
 /**
- * How many issues each tab lists: All its rows (with the running timer's issue), a custom view the
- * loaded issues it matches (recently logged ones included); none for a view whose field is unavailable.
- * @returns {Record<string, number | null>}
+ * A custom view's count for its tab, once its search has answered: "6", or "20+" when more issues
+ * match than it lists; none while it's searched, after a failure, or while its field is unavailable.
+ * @param {{ unavailable: boolean, result: object | null }} view
+ * @returns {string | null}
  */
-function viewCounts(views, issues, allRows) {
-  const counts = { [ALL_VIEW_ID]: allRows.length };
-  for (const view of views.items) counts[view.id] = view.unavailable ? null : issues.filter(view.matches).length;
-  return counts;
+function viewCountLabel(view) {
+  const result = view.result;
+  if (view.unavailable || result?.status !== 'ready') return null;
+  return result.hasMore ? `${result.issues.length}+` : String(result.issues.length);
 }
 
+const COUNT_FORMAT = new Intl.NumberFormat('en-US');
+
 /**
- * Builds the view tabs (All, then the custom views, each with its count once the issues are in),
- * and beside them the selected custom view's edit button and the + button for a new view. A tablist
- * (WAI-ARIA tabs): the selected tab is the one in the tab order, and the arrow keys, Home, and End
- * choose another. Choosing a tab reports it through `views.onSelect`; the page renders the result.
+ * Builds the view tabs, side by side: Active first, then the custom views, each with its count (Active
+ * once its issues are in, a custom view once searched), then the selected custom view's edit button
+ * and + for a new view. A tablist (WAI-ARIA tabs): the selected tab is the one in the tab order, and
+ * the arrow keys, Home, and End choose another. Choosing a tab reports it through `views.onSelect`;
+ * the page renders the result.
  *
  * @param {object} views - renderWorkingIssues()'s `views`
- * @param {object | null} selectedView - The selected custom view; null for All
- * @param {Record<string, number | null> | null} counts - Null until the issues are in
+ * @param {object | null} selectedView - The selected custom view; null for Active
+ * @param {number | null} activeCount - Active's rows, null until Jira's issues are in
  * @returns {HTMLElement}
  */
-function renderViewTabs(views, selectedView, counts) {
-  const tabs = [{ id: ALL_VIEW_ID, name: ALL_VIEW_NAME, unavailable: false }, ...views.items];
+function renderViewTabs(views, selectedView, activeCount) {
+  const tabs = [
+    { id: ALL_VIEW_ID, name: ALL_VIEW_NAME, unavailable: false, count: activeCount === null ? null : String(activeCount) },
+    ...views.items.map((view) => ({ ...view, count: viewCountLabel(view) }))
+  ];
   const selectedId = selectedView?.id ?? ALL_VIEW_ID;
   const buttons = tabs.map((view) => {
     const selected = view.id === selectedId;
-    const count = counts?.[view.id];
     return h('button', {
       type: 'button',
       role: 'tab',
@@ -631,14 +654,14 @@ function renderViewTabs(views, selectedView, counts) {
       'aria-controls': 'workingIssuesViewPanel',
       'aria-selected': String(selected),
       tabindex: selected ? '0' : '-1',
-      title: view.unavailable ? VIEW_FIELD_UNAVAILABLE : undefined
+      title: view.unavailable ? VIEW_FIELD_UNAVAILABLE : view.description
     },
       h('span', { class: 'working-issues-view-tab-name' }, view.name),
-      typeof count === 'number' && h('span', { class: 'working-issues-view-tab-count' }, ` (${count})`),
+      view.count !== null && h('span', { class: 'working-issues-view-tab-count' }, ` (${view.count})`),
       view.unavailable && h('span', { class: 'sr-only' }, ', field unavailable'));
   });
 
-  const tablist = h('div', { class: 'working-issues-view-tabs', role: 'tablist', 'aria-label': 'Views of My Active Issues' }, buttons);
+  const tablist = h('div', { class: 'working-issues-view-tabs', role: 'tablist', 'aria-label': 'Views of My Issues' }, buttons);
   const select = (id) => {
     if (id !== selectedId) views.onSelect(id);
   };
@@ -686,6 +709,58 @@ function renderViewTabs(views, selectedView, counts) {
 }
 
 /**
+ * The selected custom view's contents in the list: what it searches ("Jira search: Reporter is Me"),
+ * then its own search's issues (the first CUSTOM_VIEW_RESULT_LIMIT), saying when more match, or why
+ * there are none: still searching, nothing matches, Jira failed (with Retry), or its field is gone
+ * (with Edit view).
+ *
+ * @param {object} view - One of renderWorkingIssues()'s `views.items`
+ * @param {object} views - renderWorkingIssues()'s `views`
+ * @param {object} options
+ * @param {string} options.baseUrl
+ * @param {(issue: object) => void} [options.onLogWork]
+ * @param {object} [options.timer]
+ * @returns {DocumentFragment}
+ */
+function renderViewResults(view, views, { baseUrl, onLogWork, timer }) {
+  const result = view.result;
+  let content;
+  if (view.unavailable) {
+    // A view whose field is gone says so, with Edit to choose another; it never falls back to Active.
+    const editViewButton = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-focus-key': 'view-edit-unavailable' }, 'Edit view');
+    editViewButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      views.onEdit(view.id);
+    });
+    content = h('div', { class: 'working-issues-message', role: 'status' }, h('p', {}, VIEW_FIELD_UNAVAILABLE), editViewButton);
+  } else if (result?.status === 'error') {
+    const retryViewButton = h('button', { type: 'button', class: 'btn btn-secondary btn-sm', 'data-focus-key': 'view-retry' }, 'Retry');
+    retryViewButton.addEventListener('click', (event) => {
+      event.stopPropagation();
+      views.onRefresh(view.id);
+    });
+    content = h('div', { class: 'working-issues-message', role: 'status' }, h('p', {}, result.message), retryViewButton);
+  } else if (result?.status === 'ready') {
+    const list = renderIssueList(result.issues, { baseUrl, onLogWork, timer, scope: 'view-row:' });
+    // More match than the view lists: say so, with Jira's count where it gives one.
+    const shown = COUNT_FORMAT.format(result.issues.length);
+    content = fragment(
+      list,
+      !list && h('p', { class: 'working-issues-empty' }, VIEW_NO_MATCHES),
+      result.hasMore && h('p', { class: 'working-issues-view-more' }, result.total !== null
+        ? `Showing the first ${shown} of ${COUNT_FORMAT.format(result.total)} matching issues.`
+        : `Showing the first ${shown} matching issues.`));
+  } else {
+    content = h('p', { class: 'working-issues-empty' }, VIEW_SEARCHING);
+  }
+  // Where the issues come from: the view's own Jira search, not Active's.
+  return fragment(
+    h('p', { class: 'working-issues-view-query' },
+      h('span', { class: 'working-issues-view-query-label' }, 'Jira search:'), ` ${view.description}`),
+    content);
+}
+
+/**
  * "1 pending worklog", "2 pending worklogs": sessions, not issues.
  * @param {number} count
  * @returns {string}
@@ -695,35 +770,32 @@ export function formatPendingCount(count) {
 }
 
 const GROUPS = [
-  { id: 'active', label: 'Active Issues' },
+  { id: 'active', label: 'My Issues' },
   { id: 'pending', label: 'Pending Worklogs' }
 ];
 
 /**
- * Builds the Active Issues and Pending Worklogs groups, one below the other. Each has a header
- * button that expands and collapses that group only; both can be open, or closed, at once. The
- * headers, with their counts, show either way. Expanding or collapsing never changes the timer or a
- * pending worklog.
+ * Builds the My Issues and Pending Worklogs groups, one below the other (Pending Worklogs with the
+ * pending worklogs). Each has a header button that expands and collapses that group only; both can
+ * be open, or closed, at once. The headers, with their counts, show either way. Expanding or
+ * collapsing never changes the timer or a pending worklog.
  *
- * Each header counts what its group lists: "Active Issues (5)" its rows (Jira's issues, and the
- * running timer's issue when Jira doesn't list it); "Pending Worklogs (2)" the pending worklogs, one
- * per stopped session, so two sessions on one issue count twice.
+ * Each header counts what its group lists: "My Issues (5)" the selected view's issues (Active's
+ * rows include the running timer's issue when Jira doesn't list it; a custom view's "20+" when more
+ * match); "Pending Worklogs (2)" the pending worklogs, one per stopped session, so two sessions on
+ * one issue count twice.
  *
- * @param {object} pending - renderWorkingIssues()'s `pending` options
- * @param {number} activeCount - Rows in the Active Issues list (0 while Jira's issues load or
- *   failed, unless the running timer's issue is listed)
- * @param {DocumentFragment} activeContent - The Active Issues group's contents
+ * @param {object | undefined} pending - renderWorkingIssues()'s `pending` options
+ * @param {string | null} activeCount - What the My Issues list shows; none while a custom view is searched
+ * @param {DocumentFragment} activeContent - The My Issues group's contents
  * @param {object} options
  * @param {{ active?: boolean, pending?: boolean }} options.groupsExpanded - Each group is expanded unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle]
- * @param {{ checked: boolean, onChange: (checked: boolean) => void }} [options.recentlyLogged] - The
- *   Show Recently Logged Issues switch, at the right of the Active Issues header; none without it
  * @returns {DocumentFragment}
  */
-function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, recentlyLogged }) {
-  const counts = { active: activeCount, pending: pending.entries.length };
-
-  return fragment(GROUPS.map(({ id, label }) => {
+function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle }) {
+  return fragment(GROUPS.filter(({ id }) => id === 'active' || pending).map(({ id, label }) => {
+    const count = id === 'active' ? activeCount : String(pending.entries.length);
     const toggle = h('button', {
       type: 'button',
       id: `workingIssuesGroupToggle-${id}`,
@@ -734,17 +806,13 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     },
       svg('svg', { class: 'working-issues-group-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
         svg('polyline', { points: '6 9 12 15 18 9' })),
-      h('span', { class: 'working-issues-group-title' }, `${label} (${counts[id]})`));
+      h('span', { class: 'working-issues-group-title' }, count === null ? label : `${label} (${count})`));
     const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
       id === 'active' ? activeContent : renderPendingWorklogs({
         entries: pending.entries, site: pending.site, now: pending.now,
         onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit
       }));
-    // The switch is beside the header button (an input can't go in a button), on the Active Issues
-    // header only. A click elsewhere in the header, other than on the switch, still toggles.
-    const header = h('div', { class: 'working-issues-group-header' },
-      h('h4', { class: 'working-issues-group-heading' }, toggle),
-      id === 'active' && recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged));
+    const header = h('div', { class: 'working-issues-group-header' }, h('h4', { class: 'working-issues-group-heading' }, toggle));
     const group = h('div', { class: `working-issues-group is-${id}`, 'data-group': id }, header, groupBody);
 
     const setExpanded = (isExpanded) => {
@@ -755,7 +823,6 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     setExpanded(groupsExpanded[id] !== false);
 
     header.addEventListener('click', (event) => {
-      if (event.target.closest('.working-issues-recent')) return;
       // The click is this group's alone, not the section's.
       event.stopPropagation();
       const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
@@ -769,7 +836,7 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
 const RECENTLY_LOGGED_HINT = "Also show issues where you've logged work in the last 14 days, even if they're not currently assigned to you.";
 
 /**
- * The Show Recently Logged Issues switch for the Active Issues header: the Settings switch's look, smaller, with
+ * The Show Recently Logged Issues switch, Active's own, below the view tabs: the Settings switch's look, smaller, with
  * its label on the left. Keeps focus across re-renders (its focus key), and reports a flip through
  * `onChange`.
  *
@@ -839,7 +906,7 @@ export function updateHolidays(container, week, holidays) {
 }
 
 /**
- * Renders the 7 weekday cards, the selected day's worklog panel, and the My Active Issues section
+ * Renders the 7 weekday cards, the selected day's worklog panel, and the My Work section
  * into `container`. Daily totals and weekly totals are never modified by changing the selection.
  *
  * @param {HTMLElement} container
@@ -855,7 +922,7 @@ export function updateHolidays(container, week, holidays) {
  * @param {(worklogId: string) => void} [options.onDeleteWorklog] - Called when a worklog's delete button is clicked; no delete buttons without it
  * @param {string} [options.editingWorklogId] - Worklog currently open in the editor, highlighted in the list
  * @param {object} [options.workingIssues] - Options for renderWorkingIssues() (without `baseUrl`); no
- *   My Active Issues section without it. The section has the ID `workingIssues`.
+ *   My Work section without it. The section has the ID `workingIssues`.
  * @param {Map<string, { icon: string, label: string }>} [options.holidays] - Public holiday shown
  *   beside a weekday's name, by date key (src/holidays/publicHolidays.js); display only
  * @param {boolean} [options.dayExpanded] - Whether the selected day's panel shows its worklogs;
@@ -927,7 +994,7 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' })));
   addButton?.addEventListener('click', () => onAddWorklog(selectedDay.dateKey));
 
-  // The header button expands and collapses the day's worklogs, as My Active Issues' does; the
+  // The header button expands and collapses the day's worklogs, as My Work's does; the
   // add button is beside it, not in it (buttons can't go in a button), so it never toggles.
   const toggle = h('button', { type: 'button', class: 'day-panel-toggle', 'aria-controls': 'selectedDayBody' },
     svg('svg', { class: 'day-panel-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
@@ -989,10 +1056,10 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
   setDayPanelExpanded(panel, dayExpanded);
   container.appendChild(panel);
 
-  // 3. My Active Issues, below the selected day's worklogs: the user's issues in progress or with
+  // 3. My Work, below the selected day's worklogs: the user's issues in progress or with
   // work logged recently
   if (workingIssues) {
-    const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Active Issues' });
+    const section = h('section', { id: 'workingIssues', class: 'working-issues', 'aria-label': 'My Work' });
     renderWorkingIssues(section, { ...workingIssues, baseUrl });
     container.appendChild(section);
   }

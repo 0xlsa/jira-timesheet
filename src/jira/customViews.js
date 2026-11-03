@@ -1,17 +1,22 @@
 /**
- * Custom views of My Active Issues: up to two named views per Jira site, each with one condition
- * (a field, an operator, and values) that narrows the issues My Active Issues already lists. A
- * view never widens that list: it's applied locally to the issues the existing search returned
- * (JiraClient.getActiveIssues()), and never adds anything to the search's JQL.
+ * Custom views of My Issues: up to two named views per Jira site, as tabs beside Active (the
+ * built-in view: My Work's existing search), each with one condition (a field, an operator, and
+ * values). A view is its own Jira search: buildCustomViewJql() turns its condition into JQL, and the
+ * page runs it apart from Active's search (src/jira/customViewSearch.js), so a view finds the issues
+ * the user can browse in Jira that match, whether Active lists them or not. Jira's permissions decide what any search returns. A view lists the first
+ * CUSTOM_VIEW_RESULT_LIMIT issues, most recently updated first (then by key, so the same issues
+ * come back in the same order), from one request: Jira is never asked for another page.
  *
  * Fields:
- * - Status and Priority, and custom single-select or radio-button fields: compared by Jira's ID
- *   for the status, priority, or option. The values to choose: every status and priority Jira lists
- *   (GET /status, GET /priority), the ones the issues already loaded have first; for custom fields,
- *   those the loaded issues have (their full lists need administrator access).
- * - Assignee, Reporter, and the site's Additional Assignment Fields: compared only against the
- *   current user ("Me"). JiraClient reduces these fields to `{ isCurrentUser }`, so no other
- *   person's identity reaches views, the page, or storage.
+ * - Status and Priority: Jira's numeric ID in the JQL (`status in (10001, 3)`), chosen from every
+ *   status and priority Jira lists (GET /status, GET /priority).
+ * - Custom single-select and radio-button fields: the option's name, quoted and escaped
+ *   (`cf[10050] = "Platform"`). Jira Data Center rejects option IDs in JQL, and only administrators
+ *   can list a field's options with their IDs, so the names come from Jira's JQL suggestions for the
+ *   field, and the stored `id` is the name too. A renamed option no longer matches until the view is
+ *   edited.
+ * - Assignee, Reporter, and the site's Additional Assignment Fields: only Me, as `currentUser()`.
+ *   No other person can be chosen, stored, or shown.
  *
  * Operators: Equals (one value) and Is one of (at least two values; not for user fields).
  *
@@ -20,6 +25,7 @@
  * name }, operator, values: [{ id, label }] | [{ currentUser: true, label: 'Me' }] }] }] } }. One
  * condition per view for now; `conditions` is a list so more can come later. A site's entry with
  * another version is from another version of the extension: it's neither used nor overwritten.
+ * Search results are never stored.
  *
  * No DOM and no network access.
  */
@@ -27,10 +33,13 @@
 export const CUSTOM_VIEWS_VERSION = 1;
 export const MAX_CUSTOM_VIEWS = 2;
 export const MAX_VIEW_NAME_LENGTH = 30;
+// The issues a view lists: Jira's first ones, in one request.
+export const CUSTOM_VIEW_RESULT_LIMIT = 20;
 
-// The view that lists every issue: My Active Issues as it is. Its name is reserved.
+// The built-in view, Active: My Work's existing search. Its name, and All, are no custom view's.
 export const ALL_VIEW_ID = 'all';
-export const ALL_VIEW_NAME = 'All';
+export const ALL_VIEW_NAME = 'Active';
+export const RESERVED_VIEW_NAMES = Object.freeze([ALL_VIEW_NAME, 'All']);
 
 export const OPERATORS = { EQUALS: 'equals', IS_ONE_OF: 'isOneOf' };
 export const OPERATOR_LABELS = { equals: 'Equals', isOneOf: 'Is one of' };
@@ -58,9 +67,10 @@ const VIEW_FIELD_ID = /^(status|priority|assignee|reporter|customfield_\d+)$/;
 const OPTION_SYSTEM_FIELDS = new Set(['status', 'priority']);
 const USER_SYSTEM_FIELDS = new Set(['assignee', 'reporter']);
 const VIEW_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-// Fields a view may add to the active issues search; the search always asks for status and assignee.
-export const REQUESTABLE_VIEW_FIELD = /^(priority|reporter|customfield_\d+)$/;
+// Jira's status and priority IDs, as they go into the JQL.
+const NUMERIC_ID = /^\d{1,18}$/;
+// Characters a JQL string can't carry as they are.
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 const sameName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0;
@@ -133,20 +143,23 @@ export function normalizeCondition(raw) {
   }
   if (USER_SYSTEM_FIELDS.has(id)) return null;
 
+  // Statuses and priorities go into the JQL by their numeric ID; custom options by their name (the label).
   const values = [];
   for (const value of raw.values) {
     const valueId = typeof value?.id === 'string' || typeof value?.id === 'number' ? String(value.id) : '';
     if (!valueId) return null;
+    const label = text(value.label) || valueId;
+    if (OPTION_SYSTEM_FIELDS.has(id) ? !NUMERIC_ID.test(valueId) : CONTROL_CHARACTERS.test(label)) return null;
     if (values.some((v) => v.id === valueId)) continue;
-    values.push({ id: valueId, label: text(value.label) || valueId });
+    values.push({ id: valueId, label });
   }
   if (operator === OPERATORS.EQUALS ? values.length !== 1 : values.length < 2) return null;
   return { field, operator, values };
 }
 
 /**
- * Checks a view's name: required once trimmed, at most MAX_VIEW_NAME_LENGTH characters, and not
- * All (in any letter case).
+ * Checks a view's name: required once trimmed, at most MAX_VIEW_NAME_LENGTH characters, and none
+ * of RESERVED_VIEW_NAMES (Active, the built-in view, and All), in any letter case.
  * @param {unknown} name
  * @returns {string} What's wrong, or '' when it's valid
  */
@@ -154,7 +167,8 @@ export function nameProblem(name) {
   const trimmed = text(name);
   if (!trimmed) return 'Enter a name for the view.';
   if (trimmed.length > MAX_VIEW_NAME_LENGTH) return `Use at most ${MAX_VIEW_NAME_LENGTH} characters.`;
-  if (sameName(trimmed, ALL_VIEW_NAME)) return '"All" is the view of all your issues. Choose another name.';
+  const reserved = RESERVED_VIEW_NAMES.find((reservedName) => sameName(trimmed, reservedName));
+  if (reserved) return `"${reserved}" can't be a custom view's name. Choose another name.`;
   return '';
 }
 
@@ -253,89 +267,49 @@ export function validateViewDraft(draft, { views, editingId }) {
 }
 
 /**
- * The fields the site's views compare, each once, in order: what the active issues search has to
- * return for them (JiraClient.getActiveIssues()'s `viewFields`). None without views.
- * @param {Array<{ conditions: Array<{ field: { id: string } }> }>} views
- * @returns {string[]}
+ * Quotes a name as a JQL string: in double quotes, with backslashes and double quotes escaped, so
+ * no name can end the string or add to the query.
+ * @param {string} value - Without control characters (normalizeCondition() refuses them)
+ * @returns {string}
  */
-export function requiredViewFields(views) {
-  const ids = [];
-  for (const view of views) {
-    for (const condition of view.conditions) {
-      if (VIEW_FIELD_ID.test(condition.field.id) && !ids.includes(condition.field.id)) ids.push(condition.field.id);
-    }
-  }
-  return ids;
+export function jqlString(value) {
+  if (typeof value !== 'string' || CONTROL_CHARACTERS.test(value)) throw new Error('This value can\'t be searched.');
+  return `"${value.replace(/[\\"]/g, '\\$&')}"`;
 }
 
 /**
- * Reduces an issue's fields to what views compare, for the given field IDs:
- * - status, priority, and custom single-select fields: `{ id, label }` (the option's or status's
- *   ID, and its name), or null when the issue has none (or it isn't a single option)
- * - assignee, reporter, and `userFieldIds` (the Additional Assignment Fields): `{ isCurrentUser }`,
- *   or null when nobody is set. Nothing else about the person is kept.
+ * Builds the JQL of a view's own Jira search, from its condition alone: allow-listed fields and
+ * operators, numeric IDs for statuses and priorities, quoted names for custom options, and
+ * `currentUser()` for Me. Nothing typed by the user goes into it unquoted. Ordered by the latest
+ * update, newest first, then by key, so the first issues are the same from one search to the next.
  *
- * @param {object} fields - An issue's `fields`, as Jira's search returns them
- * @param {string[]} fieldIds
- * @param {object} options
- * @param {string[]} [options.userFieldIds] - Custom fields that hold a person
- * @param {(person: object) => boolean} options.isCurrentUser
- * @returns {Record<string, { id: string, label: string } | { isCurrentUser: boolean } | null>}
+ * @param {{ conditions: Array<object> }} view - A stored view (normalizeView())
+ * @param {object} context
+ * @param {string[]} context.assignmentFieldIds - The site's Additional Assignment Fields: the only
+ *   custom fields Me can be compared on
+ * @returns {string} E.g. `reporter = currentUser() ORDER BY updated DESC, key DESC`
+ * @throws {Error} For a condition that isn't valid, or a field views can't search on
  */
-export function toViewFieldValues(fields, fieldIds, { userFieldIds = [], isCurrentUser }) {
-  const values = {};
-  for (const id of fieldIds) {
-    if (!VIEW_FIELD_ID.test(id)) continue;
-    const raw = fields?.[id];
-    if (USER_SYSTEM_FIELDS.has(id) || userFieldIds.includes(id)) {
-      values[id] = raw && typeof raw === 'object' && !Array.isArray(raw) ? { isCurrentUser: Boolean(isCurrentUser(raw)) } : null;
-      continue;
-    }
-    const optionId = raw && !Array.isArray(raw) && (typeof raw.id === 'string' || typeof raw.id === 'number') ? String(raw.id) : '';
-    // Statuses and priorities have a name; custom options a value.
-    const label = OPTION_SYSTEM_FIELDS.has(id) ? text(raw?.name) : text(raw?.value);
-    values[id] = optionId && label ? { id: optionId, label } : null;
+export function buildCustomViewJql(view, { assignmentFieldIds = [] } = {}) {
+  if (!Array.isArray(view?.conditions) || view.conditions.length !== 1) throw new Error('A view has exactly one condition.');
+  const condition = normalizeCondition(view.conditions[0]);
+  if (!condition) throw new Error('This view\'s condition isn\'t valid.');
+  const { id } = condition.field;
+  const custom = CUSTOM_FIELD_ID.exec(id);
+  // System fields by name, custom fields by number: cf[10050].
+  const clauseField = custom ? `cf[${custom[1]}]` : id;
+
+  let values;
+  if (conditionKind(condition) === 'user') {
+    if (custom && !assignmentFieldIds.includes(id)) throw new Error('This view\'s field is no longer available in Jira.');
+    values = ['currentUser()'];
+  } else if (OPTION_SYSTEM_FIELDS.has(id)) {
+    values = condition.values.map((value) => value.id);
+  } else {
+    values = condition.values.map((value) => jqlString(value.label));
   }
-  return values;
-}
-
-/**
- * Whether an issue meets a condition, by the values toViewFieldValues() gave it. An issue without
- * a value for the field never does.
- */
-export function matchesCondition(issue, condition) {
-  const value = issue?.viewFields?.[condition.field.id];
-  if (!value) return false;
-  if (conditionKind(condition) === 'user') return value.isCurrentUser === true;
-  return condition.values.some((wanted) => wanted.id === value.id);
-}
-
-/**
- * Whether an issue is in a view: it meets the view's condition.
- * @param {object} issue - From JiraClient.getActiveIssues() with the view's fields
- * @param {{ conditions: Array<object> }} view
- * @returns {boolean}
- */
-export function matchesView(issue, view) {
-  return view.conditions.length > 0 && view.conditions.every((condition) => matchesCondition(issue, condition));
-}
-
-/**
- * The values to choose from for a field: Me for a user field; otherwise each value the loaded
- * issues have for it, once, sorted by label.
- *
- * @param {Array<object>} issues - Loaded with the field (their `viewFields` have it)
- * @param {{ id: string, kind: 'user' | 'option' }} field
- * @returns {Array<{ id: string, label: string } | { currentUser: true, label: string }>}
- */
-export function valueOptions(issues, field) {
-  if (field.kind === 'user') return [{ ...ME_VALUE }];
-  const byId = new Map();
-  for (const issue of issues) {
-    const value = issue?.viewFields?.[field.id];
-    if (value?.id && !byId.has(value.id)) byId.set(value.id, { id: value.id, label: value.label });
-  }
-  return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id));
+  const clause = condition.operator === OPERATORS.EQUALS ? `${clauseField} = ${values[0]}` : `${clauseField} in (${values.join(', ')})`;
+  return `${clause} ORDER BY updated DESC, key DESC`;
 }
 
 /**
@@ -359,24 +333,41 @@ export function parseNamedValues(data) {
 }
 
 /**
- * The values to choose for a field, from the issues listed and from Jira's own list: those the
- * issues have first (`listed: true`), then Jira's others (`listed: false`), each ID once.
+ * Reads Jira's JQL suggestions for a custom field's values (`GET /jql/autocompletedata/suggestions`)
+ * as values to choose: `{ id, label }`, both the option's name (its JQL form, unquoted), each once,
+ * in Jira's order.
  *
- * @param {Array<{ id: string, label: string }>} listed - valueOptions() of the loaded issues
- * @param {Array<{ id: string, label: string }>} [fromJira] - parseNamedValues() of Jira's list
- * @returns {Array<{ id: string, label: string, listed: boolean }>}
+ * @param {unknown} data
+ * @returns {Array<{ id: string, label: string }>}
+ * @throws {Error} When the response isn't a list of suggestions
  */
-export function mergeValueOptions(listed, fromJira = []) {
-  const seen = new Set();
-  const merged = [];
-  for (const [values, isListed] of [[listed, true], [fromJira, false]]) {
-    for (const value of values) {
-      if (seen.has(value.id)) continue;
-      seen.add(value.id);
-      merged.push({ id: value.id, label: value.label, listed: isListed });
-    }
+export function parseFieldSuggestions(data) {
+  if (!Array.isArray(data?.results)) throw new Error('Jira sent unexpected suggestions.');
+  const values = [];
+  for (const result of data.results) {
+    const name = unquoteJqlValue(result?.value);
+    if (!name || CONTROL_CHARACTERS.test(name) || values.some((value) => value.id === name)) continue;
+    values.push({ id: name, label: name });
   }
-  return merged;
+  return values;
+}
+
+/** A suggested JQL value as plain text: `"Cisco UC Apps"` → `Cisco UC Apps`, `Sega` → `Sega`. */
+function unquoteJqlValue(value) {
+  const raw = text(value);
+  const quoted = /^"(.*)"$/s.exec(raw) ?? /^'(.*)'$/s.exec(raw);
+  return quoted ? quoted[1].replace(/\\(.)/g, '$1').trim() : raw;
+}
+
+/**
+ * Describes a view's search for its panel: "Status is one of In Progress, Review", "Reporter is Me".
+ * @param {{ conditions: Array<object> }} view
+ * @returns {string}
+ */
+export function describeView(view) {
+  const condition = view.conditions[0];
+  const labels = condition.values.map((value) => value.label).join(', ');
+  return `${condition.field.name} ${condition.operator === OPERATORS.IS_ONE_OF ? 'is one of' : 'is'} ${labels}`;
 }
 
 /**
