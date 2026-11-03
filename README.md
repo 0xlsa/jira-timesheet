@@ -90,9 +90,14 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 - A button in the URL field opens the entered instance in a new tab (valid HTTPS URLs only).
 - Instance URLs can include a context path, such as `https://jira.example.com/jira`.
 
+**What's New**
+- The **What's New** button in the header opens a drawer that shows what the latest release brings: its version, date, and changes under **New features**, **Improvements**, **Bug fixes**, and **Security updates** (only the ones with entries), with the release's highlights marked by a star. Only the latest release is shown; the full history stays in `CHANGELOG.md`. It works offline: the release notes are packaged with the extension.
+- After an update, a **NEW** badge on the button stays until you've seen the latest release notes in What's New. Opening another drawer, or closing the announcement below, doesn't remove it.
+- The first time you open the timesheet after an update, a small announcement at the top, **What's New in vX.Y.Z**, lists the new version's highlights (at most three), with **Explore updates** to open What's New and a close button. It appears once per release and never blocks the page. A fresh install shows neither the announcement nor the badge.
+
 **General**
 - Light and dark themes, with a toggle in the header.
-- No runtime dependencies and no build step.
+- No runtime dependencies, and no build step apart from generating the release notes for What's New (see [Changelog](#changelog)).
 
 ## Supported browsers, Jira editions, and authentication
 
@@ -227,7 +232,7 @@ The [privacy policy](docs/store-listing/common/privacy-policy.md) explains what 
 
 ## Development and tests
 
-There's no build step and there are no runtime dependencies. Edit the files and reload the extension in the browser.
+There are no runtime dependencies and no build step. Edit the files and reload the extension in the browser. The one generated file is the release notes What's New shows: run `npm run changelog` before loading the extension unpacked, and again after editing `CHANGELOG.md`, to preview the unreleased changes in What's New (see [Changelog](#changelog)). Without it, What's New says the release notes couldn't be loaded.
 
 The tests use Node.js's built-in test runner, with no dependencies to install. They were last run with Node.js 22.
 
@@ -237,23 +242,68 @@ npm test
 
 This runs `node --test tests/*.test.js`, as defined in `package.json`.
 
+### Changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) is the only record of release history, written by hand in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with [Semantic Versioning](https://semver.org/). Version 1.2.0 is the first documented release; the versions before it were development milestones, whose history is in Git (tags `v1.0.0` and `v1.1.0`).
+
+- Add each user-facing change under `## [Unreleased]`, in `### Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
+- Items are plain text on one line (or continued on lines indented by two spaces): no code spans, bold, emphasis, links, images, HTML, or nested lists. The check names the line of anything else.
+- End an item with `<!-- highlight -->` to make it one of its release's highlights, which the update announcement lists.
+- Releases are `## [X.Y.Z] - YYYY-MM-DD`, newest first, one for every published version, patch releases included. Versions are numbers only, since browser manifests allow no pre-release suffix.
+
+`scripts/changelog.mjs` checks the file and turns it into the JSON the extension shows (`src/changelog/changelog.json`, generated, never edited by hand). The extension never reads `CHANGELOG.md` itself. There are two outputs, marked by the JSON's `channel`:
+
+| | Development output | Release output |
+| --- | --- | --- |
+| Written by | `npm run changelog` (into `src/`, for loading the extension unpacked from the repository; ignored by Git) and `task build:*` (into `dist/`) | `task package:*` (into `dist/`, then the zip) |
+| `[Unreleased]` | Included, and previewed first in What's New as **What's New — Unreleased** | Never included |
+| Released versions | Included | Included |
+
+The preview is never a release: it has no version or date, isn't marked Latest, and never turns on the NEW badge, shows the update announcement, or counts as read or announced. Only released versions do.
+
+The checks differ for development and release:
+
+| Check | Development (`npm run changelog`, `task build:*`) | Release (`task package:*`) |
+| --- | --- | --- |
+| `CHANGELOG.md` follows the format | Required | Required |
+| `[Unreleased]` has changes | Allowed | Fails: it must be empty |
+| Released versions | None needed | At least one; the latest equals the version in `manifest.json` and `package.json` |
+| Highlights in the latest release | Not checked | 1 to 3 |
+| Packaged release notes | — | Must be the release output (`channel` is `release`, and there's no `unreleased`) |
+
+Between releases, the manifest and `package.json` keep the last version number (currently 1.1.2) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
+
+To release a version (1.2.0 next):
+
+1. Move the `[Unreleased]` changes into a new `## [1.2.0] - YYYY-MM-DD` section, with the actual release date, and leave an empty `## [Unreleased]` above it.
+2. Mark 1 to 3 of its changes with `<!-- highlight -->`.
+3. Set the same version in `manifest.json` and `package.json`.
+4. Run `npm test`, then `task package:chrome` and `task package:firefox`. Both stop if anything above doesn't hold.
+5. Commit, then tag the release commit with an annotated tag and push it: `git tag -a v1.2.0 -m "Timesheet for Jira 1.2.0"` and `git push origin v1.2.0`.
+
+```bash
+npm run changelog                                   # check CHANGELOG.md and write the development output into src/
+node scripts/changelog.mjs                          # only check CHANGELOG.md
+node scripts/changelog.mjs --check-release 1.2.0    # check it's ready to release 1.2.0
+```
+
 ### Packaging for the browser stores
 
-Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, and `unzip`. From the repository root:
+Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, `unzip`, and Node.js (to generate the release notes). To use another Node.js command than `node`, such as a wrapper script that runs it in a container, set `NODE` to its path. From the repository root:
 
 ```bash
 task package:chrome    # release/timesheet-for-jira-chrome.zip, for the Chrome Web Store
 task package:firefox   # release/timesheet-for-jira-firefox.zip, for Firefox Add-ons
 ```
 
-Each task deletes the browser's previous zip, then copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/` or `dist/firefox/`. The zip contains only these files, not the repository: no tests, docs, store listings, `package.json`, or hidden files. The manifest copy differs per browser:
+Each task deletes the browser's previous zip, then copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/` or `dist/firefox/`, and generates the release notes there from `CHANGELOG.md` (`src/changelog/changelog.json`, replacing any copy from `src/`): the development output for `task build:*`, the release output for `task package:*`. The zip contains only these files, not the repository: no tests, docs, store listings, `CHANGELOG.md`, `scripts/`, `package.json`, or hidden files. The manifest copy differs per browser:
 
 - **Chrome** leaves out the Firefox-only keys (`browser_specific_settings` and `background.scripts`).
 - **Firefox** leaves out `background.service_worker`. Firefox doesn't run extension service workers, so it runs `background.js` from `background.scripts` instead.
 
 The task then checks the build and stops with an error, without writing a zip, if any check fails:
 
-- **Both:** the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, and a version that matches `package.json`. It has no `host_permissions`, and `optional_host_permissions` includes `https://*/*`. Every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build.
+- **Both:** the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, and a version that matches `package.json`. It has no `host_permissions`, and `optional_host_permissions` includes `https://*/*`. Every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build. The release notes in the build are the release output, never the development one; `[Unreleased]` is empty; and `CHANGELOG.md`'s latest release is the manifest's version, with 1 to 3 highlights (see [Changelog](#changelog)).
 - **Chrome:** the description is at most 132 characters, and there's a background service worker.
 - **Firefox:** `browser_specific_settings.gecko.id` is set and is an email-like ID or a GUID in braces. The task prints it, because it's the ID the add-on is published under (currently `timesheet-for-jira@0xlsa`); changing it in `manifest.json` publishes a different add-on. `strict_min_version` is set (the task prints it), and it's at least 128 when the manifest uses `optional_host_permissions` and at least 140 when it declares `data_collection_permissions`. With `gecko_android`, the Android minimum must be at least 142; without it, the task reports that Android isn't supported. `background.scripts` is set and `background.service_worker` isn't, and no script calls `chrome.*` directly outside `src/compat/browser-api.js`. A missing `browser_specific_settings.gecko.data_collection_permissions` is reported as a warning, not an error; the declaration and its reasoning are in `docs/store-listing/firefox/listing.md`.
 
@@ -292,6 +342,10 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `SettingsDraft.test.js` | The Connection Settings form's unsaved values: a copy of the saved settings, switching editions without losing either edition's values, and saving or discarding them |
 | `CompositionAndPlatform.test.js` | The Jira client factory, worklog author matching, and the platform adapter (extension APIs and the non-extension fallback) |
 | `BackgroundMessages.test.js` | The background script's `TEST_CONNECTION` and `FETCH_WORKLOGS` message handlers |
+| `Changelog.test.js` | The `CHANGELOG.md` format and every rule the generator checks, the development and release outputs (only the development one has `[Unreleased]`), the release check (empty `[Unreleased]`, version, and 1 to 3 highlights), the repository's own `CHANGELOG.md`, and the command line |
+| `ChangelogState.test.js` | Reading the generated release notes (unreleased changes only from the development output), when the update announcement and the NEW badge show (update, fresh install, an update from before What's New), and recording what was announced and read |
+| `ChangelogDrawer.test.js` | The What's New drawer (only the latest release, in full, under user-friendly category labels, with its highlights; the What's New — Unreleased preview, never read; read only once the latest is on screen; load failures) and the update announcement (at most three highlights; closing it never counts as reading), both showing release notes as text only |
+| `ChangelogPage.test.js` | What's New's place in the page: its header button and drawer, one drawer at a time, the announcement, the background's install record, and the build and packaging steps |
 
 ## Architecture and project structure
 
@@ -361,6 +415,9 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── JiraPatProvider.js         # Bearer auth (PAT)
 │   ├── background/
 │   │   └── launch.js                  # Opens the timesheet: toolbar icon, its Settings item, first install
+│   ├── changelog/
+│   │   ├── changelogState.js          # Release notes, and what was announced and read
+│   │   └── changelog.json             # Generated from CHANGELOG.md (npm run changelog; not in Git)
 │   ├── compat/
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/
@@ -376,7 +433,9 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── weekView.js                # Weekday cards and worklog cards
 │   │   ├── worklogEditor.js           # Edit worklog / Log work panel
 │   │   ├── issuePicker.js             # Issue field with key autocomplete
-│   │   └── deleteWorklogDialog.js     # Delete worklog confirmation
+│   │   ├── deleteWorklogDialog.js     # Delete worklog confirmation
+│   │   ├── changelogDrawer.js         # What's New drawer
+│   │   └── updateAnnouncement.js      # What's new, after an update
 │   ├── validation/
 │   │   └── JiraUrlValidator.js        # URL validation and origin checks
 │   └── worklog/
@@ -390,7 +449,10 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   ├── store-assets/chrome/       # Chrome Web Store promo tiles
 │   └── screenshots/               # Screenshots used in this README and the store listings
 │       └── source/                # How the screenshots are captured (capture.py)
-├── package.json                  # Metadata and the test script
+├── scripts/
+│   └── changelog.mjs              # Checks CHANGELOG.md and writes the release notes: development or release output (not packaged)
+├── CHANGELOG.md                  # Release history, the source of What's New
+├── package.json                  # Metadata, the test script, and npm run changelog
 ├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License
 └── README.md

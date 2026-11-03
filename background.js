@@ -10,12 +10,16 @@ import { loadWeek } from './src/worklog/weeklyWorklogService.js';
 import { createSettingsStore } from './src/settings/settingsStore.js';
 import { ext, isExtensionContext, createPlatform } from './src/compat/browser-api.js';
 import { setUpTimesheetLaunchers } from './src/background/launch.js';
+import { createChangelogStateStore } from './src/changelog/changelogState.js';
 
 // Extension lifecycle and messaging listeners
 if (isExtensionContext()) {
   // The toolbar icon, its "Settings" menu item, and the first install open the timesheet
-  // (src/background/launch.js).
-  setUpTimesheetLaunchers(ext);
+  // (src/background/launch.js). A fresh install first records its version, so the Changelog
+  // shows no update announcement or NEW badge for it (src/changelog/changelogState.js).
+  setUpTimesheetLaunchers(ext, {
+    onInstall: () => createChangelogStateStore(createPlatform().storage).recordInstall(ext.runtime.getManifest().version)
+  });
 
   // Listen for runtime messages from the options page or future popup/content scripts
   if (ext.runtime && ext.runtime.onMessage) {

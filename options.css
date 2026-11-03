@@ -192,7 +192,8 @@ body {
 
 /* The cog and the ? button while their drawer is open (their aria-expanded follows the drawer) */
 .header-icon-btn[aria-controls="settingsDrawer"][aria-expanded="true"],
-.header-icon-btn[aria-controls="shortcutsDrawer"][aria-expanded="true"] {
+.header-icon-btn[aria-controls="shortcutsDrawer"][aria-expanded="true"],
+.header-icon-btn[aria-controls="changelogDrawer"][aria-expanded="true"] {
   color: var(--primary);
   background-color: var(--primary-light);
 }
@@ -1884,6 +1885,7 @@ body {
    drawers (above it). */
 .worklog-editor,
 .shortcuts-drawer,
+.changelog-drawer,
 .settings-drawer {
   position: fixed;
   top: 0;
@@ -1903,6 +1905,7 @@ body {
    hidden once this ends (PANEL_CLOSE_MS in src/ui/panel.js). */
 .worklog-editor.is-closed,
 .shortcuts-drawer.is-closed,
+.changelog-drawer.is-closed,
 .settings-drawer.is-closed {
   transform: translateX(100%);
   opacity: 0;
@@ -1916,6 +1919,8 @@ body {
   .worklog-editor.is-closed,
   .shortcuts-drawer,
   .shortcuts-drawer.is-closed,
+  .changelog-drawer,
+  .changelog-drawer.is-closed,
   .settings-drawer,
   .settings-drawer.is-closed {
     transition: none;
@@ -1925,6 +1930,7 @@ body {
 @media (max-width: 720px) {
   .worklog-editor,
   .shortcuts-drawer,
+  .changelog-drawer,
   .settings-drawer {
     width: 100%;
     border-left: none;
@@ -2442,11 +2448,13 @@ body {
 
 /* The Connection Settings drawer shares this drawer's layout (only one is open at a time). */
 .shortcuts-drawer,
+.changelog-drawer,
 .settings-drawer {
   z-index: 45;
 }
 
 .shortcuts-drawer-body,
+.changelog-drawer-body,
 .settings-drawer-body {
   display: flex;
   flex-direction: column;
@@ -2456,6 +2464,7 @@ body {
 }
 
 .shortcuts-header,
+.changelog-header,
 .settings-drawer-header {
   display: flex;
   align-items: center;
@@ -2463,6 +2472,7 @@ body {
 }
 
 .shortcuts-title,
+.changelog-title,
 .settings-drawer-title {
   flex: 1;
   font-size: 18px;
@@ -2550,6 +2560,7 @@ body {
 
 /* Shortcut list: categories with description on the left and keys on the right */
 .shortcuts-list,
+.changelog-list,
 .settings-drawer-scroll {
   flex: 1;
   overflow-y: auto;
@@ -2559,7 +2570,8 @@ body {
   scrollbar-color: var(--border-color) transparent;
 }
 
-.shortcuts-list:focus-visible {
+.shortcuts-list:focus-visible,
+.changelog-list:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: -2px;
 }
@@ -2622,6 +2634,169 @@ body {
   font-size: 13px;
   text-align: center;
   color: var(--text-muted);
+}
+
+/* ==========================================================================
+   CHANGELOG DRAWER
+   Every release, newest first, in the same place as the other drawers (src/ui/changelogDrawer.js).
+   ========================================================================== */
+
+.changelog-release + .changelog-release {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.changelog-release-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.changelog-version {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.changelog-latest {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border: 1px solid var(--primary-border);
+  border-radius: 999px;
+}
+
+.changelog-date {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.changelog-section + .changelog-section {
+  margin-top: 10px;
+}
+
+/* The category, like the shortcuts drawer's category titles */
+.changelog-category {
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.changelog-items {
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.changelog-items li + li {
+  margin-top: 4px;
+}
+
+/* The latest release: on a highlighted card at the top, what the drawer is for */
+.changelog-release.is-latest {
+  padding: 14px 16px;
+  background-color: var(--bg-card-highlight);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.changelog-release.is-latest .changelog-version {
+  font-size: 17px;
+}
+
+/* A highlight of the latest release: a star before it, and the text a little stronger */
+.changelog-items li.is-highlight {
+  position: relative;
+  list-style: none;
+  font-weight: 600;
+}
+
+.changelog-highlight-icon {
+  position: absolute;
+  top: 3px;
+  left: -17px;
+  width: 13px;
+  height: 13px;
+  color: var(--warning);
+}
+
+/* The preview of unreleased changes (development output only): dashed, so it never reads as a release */
+.changelog-release.is-unreleased {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px dashed var(--warning-border);
+  border-radius: var(--radius-md);
+  background-color: var(--warning-bg);
+}
+
+.changelog-unreleased-note {
+  margin: -4px 0 8px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.changelog-message {
+  padding: 24px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* The NEW badge on the header's Changelog button, until the latest release notes have been seen */
+.header-new-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+  color: #ffffff;
+  background-color: var(--primary);
+  border: 1px solid var(--bg-page);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   UPDATE ANNOUNCEMENT
+   A small card above the summary cards, once after an update (src/ui/updateAnnouncement.js).
+   ========================================================================== */
+
+.update-announcement-card {
+  align-items: flex-start;
+}
+
+.update-announcement-highlights {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.update-announcement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.update-announcement-close {
+  flex-shrink: 0;
 }
 
 /* ==========================================================================

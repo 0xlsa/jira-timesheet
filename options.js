@@ -58,6 +58,17 @@ import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSetting
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 import { createWeekPicker } from './src/ui/weekPicker.js';
 import { dateFromKey, renderNextHolidayBanner } from './src/ui/nextHolidayBanner.js';
+import {
+  loadChangelog,
+  createChangelogStateStore,
+  announcementFor,
+  hasUnreadRelease,
+  releaseHighlights,
+  LAST_ANNOUNCED_KEY,
+  LAST_READ_KEY
+} from './src/changelog/changelogState.js';
+import { openChangelogDrawer } from './src/ui/changelogDrawer.js';
+import { showUpdateAnnouncement, hideUpdateAnnouncement } from './src/ui/updateAnnouncement.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -107,6 +118,10 @@ const daysContainer = document.getElementById('daysContainer');
 const worklogEditorRoot = document.getElementById('worklogEditor');
 const shortcutsDrawerRoot = document.getElementById('shortcutsDrawer');
 const shortcutsHelpBtn = document.getElementById('shortcutsHelpBtn');
+const changelogBtn = document.getElementById('changelogBtn');
+const changelogNewBadge = document.getElementById('changelogNewBadge');
+const changelogDrawerRoot = document.getElementById('changelogDrawer');
+const updateAnnouncementRoot = document.getElementById('updateAnnouncement');
 const deleteWorklogDialog = document.getElementById('deleteWorklogDialog');
 const appToast = document.getElementById('appToast');
 
@@ -207,6 +222,8 @@ let worklogEditor = null;
 let isDeleteDialogOpen = false;
 // Open keyboard shortcuts drawer (see src/ui/shortcutsDrawer.js), or null.
 let shortcutsDrawer = null;
+// Open What's New drawer (see src/ui/changelogDrawer.js), or null.
+let changelogDrawer = null;
 // While the Connection Settings drawer is open: where focus returns, and whether it covers the
 // worklog panel. Null when it's closed.
 let settingsDrawerState = null;
@@ -419,12 +436,13 @@ function uncoverWorklogEditor(covered) {
 
 /**
  * Closes the panel on the right through its usual close action, the one on top first: the keyboard
- * shortcuts or Connection Settings drawer, else the worklog panel (which asks first when there are
- * unsaved changes).
+ * shortcuts, What's New, or Connection Settings drawer, else the worklog panel (which asks first when
+ * there are unsaved changes).
  * @returns {boolean} False when nothing is open, so Escape keeps its default
  */
 function closeOpenPanel() {
   if (shortcutsDrawer) shortcutsDrawer.close();
+  else if (changelogDrawer) changelogDrawer.close();
   else if (settingsDrawerState) closeSettings();
   else if (worklogEditor) worklogEditor.requestClose();
   else return false;
@@ -432,9 +450,19 @@ function closeOpenPanel() {
 }
 
 /**
+ * Closes the drawers (keyboard shortcuts, What's New, and Connection Settings) before a worklog
+ * panel or dialog opens.
+ */
+function closeDrawers() {
+  shortcutsDrawer?.close();
+  changelogDrawer?.close();
+  closeSettings();
+}
+
+/**
  * Opens the Connection Settings drawer, with the form showing the saved settings (anything
- * changed but not saved on an earlier visit is discarded). The keyboard shortcuts drawer closes,
- * since only one drawer is open at a time.
+ * changed but not saved on an earlier visit is discarded). The keyboard shortcuts and What's New
+ * drawers close, since only one drawer is open at a time.
  */
 function openSettings() {
   if (settingsDrawerState) return;
@@ -447,6 +475,7 @@ function openSettings() {
   connectionSection.setConfigured(isConnectionCollapsed);
   connectionSection.setExpanded(!isConnectionCollapsed);
   shortcutsDrawer?.close();
+  changelogDrawer?.close();
   settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
   showPanel(settingsDrawerRoot);
   settingsBtn.setAttribute('aria-expanded', 'true');
@@ -755,8 +784,7 @@ function focusPendingWorklog(id, buttonClass) {
  * @param {string} id
  */
 function startEditPending(id) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const entry = findPendingWorklog(id);
@@ -809,8 +837,7 @@ function startEditPending(id) {
  * @param {string} id
  */
 function confirmDiscardPending(id) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -979,8 +1006,7 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
  * @param {string} worklogId - A worklog on the issue to log work against
  */
 function startLogWork(worklogId) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const source = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
@@ -1005,8 +1031,7 @@ function startLogWork(worklogId) {
  * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }} issue
  */
 function startLogWorkOnIssue(issue) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   openLogWork({
@@ -1028,8 +1053,7 @@ function startLogWorkOnIssue(issue) {
  * @param {string} dateKey - YYYY-MM-DD
  */
 function startLogWorkOnDay(dateKey) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
   if (!currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
 
@@ -1064,8 +1088,7 @@ async function deleteWorklogAndRefresh(client, worklog) {
  * @param {string} worklogId
  */
 function confirmDeleteWorklog(worklogId) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -1092,8 +1115,7 @@ function confirmDeleteWorklog(worklogId) {
  * @param {string} worklogId
  */
 function openEditor(worklogId) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor) {
     if (worklogEditor.worklogId === worklogId) {
       worklogEditor.focus();
@@ -1881,6 +1903,7 @@ appToast.addEventListener('click', (event) => {
  */
 function openShortcuts() {
   closeSettings();
+  changelogDrawer?.close();
   const returnFocus = document.activeElement;
   const available = shortcuts.list();
   const coversEditor = coverWorklogEditor();
@@ -1916,6 +1939,148 @@ shortcuts.register({
 
 shortcutsHelpBtn.addEventListener('click', toggleShortcuts);
 
+// ============================================================================
+// What's New (the release notes from CHANGELOG.md)
+// ============================================================================
+
+// What the user has seen of the release notes (src/changelog/changelogState.js), in storage.local,
+// shared by every open tab.
+const changelogStore = createChangelogStateStore(platform.storage);
+// The released versions in the packaged release notes, once read (newest first); null until then,
+// or while they can't be. Only these count for the NEW badge and the announcement, never the preview
+// of unreleased changes that the development output also has.
+let changelogReleases = null;
+let changelogRequest = null;
+// What the user has seen (changelogStore.resolve()); null until known, and outside the extension,
+// where there's no installed version to go by.
+let changelogState = null;
+
+/**
+ * The release notes, read once per page: the releases, and the unreleased changes (development
+ * output only). A failed read is tried again the next time they're needed.
+ * @returns {Promise<{ releases: Array<object>, unreleased: object | null } | null>}
+ */
+function getChangelog() {
+  changelogRequest ??= loadChangelog().then((changelog) => {
+    if (changelog) changelogReleases = changelog.releases;
+    else changelogRequest = null;
+    return changelog;
+  });
+  return changelogRequest;
+}
+
+/** Shows the NEW badge on the What's New button while the latest release notes haven't been seen. */
+function updateChangelogBadge() {
+  const unread = hasUnreadRelease(changelogReleases ?? [], changelogState);
+  changelogNewBadge.classList.toggle('hidden', !unread);
+  changelogBtn.setAttribute('aria-label', unread ? "What's New, new release notes" : "What's New");
+  changelogBtn.setAttribute('data-tooltip', unread ? "What's New · New release notes" : "What's New");
+}
+
+/** Reads what the user has seen again (after a change here or in another tab), and updates the badge. */
+async function refreshChangelogState() {
+  try {
+    changelogState = await changelogStore.resolve(platform.getManifest()?.version);
+  } catch (err) {
+    console.warn('Could not read what was seen of the Changelog:', err);
+    return;
+  }
+  updateChangelogBadge();
+}
+
+/**
+ * Opens the What's New drawer. Its latest release counts as read once the drawer has shown it (not
+ * before, and not when the notes can't be loaded), which removes the NEW badge. An update
+ * announcement still showing goes away. An open worklog panel slides out of the way without closing,
+ * as for the other drawers.
+ */
+function openChangelog() {
+  if (changelogDrawer) return;
+  shortcutsDrawer?.close();
+  closeSettings();
+  hideUpdateAnnouncement(updateAnnouncementRoot);
+  const returnFocus = document.activeElement;
+  const coversEditor = coverWorklogEditor();
+
+  changelogBtn.setAttribute('aria-expanded', 'true');
+  changelogDrawer = openChangelogDrawer(changelogDrawerRoot, {
+    loadChangelog: getChangelog,
+    onRead: (version) => {
+      changelogStore.markRead(version)
+        .then(refreshChangelogState)
+        .catch((err) => console.warn('Could not record that the release notes were read:', err));
+    },
+    onClose: () => {
+      changelogDrawer = null;
+      changelogBtn.setAttribute('aria-expanded', 'false');
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, if it's still there.
+      if (returnFocus?.isConnected && returnFocus !== document.body) returnFocus.focus();
+    }
+  });
+}
+
+/** The header's What's New button: opens the drawer, or closes it when it's open. */
+function toggleChangelog() {
+  if (changelogDrawer) changelogDrawer.close();
+  else openChangelog();
+}
+
+changelogBtn.addEventListener('click', toggleChangelog);
+
+/**
+ * Shows the update announcement for a release, on this tab once it's visible (a tab opened in the
+ * background waits). It's recorded as shown once it's on screen, at the next frame, which a hidden
+ * tab never draws. Not shown if, meanwhile, another tab showed it, its notes were read, or What's
+ * New is open.
+ * @param {object} release
+ */
+function announceWhenVisible(release) {
+  if (document.visibilityState !== 'visible') {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      document.removeEventListener('visibilitychange', onVisible);
+      announceWhenVisible(release);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return;
+  }
+  if (changelogDrawer || !announcementFor([release], changelogState, release.version)) return;
+
+  showUpdateAnnouncement(updateAnnouncementRoot, {
+    release,
+    highlights: releaseHighlights(release),
+    onExplore: openChangelog
+  });
+  requestAnimationFrame(() => {
+    changelogStore.markAnnounced(release.version)
+      .catch((err) => console.warn('Could not record that the update announcement was shown:', err));
+  });
+}
+
+/**
+ * Loads the release notes and what the user has seen of them when the page opens: the NEW badge,
+ * and the update announcement after an update (never after a fresh install).
+ */
+async function initChangelog() {
+  const version = platform.getManifest()?.version;
+  let changelog;
+  try {
+    [changelog, changelogState] = await Promise.all([getChangelog(), changelogStore.resolve(version)]);
+  } catch (err) {
+    console.warn('Could not read what was seen of the Changelog:', err);
+    return;
+  }
+  updateChangelogBadge();
+  const release = changelog && announcementFor(changelog.releases, changelogState, version);
+  if (release) announceWhenVisible(release);
+}
+
+// Another tab showed the announcement or the release notes: follow it.
+platform.watchStorage((changes) => {
+  if (LAST_ANNOUNCED_KEY in changes || LAST_READ_KEY in changes) refreshChangelogState();
+});
+
 // Esc closes the open panel wherever focus is: after clicking a worklog, focus is on the page, so
 // the panels' own Escape listeners (which handle Esc while typing in their fields) never see it.
 shortcuts.register({
@@ -1947,7 +2112,7 @@ shortcuts.register({
 // page, and not while typing in a field (where these keys move the caret or select text). On Windows
 // and Linux no browser binds them (Back and Forward are Alt + ← / →). On macOS, ⌘ + ← / → are Back
 // and Forward in Chrome, Edge, and Firefox: on this page the day shortcuts take those over.
-const weekNavigationAvailable = () => !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState;
+const weekNavigationAvailable = () => !isDeleteDialogOpen && !shortcutsDrawer && !changelogDrawer && !settingsDrawerState;
 
 // Previous or next day selects that weekday card by clicking it (so the selection, the day's
 // worklogs, and the totals update as on a click). Past Monday or Sunday, the previous or next week
@@ -2027,7 +2192,7 @@ shortcuts.register({
   keys: [['+']],
   description: 'Log work',
   category: 'Worklogs',
-  when: () => !settingsDrawerState && !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer &&
+  when: () => !settingsDrawerState && !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !changelogDrawer &&
     Boolean(daysContainer.querySelector('.day-add-btn')),
   handler: () => daysContainer.querySelector('.day-add-btn').click()
 });
@@ -2040,7 +2205,7 @@ shortcuts.register({
   shift: true,
   description: 'Sync Worklogs',
   category: 'Worklogs',
-  when: () => !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState,
+  when: () => !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !changelogDrawer && !settingsDrawerState,
   handler: () => refreshWorklogsBtn.click()
 });
 
@@ -2080,6 +2245,7 @@ document.addEventListener('DOMContentLoaded', () => {
   timer.setActive(document.visibilityState === 'visible');
   timer.init();
   loadSavedSettings();
+  initChangelog();
   renderSettingsVersion(document.getElementById('settingsVersion'), platform.getManifest());
   loadAboutInfo().then((info) => renderAboutSection(document.getElementById('aboutSection'), { manifest: platform.getManifest(), info }));
 });

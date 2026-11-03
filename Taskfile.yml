@@ -7,7 +7,15 @@
 # Chrome and Firefox share the build, the common checks, and the zip step (the internal
 # *:browser tasks); only the manifest rewrite and the store-specific checks differ.
 #
-# Requires Task 3, jq, zip, and unzip.
+# The build also generates the release notes the extension shows (src/changelog/changelog.json)
+# from CHANGELOG.md, with scripts/changelog.mjs. build:* writes the development output, which
+# previews the [Unreleased] changes; package:* builds with the release output, which never has
+# them, and fails unless the packaged notes are that output and CHANGELOG.md is ready to release
+# the manifest's version: nothing left under [Unreleased], and its latest release is that version,
+# with 1 to 3 highlights.
+#
+# Requires Task 3, jq, zip, unzip, and Node.js. Set NODE to run another Node.js command than
+# `node` (one executable path, which gets the script's arguments).
 
 version: '3'
 
@@ -35,13 +43,15 @@ tasks:
         for tool in jq zip unzip; do
           command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
         done
+        node_cmd="${NODE:-node}"
+        command -v "$node_cmd" >/dev/null || { echo "Missing required tool: $node_cmd (Node.js; set NODE to use another command)" >&2; exit 1; }
 
   # ---------------------------------------------------------------------------
   # Chrome
   # ---------------------------------------------------------------------------
 
   build:chrome:
-    desc: Build the Chrome extension into dist/chrome/
+    desc: Build the Chrome extension into dist/chrome/ (development release notes, with [Unreleased])
     silent: true
     cmds:
       # The manifest is shared with Firefox. Chrome ignores the Firefox-only keys (including
@@ -51,6 +61,7 @@ tasks:
           BROWSER: chrome
           LABEL: Chrome
           MANIFEST_FILTER: del(.browser_specific_settings) | del(.developer) | del(.background.scripts)
+          CHANGELOG_MODE: '{{.CHANGELOG_MODE | default "development"}}'
 
   verify:chrome:
     desc: Check the Chrome build in dist/chrome/ before packaging
@@ -75,6 +86,7 @@ tasks:
       # Removed first, so a failed build never leaves an older package behind.
       - rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-chrome.zip'
       - task: build:chrome
+        vars: { CHANGELOG_MODE: release }
       - task: verify:chrome
       - task: zip:browser
         vars:
@@ -87,7 +99,7 @@ tasks:
   # ---------------------------------------------------------------------------
 
   build:firefox:
-    desc: Build the Firefox extension into dist/firefox/
+    desc: Build the Firefox extension into dist/firefox/ (development release notes, with [Unreleased])
     silent: true
     cmds:
       # Firefox runs the background script as an event page (background.scripts); it doesn't
@@ -97,6 +109,7 @@ tasks:
           BROWSER: firefox
           LABEL: Firefox
           MANIFEST_FILTER: del(.background.service_worker)
+          CHANGELOG_MODE: '{{.CHANGELOG_MODE | default "development"}}'
 
   verify:firefox:
     desc: Check the Firefox build in dist/firefox/ before packaging
@@ -168,6 +181,7 @@ tasks:
       # Removed first, so a failed build never leaves an older package behind.
       - rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-firefox.zip'
       - task: build:firefox
+        vars: { CHANGELOG_MODE: release }
       - task: verify:firefox
       - task: zip:browser
         vars:
@@ -184,7 +198,7 @@ tasks:
     deps: [check:tools]
     silent: true
     requires:
-      vars: [BROWSER, LABEL, MANIFEST_FILTER]
+      vars: [BROWSER, LABEL, MANIFEST_FILTER, CHANGELOG_MODE]
     vars:
       DIR: '{{.DIST_DIR}}/{{.BROWSER}}'
     cmds:
@@ -201,8 +215,13 @@ tasks:
         cp -R {{.RUNTIME_DIRS}} '{{.DIR}}/'
         # Drop editor and OS clutter that may sit next to source files.
         find '{{.DIR}}' \( -name '.*' -o -name '*~' -o -name '*.swp' -o -name 'Thumbs.db' \) -exec rm -rf {} +
+      - |
+        # The release notes, generated from CHANGELOG.md: the development output (with [Unreleased]),
+        # or the release output for packaging. Either replaces a development copy copied from src/.
+        # Only an invalid CHANGELOG.md fails the build; whether it's ready to release is checked by verify.
+        "${NODE:-node}" scripts/changelog.mjs --mode '{{.CHANGELOG_MODE}}' --out '{{.DIR}}/src/changelog/changelog.json'
       - jq '{{.MANIFEST_FILTER}}' manifest.json > '{{.DIR}}/manifest.json'
-      - echo "Built {{.LABEL}} extension in {{.DIR}}/"
+      - echo "Built {{.LABEL}} extension in {{.DIR}}/ with the {{.CHANGELOG_MODE}} changelog"
 
   verify:browser:
     internal: true
@@ -238,6 +257,23 @@ tasks:
           || fail "host_permissions must be empty; request Jira sites through optional_host_permissions"
         [ "$(jq -r '.optional_host_permissions // [] | index("https://*/*") != null' "$manifest")" = true ] \
           || fail "optional_host_permissions must include https://*/* so any Jira site can be requested"
+      - |
+        # CHANGELOG.md is ready to release the manifest's version: nothing under [Unreleased], and its
+        # latest release is that version, with 1 to 3 highlights.
+        "${NODE:-node}" scripts/changelog.mjs --check-release "$(jq -r '.version' manifest.json)"
+      - |
+        # The release notes are in the build, are the release output (never the development one, which
+        # can hold unreleased changes), and their latest release is the version being packaged.
+        dir='{{.DIR}}'
+        fail() { echo "src/changelog/changelog.json: $1" >&2; exit 1; }
+        json="$dir/src/changelog/changelog.json"
+        [ -f "$json" ] || fail "missing from the build. Run: task package:{{.BROWSER}}"
+        jq -e '.channel == "release" and (has("unreleased") | not)' "$json" >/dev/null 2>&1 \
+          || fail "is the development output, which can hold unreleased changes. Package with: task package:{{.BROWSER}}"
+        jq -e '.releases | type == "array" and length > 0' "$json" >/dev/null 2>&1 || fail "has no releases"
+        version="$(jq -r '.version' "$dir/manifest.json")"
+        latest="$(jq -r '.releases[0].version' "$json")"
+        [ "$latest" = "$version" ] || fail "its latest release is $latest, not the manifest's version $version"
       - |
         # Every file the manifest names must be in the build.
         dir='{{.DIR}}'

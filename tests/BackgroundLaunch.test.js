@@ -113,6 +113,44 @@ describe('Background - the toolbar icon and its Settings menu item', () => {
     assert.equal(startup.menus.length, 1);
   });
 
+  it('records a fresh install before opening the timesheet, so the page never takes it for an update', async () => {
+    const api = fakeApi();
+    setUpTimesheetLaunchers(api, {
+      onInstall: async () => {
+        await flush();
+        api.calls.push(['onInstall']);
+      }
+    });
+    api.listeners.onInstalled({ reason: 'install' });
+    await flush();
+    await flush();
+    const order = api.calls.map(([name]) => name).filter((name) => name === 'onInstall' || name === 'tabs.create');
+    assert.deepEqual(order, ['onInstall', 'tabs.create']);
+  });
+
+  it('records nothing on an update, a browser update, or browser start', async () => {
+    for (const reason of ['update', 'browser_update', 'chrome_update', 'startup']) {
+      const api = fakeApi();
+      const installs = [];
+      setUpTimesheetLaunchers(api, { onInstall: async () => installs.push(true) });
+      if (reason === 'startup') api.listeners.onStartup();
+      else api.listeners.onInstalled({ reason, previousVersion: '1.1.2' });
+      await flush();
+      assert.deepEqual(installs, [], reason);
+    }
+  });
+
+  it('still opens the timesheet when recording the install fails', async (t) => {
+    const warn = t.mock.method(console, 'warn', () => {});
+    const api = fakeApi();
+    setUpTimesheetLaunchers(api, { onInstall: async () => { throw new Error('storage is full'); } });
+    api.listeners.onInstalled({ reason: 'install' });
+    await flush();
+    await flush();
+    assert.ok(api.calls.some(([name]) => name === 'tabs.create'));
+    assert.ok(warn.mock.calls.some((call) => /record the install/.test(call.arguments[0])));
+  });
+
   it('opens the timesheet from the icon, and Settings from the menu item', async () => {
     const api = fakeApi();
     setUpTimesheetLaunchers(api);

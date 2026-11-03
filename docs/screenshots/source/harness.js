@@ -57,6 +57,12 @@
     if (store.timeTracking.running) toMs(store.timeTracking.running);
     store.timeTracking.pending = (store.timeTracking.pending || []).map(toMs);
   }
+  // The Changelog counts as seen up to this version, as after a fresh install, so the screenshots
+  // show no update announcement or NEW badge unless a scenario stores otherwise.
+  if (!('changelogLastAnnouncedVersion' in store) && !('changelogLastReadVersion' in store)) {
+    store.changelogLastAnnouncedVersion = manifest.version;
+    store.changelogLastReadVersion = manifest.version;
+  }
   const listeners = new Set();
   const keysOf = (keys) => (keys == null ? Object.keys(store) : Array.isArray(keys) ? keys : typeof keys === 'string' ? [keys] : Object.keys(keys));
   const local = {
