@@ -77,7 +77,8 @@ import {
   buildCustomViewJql,
   describeView,
   isViewAvailable,
-  usesCustomOptionField,
+  usesCustomField,
+  viewUserFieldIds,
   validateViewDraft,
   conditionKind
 } from './src/jira/customViews.js';
@@ -935,16 +936,17 @@ function refreshActiveIssues({ keepShown = false } = {}) {
 // The view shown in My Issues: Active, or a custom view's ID, remembered across sessions. One that
 // no longer exists shows Active.
 let selectedViewId = localStorage.getItem('jts-working-issues-view') || ALL_VIEW_ID;
-// The site's custom single-select fields (GET /field), loaded once per page and Jira site when a view
-// filters on a custom field, or the editor opens: { site, ids, request }, `ids` null until loaded.
-let singleSelectCatalog = null;
+// The site's custom fields views can use (GET /field): its single-select fields and its single-user
+// fields, loaded once per page and Jira site when a view filters on a custom field, or the editor
+// opens: { site, optionIds, userIds, request }, the IDs null until loaded.
+let customFieldCatalog = null;
 
 // The views' results; each answer draws My Work again.
 const viewSearch = createCustomViewSearch(() => {
   if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
 });
 // Each custom view's results key when last drawn, by view ID: after an edit changes its JQL (its
-// condition or order), its new search starts from the results it showed, which stay until Jira answers.
+// conditions or order), its new search starts from the results it showed, which stay until Jira answers.
 const viewSearchKeys = new Map();
 
 /**
@@ -956,32 +958,42 @@ function customViewsFor(client, settings = savedSettings) {
 }
 
 /**
- * The site's custom single-select fields, asked for once per page and site. A failure is asked
- * again the next time they're needed.
- * @returns {Promise<Array<{ id: string, name: string, kind: 'option' }>>}
+ * The site's custom fields for the editor, asked for once per page and site: its single-user fields
+ * (compared with Me; the Additional Assignment Fields are offered already) and its single-select
+ * fields. A failure is asked again the next time they're needed.
+ * @returns {Promise<Array<{ id: string, name: string, kind: 'user' | 'option', group: string }>>}
  */
-function loadSingleSelectFields(client) {
+function loadCustomFields(client) {
   const site = siteId(client.deploymentType, client.baseUrl);
-  if (singleSelectCatalog?.site !== site) {
-    const catalog = { site, ids: null, request: null };
-    catalog.request = client.getSingleSelectFields().then((fields) => {
-      catalog.ids = new Set(fields.map((field) => field.id));
+  if (customFieldCatalog?.site !== site) {
+    const catalog = { site, optionIds: null, userIds: null, request: null };
+    catalog.request = client.getCustomViewFields().then(({ singleSelect, userPickers }) => {
+      catalog.optionIds = new Set(singleSelect.map((field) => field.id));
+      catalog.userIds = new Set(userPickers.map((field) => field.id));
       // A view whose field is gone says so now.
-      if (singleSelectCatalog === catalog && workingIssuesState) setWorkingIssuesState(workingIssuesState);
-      return fields;
+      if (customFieldCatalog === catalog && workingIssuesState) setWorkingIssuesState(workingIssuesState);
+      // Jira allows two fields with one name (two "QA Lead" fields): their ID tells them apart.
+      const named = (fields) => fields.map((field) => (fields.filter((other) => other.name === field.name).length > 1
+        ? { ...field, name: `${field.name} (${field.id})` } : field));
+      return [
+        ...named(userPickers).map((field) => ({ id: field.id, name: field.name, kind: 'user', group: 'User fields' })),
+        ...named(singleSelect).map((field) => ({ ...field, group: 'Custom fields' }))
+      ];
     }, (err) => {
-      if (singleSelectCatalog === catalog) singleSelectCatalog = null;
+      if (customFieldCatalog === catalog) customFieldCatalog = null;
       throw err;
     });
-    singleSelectCatalog = catalog;
+    customFieldCatalog = catalog;
   }
-  return singleSelectCatalog.request;
+  return customFieldCatalog.request;
 }
 
 /** Learns whether the custom fields the site's views filter on are still in Jira. */
 function checkViewFields(client, settings = savedSettings) {
-  if (!client || !usesCustomOptionField(customViewsFor(client, settings).views)) return;
-  loadSingleSelectFields(client).catch((err) => console.warn('Could not load the Jira custom fields for custom views:', err));
+  if (!client) return;
+  const assignmentFieldIds = assignmentFieldsFor(client, settings).map((field) => field.id);
+  if (!usesCustomField(customViewsFor(client, settings).views, assignmentFieldIds)) return;
+  loadCustomFields(client).catch((err) => console.warn('Could not load the Jira custom fields for custom views:', err));
 }
 
 /** Draws the views again, after they're saved or deleted, here or in another tab. */
@@ -1000,7 +1012,7 @@ function viewSearchFor(client, view, context) {
   if (!isViewAvailable(view, context)) return null;
   let jql;
   try {
-    jql = buildCustomViewJql(view, { assignmentFieldIds: context.assignmentFieldIds });
+    jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context) });
   } catch {
     return null;
   }
@@ -1022,7 +1034,8 @@ function customViewsOptions() {
   const { views, unsupported } = customViewsFor(client);
   const context = {
     assignmentFieldIds: assignmentFieldsFor(client).map((field) => field.id),
-    singleSelectFieldIds: singleSelectCatalog?.site === site ? singleSelectCatalog.ids : null
+    singleSelectFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.optionIds : null,
+    userPickerFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.userIds : null
   };
   const searches = new Map(views.map((view) => [view.id, viewSearchFor(client, view, context)]));
 
@@ -1140,20 +1153,22 @@ function openViewEditor(viewId) {
       ...SYSTEM_FIELDS.map((field) => ({ ...field, group: 'Fields' })),
       ...assignmentFieldsFor(client).map((field) => ({ id: field.id, name: field.name, kind: 'user', group: 'Additional Assignment Fields' }))
     ],
-    loadCustomFields: () => loadSingleSelectFields(client),
+    loadCustomFields: () => loadCustomFields(client),
     loadValues: fieldValues,
     validate: (draft) => validateViewDraft(draft, { views: customViewsFor(client).views, editingId: view?.id }),
     async onSave(valid) {
       const views = await storedViews();
-      const [condition] = valid.conditions;
       const { errors } = validateViewDraft({
         name: valid.name,
-        field: { ...condition.field, kind: conditionKind(condition) },
-        operator: condition.operator,
-        values: condition.values,
+        conditions: valid.conditions.map((condition) => ({
+          field: { ...condition.field, kind: conditionKind(condition) },
+          operator: condition.operator,
+          values: condition.values
+        })),
         orderBy: valid.orderBy
       }, { views, editingId: view?.id });
-      const problem = Object.values(errors)[0];
+      const problem = errors.form ?? errors.name ?? errors.conditions ?? errors.orderBy ??
+        errors.byCondition?.flatMap((found) => (found ? Object.values(found) : []))[0];
       if (problem) throw new Error(problem);
       const saved = { id: view?.id ?? crypto.randomUUID(), ...valid };
       await store(view ? views.map((item) => (item.id === view.id ? saved : item)) : [...views, saved], saved.id);

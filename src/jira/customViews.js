@@ -1,7 +1,8 @@
 /**
- * Custom views of My Issues: up to two named views per Jira site, as tabs beside Active (the
- * built-in view: My Work's existing search), each with one condition (a field, an operator, and
- * values). A view is its own Jira search: buildCustomViewJql() turns its condition into JQL, and the
+ * Custom views of My Issues: up to five (MAX_CUSTOM_VIEWS) named views per Jira site, as tabs beside Active (the
+ * built-in view: My Work's existing search), each with one or more conditions (a field, an operator,
+ * and values), all of which an issue must meet (AND). A view is its own Jira search:
+ * buildCustomViewJql() turns its conditions into JQL, and the
  * page runs it apart from Active's search (src/jira/customViewSearch.js), so a view finds the issues
  * the user can browse in Jira that match, whether Active lists them or not. Jira's permissions
  * decide what any search returns. A view lists the first CUSTOM_VIEW_RESULT_LIMIT issues in its own
@@ -12,20 +13,29 @@
  * - Status and Priority: Jira's numeric ID in the JQL (`status in (10001, 3)`), chosen from every
  *   status and priority Jira lists (GET /status, GET /priority).
  * - Custom single-select and radio-button fields: the option's name, quoted and escaped
- *   (`cf[10050] = "Platform"`). Jira Data Center rejects option IDs in JQL, and only administrators
+ *   (`cf[10050] in ("Platform")`). Jira Data Center rejects option IDs in JQL, and only administrators
  *   can list a field's options with their IDs, so the names come from Jira's JQL suggestions for the
  *   field, and the stored `id` is the name too. A renamed option no longer matches until the view is
  *   edited.
- * - Assignee, Reporter, and the site's Additional Assignment Fields: only Me, as `currentUser()`.
- *   No other person can be chosen, stored, or shown.
+ * - Assignee, Reporter, and custom single-user fields (user pickers, such as a QA Assignee: the
+ *   site's Additional Assignment Fields and every other one GET /field lists, by the same rule as
+ *   those, parseUserPickerFields()): only Me, as `currentUser()`, the field by its number
+ *   (`cf[10050] in (currentUser())`). No other person can be chosen, stored, or shown. Multi-user
+ *   fields are left out: "= Me" there would mean "among them", not "assigned to me".
  *
- * Operators: Equals (one value) and Is one of (at least two values; not for user fields).
+ * Operators: In (one or more values) and Not in (one or more values), for every field, Me included.
+ * Not in also finds issues where the field is empty (`(cf[13931] not in (currentUser()) OR cf[13931]
+ * is EMPTY)`): Jira's NOT IN alone leaves them out, which would restrict the view to issues that have
+ * a value. Status is never empty, so it's left as `status not in (…)`. A view adds no condition of its
+ * own: no assignee, reporter, or Additional Assignment Field unless the user chose it as a condition.
+ * Conditions saved with the operators views had before (Equals, Is one of) are read as In, their
+ * values kept.
  *
  * Stored in storage.local as `customViewsBySite`, per Jira site (`${deploymentType}|${baseUrl}`,
  * as siteId() makes it): { [site]: { version: 1, views: [{ id, name, conditions: [{ field: { id,
  * name }, operator, values: [{ id, label }] | [{ currentUser: true, label: 'Me' }] }], orderBy: { field,
- * direction } }] } }. One condition per view for now; `conditions` is a list so more can come later.
- * A view saved without `orderBy`, or with one that isn't valid, is read with DEFAULT_ORDER_BY. A
+ * direction } }] } }. At least one condition, at most one per field. Views saved with a single
+ * condition, before views could have several, are read as they are. A view saved without `orderBy`, or with one that isn't valid, is read with DEFAULT_ORDER_BY. A
  * site's entry with another version is from another version of the extension: it's neither used nor
  * overwritten.
  * Search results are never stored.
@@ -34,7 +44,7 @@
  */
 
 export const CUSTOM_VIEWS_VERSION = 1;
-export const MAX_CUSTOM_VIEWS = 2;
+export const MAX_CUSTOM_VIEWS = 5;
 export const MAX_VIEW_NAME_LENGTH = 30;
 // The issues a view lists: Jira's first ones, in one request.
 export const CUSTOM_VIEW_RESULT_LIMIT = 20;
@@ -55,13 +65,21 @@ export const ORDER_DIRECTION_LABELS = Object.freeze({ ASC: 'Ascending', DESC: 'D
 // Most recently updated first.
 export const DEFAULT_ORDER_BY = Object.freeze({ field: 'updated', direction: 'DESC' });
 
+// The longest JQL a view may have. Its search is a GET request, and Jira refuses request lines much
+// over 8 KB (Data Center's Tomcat by default, Cloud's gateways likewise): URL encoding can make JQL
+// up to three times longer, so this keeps the request well within that. Conditions themselves have
+// no limit but this, and one per field.
+export const MAX_VIEW_JQL_LENGTH = 2000;
+
 // The built-in view, Active: My Work's existing search. Its name, and All, are no custom view's.
 export const ALL_VIEW_ID = 'all';
 export const ALL_VIEW_NAME = 'Active';
 export const RESERVED_VIEW_NAMES = Object.freeze([ALL_VIEW_NAME, 'All']);
 
-export const OPERATORS = { EQUALS: 'equals', IS_ONE_OF: 'isOneOf' };
-export const OPERATOR_LABELS = { equals: 'Equals', isOneOf: 'Is one of' };
+export const OPERATORS = Object.freeze({ IN: 'in', NOT_IN: 'notIn' });
+export const OPERATOR_LABELS = Object.freeze({ in: 'In', notIn: 'Not in' });
+// The operators views had before In and Not in, and what they're read as.
+export const LEGACY_OPERATORS = Object.freeze({ equals: OPERATORS.IN, isOneOf: OPERATORS.IN });
 
 // The one value a user field can be compared with.
 export const ME_VALUE = Object.freeze({ currentUser: true, label: 'Me' });
@@ -133,18 +151,18 @@ export function conditionKind(condition) {
 }
 
 /**
- * The operators a kind of field can use: Equals only for user fields (their one value is Me).
+ * The operators a kind of field can use: In and Not in, for user fields too (their one value is Me).
  * @param {'user' | 'option'} kind
  * @returns {string[]}
  */
 export function operatorsFor(kind) {
-  return kind === 'user' ? [OPERATORS.EQUALS] : [OPERATORS.EQUALS, OPERATORS.IS_ONE_OF];
+  return [OPERATORS.IN, OPERATORS.NOT_IN];
 }
 
 /**
  * Checks a stored condition; null when it's malformed. The field must be one a view can use, and
- * its values must suit it: Me alone (with Equals) for a user field, one value for Equals, and two
- * or more for Is one of.
+ * its values must suit it: Me alone for a user field, one or more values otherwise. An operator
+ * views had before (Equals, Is one of) is read as In.
  *
  * @param {unknown} raw
  * @returns {{ field: { id: string, name: string }, operator: string, values: Array<object> } | null}
@@ -153,11 +171,11 @@ export function normalizeCondition(raw) {
   const id = typeof raw?.field?.id === 'string' ? raw.field.id : '';
   if (!VIEW_FIELD_ID.test(id)) return null;
   const field = { id, name: text(raw.field.name) || id };
-  const operator = raw.operator;
+  const operator = Object.hasOwn(LEGACY_OPERATORS, raw.operator) ? LEGACY_OPERATORS[raw.operator] : raw.operator;
   if (!Object.values(OPERATORS).includes(operator) || !Array.isArray(raw.values) || raw.values.length === 0) return null;
 
   if (raw.values.some((value) => value?.currentUser === true)) {
-    if (OPTION_SYSTEM_FIELDS.has(id) || operator !== OPERATORS.EQUALS || raw.values.length !== 1) return null;
+    if (OPTION_SYSTEM_FIELDS.has(id) || raw.values.length !== 1) return null;
     return { field, operator, values: [{ ...ME_VALUE }] };
   }
   if (USER_SYSTEM_FIELDS.has(id)) return null;
@@ -172,8 +190,20 @@ export function normalizeCondition(raw) {
     if (values.some((v) => v.id === valueId)) continue;
     values.push({ id: valueId, label });
   }
-  if (operator === OPERATORS.EQUALS ? values.length !== 1 : values.length < 2) return null;
   return { field, operator, values };
+}
+
+/**
+ * Checks a view's conditions: one or more, each valid, each on a field no other uses. Null otherwise.
+ * @param {unknown} raw
+ * @returns {Array<object> | null}
+ */
+export function normalizeConditions(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const conditions = raw.map(normalizeCondition);
+  if (conditions.some((condition) => !condition)) return null;
+  const ids = conditions.map((condition) => condition.field.id);
+  return new Set(ids).size === ids.length ? conditions : null;
 }
 
 /**
@@ -203,17 +233,18 @@ export function nameProblem(name) {
 }
 
 /**
- * Checks a stored view; null when it's malformed: a valid ID and name, and exactly one valid
- * condition. Its order is read as DEFAULT_ORDER_BY when it has none, or one that isn't valid.
+ * Checks a stored view; null when it's malformed: a valid ID and name, and one or more valid
+ * conditions, each on a field of its own. A view with a condition that isn't valid is left out as a
+ * whole, never searched without it (which would find more than it should). Its order is read as
+ * DEFAULT_ORDER_BY when it has none, or one that isn't valid.
  * @param {unknown} raw
  * @returns {{ id: string, name: string, conditions: Array<object>, orderBy: { field: string, direction: string } } | null}
  */
 export function normalizeView(raw) {
   const id = typeof raw?.id === 'string' && VIEW_ID.test(raw.id) ? raw.id : '';
   if (!id || id === ALL_VIEW_ID || nameProblem(raw.name)) return null;
-  if (!Array.isArray(raw.conditions) || raw.conditions.length !== 1) return null;
-  const condition = normalizeCondition(raw.conditions[0]);
-  return condition ? { id, name: text(raw.name), conditions: [condition], orderBy: normalizeOrderBy(raw.orderBy) ?? { ...DEFAULT_ORDER_BY } } : null;
+  const conditions = normalizeConditions(raw.conditions);
+  return conditions ? { id, name: text(raw.name), conditions, orderBy: normalizeOrderBy(raw.orderBy) ?? { ...DEFAULT_ORDER_BY } } : null;
 }
 
 /**
@@ -255,15 +286,19 @@ export function normalizeCustomViewsBySite(raw) {
 }
 
 /**
- * Checks a view being created or edited, as the editor has it, against the site's other views.
+ * Checks a view being created or edited, as the editor has it, against the site's other views:
+ * its name, each of its conditions (a field, an operator the field allows, and the right values),
+ * at least one condition and at most one per field, its order, and the length of its JQL.
  *
- * @param {{ name?: string, field?: { id: string, name: string, kind: 'user' | 'option' } | null,
- *   operator?: string, values?: Array<object>, orderBy?: { field: string, direction: string } }} draft
+ * @param {{ name?: string, conditions?: Array<{ field?: { id: string, name: string, kind: 'user' | 'option' } | null,
+ *   operator?: string, values?: Array<object> }>, orderBy?: { field: string, direction: string } }} draft
  * @param {object} context
  * @param {Array<{ id: string, name: string }>} context.views - The site's saved views
  * @param {string} [context.editingId] - The view being edited; none when creating one
- * @returns {{ errors: { form?: string, name?: string, field?: string, operator?: string, values?: string, orderBy?: string },
- *   view: { name: string, conditions: Array<object>, orderBy: object } | null }} `view` (without its ID) when there are no errors
+ * @returns {{ errors: { form?: string, name?: string, conditions?: string, orderBy?: string,
+ *   byCondition?: Array<{ field?: string, operator?: string, values?: string } | null> },
+ *   view: { name: string, conditions: Array<object>, orderBy: object } | null }} `view` (without its ID)
+ *   when there are no errors; `byCondition` has each condition's, in order (null for one without)
  */
 export function validateViewDraft(draft, { views, editingId }) {
   const errors = {};
@@ -276,26 +311,41 @@ export function validateViewDraft(draft, { views, editingId }) {
   if (problem) errors.name = problem;
   else if (others.some((view) => sameName(view.name, name))) errors.name = 'Another view already has this name.';
 
-  const field = draft.field;
-  const values = Array.isArray(draft.values) ? draft.values : [];
-  if (!field || !VIEW_FIELD_ID.test(field.id ?? '')) {
-    errors.field = 'Choose a field.';
-  } else if (!operatorsFor(field.kind).includes(draft.operator)) {
-    errors.operator = 'Choose an operator.';
-  } else if (field.kind === 'user') {
-    if (values.length !== 1 || values[0]?.currentUser !== true) errors.values = 'Choose Me.';
-  } else if (draft.operator === OPERATORS.EQUALS && values.length !== 1) {
-    errors.values = 'Choose a value.';
-  } else if (draft.operator === OPERATORS.IS_ONE_OF && values.length < 2) {
-    errors.values = 'Choose at least two values.';
-  }
+  const drafts = Array.isArray(draft.conditions) ? draft.conditions : [];
+  if (drafts.length === 0) errors.conditions = 'Add at least one condition.';
+  const usedFields = new Set();
+  const byCondition = drafts.map((condition) => {
+    const found = conditionProblem(condition ?? {});
+    const fieldId = condition?.field?.id;
+    if (!found.field && usedFields.has(fieldId)) found.field = 'Another condition already uses this field.';
+    if (fieldId) usedFields.add(fieldId);
+    return Object.keys(found).length > 0 ? found : null;
+  });
+  if (byCondition.some(Boolean)) errors.byCondition = byCondition;
+
   const orderBy = normalizeOrderBy(draft.orderBy);
   if (!orderBy) errors.orderBy = 'Choose an order and a direction.';
 
   if (Object.keys(errors).length > 0) return { errors, view: null };
-  const condition = normalizeCondition({ field: { id: field.id, name: field.name }, operator: draft.operator, values });
-  if (!condition) return { errors: { values: 'Choose the values again.' }, view: null };
-  return { errors, view: { name, conditions: [condition], orderBy } };
+  const conditions = normalizeConditions(drafts.map((condition) => ({
+    field: { id: condition.field.id, name: condition.field.name }, operator: condition.operator, values: condition.values
+  })));
+  if (!conditions) return { errors: { conditions: 'Choose the conditions\' values again.' }, view: null };
+  const userFieldIds = conditions.filter((condition) => conditionKind(condition) === 'user').map((condition) => condition.field.id);
+  if (buildCustomViewJql({ conditions, orderBy }, { userFieldIds }).length > MAX_VIEW_JQL_LENGTH) {
+    return { errors: { conditions: 'This view\'s search is too long for Jira. Remove a condition, or some values.' }, view: null };
+  }
+  return { errors, view: { name, conditions, orderBy } };
+}
+
+/** What's wrong with one condition as the editor has it: its field, operator, or values. */
+function conditionProblem({ field, operator, values: rawValues }) {
+  const values = Array.isArray(rawValues) ? rawValues : [];
+  if (!field || !VIEW_FIELD_ID.test(field.id ?? '')) return { field: 'Choose a field.' };
+  if (!operatorsFor(field.kind).includes(operator)) return { operator: 'Choose an operator.' };
+  if (field.kind === 'user') return values.length !== 1 || values[0]?.currentUser !== true ? { values: 'Choose Me.' } : {};
+  if (values.length === 0) return { values: 'Choose at least one value.' };
+  return {};
 }
 
 /**
@@ -310,24 +360,36 @@ export function jqlString(value) {
 }
 
 /**
- * Builds the JQL of a view's own Jira search, from its condition and order alone: allow-listed
- * fields and operators, numeric IDs for statuses and priorities, quoted names for custom options,
- * and `currentUser()` for Me. Nothing typed by the user goes into it unquoted. Ordered by the view's
+ * Builds the JQL of a view's own Jira search, from its conditions and order alone: one clause per
+ * condition, joined with AND, from allow-listed fields and operators, numeric IDs for statuses and
+ * priorities, quoted names for custom options, and `currentUser()` for Me. Nothing typed by the
+ * user goes into it unquoted. Ordered by the view's
  * field and direction (DEFAULT_ORDER_BY without a valid one), then by key in the same direction, so
  * issues with the same value come back in the same order from one search to the next.
  *
  * @param {{ conditions: Array<object> }} view - A stored view (normalizeView())
  * @param {object} context
- * @param {string[]} context.assignmentFieldIds - The site's Additional Assignment Fields: the only
- *   custom fields Me can be compared on
- * @returns {string} E.g. `reporter = currentUser() ORDER BY updated DESC, key DESC`, or
- *   `status = 3 ORDER BY priority ASC, key ASC`
- * @throws {Error} For a condition that isn't valid, or a field views can't search on
+ * @param {string[]} context.userFieldIds - The custom user fields Me can be compared on (the site's
+ *   single-user fields, Additional Assignment Fields included): any other is refused
+ * @returns {string} E.g. `reporter in (currentUser()) ORDER BY updated DESC, key DESC`, or `status not in
+ *   (3, 10413) AND priority in (1, 2) AND assignee in (currentUser()) ORDER BY priority ASC, key ASC`
+ * @throws {Error} Without conditions, for one that isn't valid or repeats a field, or for a field
+ *   views can't search on
  */
-export function buildCustomViewJql(view, { assignmentFieldIds = [] } = {}) {
-  if (!Array.isArray(view?.conditions) || view.conditions.length !== 1) throw new Error('A view has exactly one condition.');
-  const condition = normalizeCondition(view.conditions[0]);
-  if (!condition) throw new Error('This view\'s condition isn\'t valid.');
+export function buildCustomViewJql(view, { userFieldIds = [] } = {}) {
+  if (!Array.isArray(view?.conditions) || view.conditions.length === 0) throw new Error('A view has at least one condition.');
+  const conditions = normalizeConditions(view.conditions);
+  if (!conditions) throw new Error('This view\'s conditions aren\'t valid.');
+  const clauses = conditions.map((condition) => conditionClause(condition, userFieldIds));
+  const { field, direction } = normalizeOrderBy(view.orderBy) ?? DEFAULT_ORDER_BY;
+  return `${clauses.join(' AND ')} ORDER BY ${field} ${direction}${field === 'key' ? '' : `, key ${direction}`}`;
+}
+
+/**
+ * One condition's JQL clause (normalizeCondition() checked it): `status in (3, 4)`, `cf[10050] in
+ * (currentUser())`, `status not in (3)`, `(priority not in (2) OR priority is EMPTY)`.
+ */
+function conditionClause(condition, userFieldIds) {
   const { id } = condition.field;
   const custom = CUSTOM_FIELD_ID.exec(id);
   // System fields by name, custom fields by number: cf[10050].
@@ -335,16 +397,17 @@ export function buildCustomViewJql(view, { assignmentFieldIds = [] } = {}) {
 
   let values;
   if (conditionKind(condition) === 'user') {
-    if (custom && !assignmentFieldIds.includes(id)) throw new Error('This view\'s field is no longer available in Jira.');
+    if (custom && !userFieldIds.includes(id)) throw new Error('This view\'s field is no longer available in Jira.');
     values = ['currentUser()'];
   } else if (OPTION_SYSTEM_FIELDS.has(id)) {
     values = condition.values.map((value) => value.id);
   } else {
     values = condition.values.map((value) => jqlString(value.label));
   }
-  const clause = condition.operator === OPERATORS.EQUALS ? `${clauseField} = ${values[0]}` : `${clauseField} in (${values.join(', ')})`;
-  const { field, direction } = normalizeOrderBy(view.orderBy) ?? DEFAULT_ORDER_BY;
-  return `${clause} ORDER BY ${field} ${direction}${field === 'key' ? '' : `, key ${direction}`}`;
+  const list = `(${values.join(', ')})`;
+  if (condition.operator === OPERATORS.IN) return `${clauseField} in ${list}`;
+  // Jira's NOT IN leaves out issues where the field is empty; Not in keeps them (Status is never empty).
+  return id === 'status' ? `${clauseField} not in ${list}` : `(${clauseField} not in ${list} OR ${clauseField} is EMPTY)`;
 }
 
 /**
@@ -395,47 +458,65 @@ function unquoteJqlValue(value) {
 }
 
 /**
- * Describes a view's search for its panel: "Status is one of In Progress, Review · Priority,
- * ascending", "Reporter is Me · Updated, descending".
+ * Describes a view's search for its panel: "Status in In Progress, Review · Priority, ascending",
+ * "Status not in Done and Reporter in Me · Updated, descending".
  * @param {{ conditions: Array<object>, orderBy?: object }} view
  * @returns {string}
  */
 export function describeView(view) {
-  const condition = view.conditions[0];
-  const labels = condition.values.map((value) => value.label).join(', ');
+  const conditions = view.conditions.map((condition) => {
+    const labels = condition.values.map((value) => value.label).join(', ');
+    return `${condition.field.name} ${condition.operator === OPERATORS.NOT_IN ? 'not in' : 'in'} ${labels}`;
+  });
   const orderBy = normalizeOrderBy(view.orderBy) ?? DEFAULT_ORDER_BY;
   const orderName = ORDER_BY_FIELDS.find((item) => item.id === orderBy.field).name;
-  return `${condition.field.name} ${condition.operator === OPERATORS.IS_ONE_OF ? 'is one of' : 'is'} ${labels}` +
-    ` · ${orderName}, ${ORDER_DIRECTION_LABELS[orderBy.direction].toLowerCase()}`;
+  return `${conditions.join(' and ')} · ${orderName}, ${ORDER_DIRECTION_LABELS[orderBy.direction].toLowerCase()}`;
 }
 
 /**
- * Whether a view's field can still be used. The standard fields always can. A user custom field
- * can while it's one of the site's Additional Assignment Fields; an option custom field while
- * it's among the site's single-select fields (when those are known: until then, it's assumed it can).
+ * Whether a view's fields can all still be used. The standard fields always can. A custom user
+ * field can while it's one of the site's Additional Assignment Fields or among its single-user
+ * fields; an option custom field while it's among the site's single-select fields. While the
+ * site's fields aren't known, it's assumed they can.
  *
  * @param {{ conditions: Array<object> }} view
  * @param {object} context
  * @param {string[]} context.assignmentFieldIds
  * @param {Set<string> | null} context.singleSelectFieldIds - Null while not known
+ * @param {Set<string> | null} [context.userPickerFieldIds] - The site's single-user fields; null while not known
  * @returns {boolean}
  */
-export function isViewAvailable(view, { assignmentFieldIds, singleSelectFieldIds }) {
+export function isViewAvailable(view, { assignmentFieldIds, singleSelectFieldIds, userPickerFieldIds = null }) {
   return view.conditions.every((condition) => {
     const { id } = condition.field;
     if (!CUSTOM_FIELD_ID.test(id)) return true;
-    if (conditionKind(condition) === 'user') return assignmentFieldIds.includes(id);
+    if (conditionKind(condition) === 'user') return assignmentFieldIds.includes(id) || !userPickerFieldIds || userPickerFieldIds.has(id);
     return !singleSelectFieldIds || singleSelectFieldIds.has(id);
   });
 }
 
 /**
- * Whether any view compares a custom single-select field, whose availability needs the site's
- * list of fields (GET /field).
+ * The custom user fields a view may compare with Me, for buildCustomViewJql(): the site's
+ * Additional Assignment Fields and single-user fields, or, while those aren't known, the view's own
+ * (isViewAvailable() assumes them available until then).
+ *
+ * @param {{ conditions: Array<object> }} view
+ * @param {{ assignmentFieldIds: string[], userPickerFieldIds?: Set<string> | null }} context
+ * @returns {string[]}
+ */
+export function viewUserFieldIds(view, { assignmentFieldIds, userPickerFieldIds = null }) {
+  const own = view.conditions.filter((condition) => conditionKind(condition) === 'user').map((condition) => condition.field.id);
+  return own.filter((id) => assignmentFieldIds.includes(id) || !userPickerFieldIds || userPickerFieldIds.has(id));
+}
+
+/**
+ * Whether any view compares a custom field (a single-select field, or a user field that isn't an
+ * Additional Assignment Field), whose availability needs the site's list of fields (GET /field).
  * @param {Array<object>} views
+ * @param {string[]} [assignmentFieldIds]
  * @returns {boolean}
  */
-export function usesCustomOptionField(views) {
+export function usesCustomField(views, assignmentFieldIds = []) {
   return views.some((view) => view.conditions.some((condition) =>
-    CUSTOM_FIELD_ID.test(condition.field.id) && conditionKind(condition) === 'option'));
+    CUSTOM_FIELD_ID.test(condition.field.id) && !(conditionKind(condition) === 'user' && assignmentFieldIds.includes(condition.field.id))));
 }

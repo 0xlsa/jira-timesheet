@@ -454,7 +454,7 @@ function uniqueIssues(issues) {
  *   The custom views: `description` says what they search ("Reporter is Me"), `unavailable` when the
  *   field is gone from Jira, and `result` their search's, null until searched
  * @param {string} options.views.selectedId - ALL_VIEW_ID or a custom view's ID (an unknown one shows Active)
- * @param {boolean} options.views.canCreate - Offer + (fewer than two views)
+ * @param {boolean} options.views.canCreate - Offer + (fewer than MAX_CUSTOM_VIEWS views)
  * @param {(id: string) => void} options.views.onSelect - Called with a tab's view ID when it's chosen
  * @param {() => void} options.views.onCreate - Called from +
  * @param {(id: string) => void} options.views.onEdit - Called with the selected view's ID from its edit button

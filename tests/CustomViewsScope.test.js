@@ -25,8 +25,8 @@ const MINE_IN_PROGRESS = { id: '10001', key: 'KAN-1', fields: { summary: 'Mine',
 const REPORTED_BACKLOG = { id: '10002', key: 'KAN-2', fields: { summary: 'Reported, in the backlog', status: status('10000', 'Backlog', 'new'), assignee: OTHER, reporter: ME, worklog: noWorklogs } };
 const OTHERS_IN_PROGRESS = { id: '10003', key: 'KAN-3', fields: { summary: 'Someone else\'s', status: status('3', 'In Progress'), assignee: OTHER, reporter: OTHER, worklog: noWorklogs } };
 
-const REPORTED_JQL = buildCustomViewJql({ conditions: [{ field: { id: 'reporter', name: 'Reporter' }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] }] });
-const IN_PROGRESS_JQL = buildCustomViewJql({ conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }] });
+const REPORTED_JQL = buildCustomViewJql({ conditions: [{ field: { id: 'reporter', name: 'Reporter' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] }] });
+const IN_PROGRESS_JQL = buildCustomViewJql({ conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }] }] });
 
 /**
  * A fake Jira that answers each JQL with its own issues, as Jira would for this user: Active
@@ -108,7 +108,7 @@ describe('Custom views - their own Jira search', () => {
       const searches = jira.searches();
       assert.equal(searches.length, 1);
       assert.equal(searches[0].pathname, path);
-      assert.equal(searches[0].searchParams.get('jql'), 'reporter = currentUser() ORDER BY updated DESC, key DESC');
+      assert.equal(searches[0].searchParams.get('jql'), 'reporter in (currentUser()) ORDER BY updated DESC, key DESC');
       assert.equal(searches[0].searchParams.get('maxResults'), '20');
       assert.equal(searches[0].searchParams.get('fields'), 'summary,status');
       assert.equal(searches[0].searchParams.get('nextPageToken'), null);
@@ -181,6 +181,154 @@ describe('Custom views - their own Jira search', () => {
   });
 });
 
+describe('Custom views - custom user fields (such as QA Assignee)', () => {
+  const PICKER = 'com.atlassian.jira.plugin.system.customfieldtypes:userpicker';
+  const FIELDS = [
+    { id: 'customfield_13931', name: 'QA Assignee', custom: true, searchable: true, schema: { type: 'user', custom: PICKER } },
+    { id: 'customfield_10600', name: 'Development Lead', custom: true, searchable: true, schema: { type: 'user', custom: PICKER } },
+    { id: 'customfield_13802', name: 'Doc reviewers', custom: true, searchable: true, schema: { type: 'array', items: 'user', custom: 'com.atlassian.jira.plugin.system.customfieldtypes:multiuserpicker' } },
+    { id: 'customfield_14000', name: 'Hidden Picker', custom: true, searchable: false, schema: { type: 'user', custom: PICKER } },
+    { id: 'assignee', name: 'Assignee', custom: false, searchable: true, schema: { type: 'user', system: 'assignee' } },
+    { id: 'customfield_11300', name: 'Assigned Team', custom: true, navigable: true, searchable: true, schema: { type: 'option', custom: 'com.atlassian.jira.plugin.system.customfieldtypes:select' } },
+    { id: 'customfield_12000', name: 'Components (multi)', custom: true, searchable: true, schema: { type: 'array', items: 'option', custom: 'com.atlassian.jira.plugin.system.customfieldtypes:multiselect' } }
+  ];
+
+  for (const [edition, makeClient, path] of [['Jira Cloud', cloud, '/rest/api/3/field'], ['Data Center / Server', server, '/rest/api/2/field']]) {
+    it(`lists ${edition}'s searchable single-user fields and single-select fields, from one GET /field`, async () => {
+      const jira = fakeJira({ fieldList: FIELDS });
+      const { singleSelect, userPickers } = await makeClient(jira).getCustomViewFields();
+      assert.deepEqual(userPickers, [{ id: 'customfield_10600', name: 'Development Lead' }, { id: 'customfield_13931', name: 'QA Assignee' }]);
+      assert.deepEqual(singleSelect.map((field) => field.id), ['customfield_11300']);
+      assert.deepEqual(jira.requests.map((url) => url.pathname), [path]);
+    });
+  }
+
+  it('finds an issue assigned to the user only through a custom user field, outside Active', async () => {
+    const QA_ONLY = { id: '10009', key: 'KAN-9', fields: { summary: 'QA it', status: status('10413', 'Selected for Development', 'new'), assignee: OTHER, customfield_13931: ME } };
+    const asked = [];
+    const fetchFn = async (rawUrl) => {
+      const url = new URL(rawUrl);
+      if (url.pathname.endsWith('/myself')) return jsonResponse(200, ME);
+      const jql = url.searchParams.get('jql');
+      asked.push(jql);
+      const issues = jql.includes('cf[13931] in (currentUser())') ? [QA_ONLY] : jql.startsWith('(assignee = currentUser()') ? [MINE_IN_PROGRESS] : [];
+      return jsonResponse(200, { issues, isLast: true });
+    };
+    const client = cloud({ fetchFn });
+    const qa = { field: { id: 'customfield_13931', name: 'QA Assignee' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] };
+    const selected = { field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '10413', label: 'Selected for Development' }] };
+    const allowed = { userFieldIds: ['customfield_13931'] };
+
+    const active = await client.getActiveIssues(SINCE, UNTIL);
+    const alone = await client.searchCustomViewIssues(buildCustomViewJql({ conditions: [qa] }, allowed));
+    const withStatus = await client.searchCustomViewIssues(buildCustomViewJql({ conditions: [selected, qa] }, allowed));
+    assert.deepEqual(keys(active), ['KAN-1']);
+    assert.deepEqual(keys(alone.issues), ['KAN-9']);
+    assert.deepEqual(keys(withStatus.issues), ['KAN-9']);
+    assert.ok(asked.includes('cf[13931] in (currentUser()) ORDER BY updated DESC, key DESC'));
+    assert.ok(asked.includes('status in (10413) AND cf[13931] in (currentUser()) ORDER BY updated DESC, key DESC'));
+    // Never the person: rows have the issue's key, summary, and status only.
+    assert.doesNotMatch(JSON.stringify(alone.issues), /me-123|Dev Me|other-456/);
+  });
+});
+
+describe('Custom views - In and Not in against Jira, with no implicit conditions', () => {
+  // Issues as Jira holds them: status and priority IDs, people by who they are (me or someone else),
+  // a QA user field, and a team. SECRET is one the user can't browse.
+  const PENDING = '10100';
+  const VERIFY = '10200';
+  const DEVELOPMENT = '10300';
+  const DATA = [
+    { key: 'KAN-1', status: DEVELOPMENT, priority: '2', assignee: 'me', reporter: 'other', qa: 'other', team: 'Sega' },
+    { key: 'KAN-2', status: DEVELOPMENT, priority: '3', assignee: 'other', reporter: 'other', qa: 'me', team: null },
+    { key: 'KAN-3', status: PENDING, priority: '2', assignee: 'other', reporter: 'me', qa: null, team: 'Devops' },
+    { key: 'KAN-4', status: VERIFY, priority: '1', assignee: null, reporter: 'other', qa: 'other', team: 'Sega' },
+    { key: 'KAN-5', status: '10400', priority: null, assignee: 'other', reporter: 'other', qa: null, team: null },
+    { key: 'SECRET-1', status: DEVELOPMENT, priority: '1', assignee: 'other', reporter: 'other', qa: 'other', team: null, hidden: true }
+  ];
+  const FIELD = { status: 'status', priority: 'priority', assignee: 'assignee', reporter: 'reporter', 'cf[13931]': 'qa', 'cf[11300]': 'team' };
+
+  /** Evaluates the JQL views generate, as Jira would: clauses with AND, IN / NOT IN, IS EMPTY. */
+  function matches(issue, jql) {
+    const where = jql.replace(/ ORDER BY .*$/, '');
+    return where.split(' AND ').every((clause) => {
+      const value = (list) => list.split(', ').map((item) => (item === 'currentUser()' ? 'me' : item.replace(/^"(.*)"$/, '$1')));
+      let m = /^\((\S+) not in \((.*)\) OR (\S+) is EMPTY\)$/.exec(clause);
+      if (m) {
+        const actual = issue[FIELD[m[1]]];
+        return actual === null || !value(m[2]).includes(actual);
+      }
+      m = /^(\S+) (in|not in) \((.*)\)$/.exec(clause);
+      if (!m) throw new Error(`Unexpected clause: ${clause}`);
+      const actual = issue[FIELD[m[1]]];
+      // Jira's own NOT IN: an empty field never matches.
+      if (actual === null) return false;
+      return m[2] === 'in' ? value(m[3]).includes(actual) : !value(m[3]).includes(actual);
+    });
+  }
+
+  function evaluatingJira() {
+    const asked = [];
+    const fetchFn = async (rawUrl) => {
+      const url = new URL(rawUrl);
+      const jql = url.searchParams.get('jql');
+      asked.push(jql);
+      // Jira's permissions decide: issues the user can't browse are never returned.
+      const issues = DATA.filter((issue) => !issue.hidden && matches(issue, jql))
+        .map((issue) => ({ id: issue.key, key: issue.key, fields: { summary: issue.key, status: { id: issue.status, name: issue.status } } }));
+      return jsonResponse(200, { issues, startAt: 0, total: issues.length });
+    };
+    return { fetchFn, asked };
+  }
+
+  const condition = (id, operator, values) => ({ field: { id, name: id }, operator, values });
+  const ids = (list) => list.map((id) => ({ id, label: id }));
+  const me = [{ currentUser: true, label: 'Me' }];
+  const QA = { userFieldIds: ['customfield_13931'] };
+  async function run(conditions, context = {}) {
+    const jira = evaluatingJira();
+    const { issues } = await server(jira).searchCustomViewIssues(buildCustomViewJql({ conditions }, context));
+    return { keys: keys(issues), jql: jira.asked[0] };
+  }
+
+  it('Status Not in Pending, Verify finds issues in every other status, whoever they belong to', async () => {
+    const { keys: found, jql } = await run([condition('status', 'notIn', ids([PENDING, VERIFY]))]);
+    assert.deepEqual(found, ['KAN-1', 'KAN-2', 'KAN-5']);
+    assert.ok(found.includes('KAN-2') && found.includes('KAN-5'), 'assigned to someone else');
+    assert.equal(jql, `status not in (${PENDING}, ${VERIFY}) ORDER BY updated DESC, key DESC`);
+  });
+
+  it('Status In Development finds matching issues whatever their assignee', async () => {
+    assert.deepEqual((await run([condition('status', 'in', ids([DEVELOPMENT]))])).keys, ['KAN-1', 'KAN-2']);
+  });
+
+  it('restricts to the user only through a user condition chosen explicitly', async () => {
+    assert.deepEqual((await run([condition('status', 'in', ids([DEVELOPMENT])), condition('assignee', 'in', me)])).keys, ['KAN-1']);
+    assert.deepEqual((await run([condition('status', 'in', ids([DEVELOPMENT])), condition('customfield_13931', 'in', me)], QA)).keys, ['KAN-2']);
+  });
+
+  it('intersects Status Not in with Assignee In Me', async () => {
+    assert.deepEqual((await run([condition('status', 'notIn', ids([PENDING, VERIFY])), condition('assignee', 'in', me)])).keys, ['KAN-1']);
+  });
+
+  it('Not in Me also finds issues with nobody in the field', async () => {
+    assert.deepEqual((await run([condition('assignee', 'notIn', me)])).keys, ['KAN-2', 'KAN-3', 'KAN-4', 'KAN-5'], 'KAN-4 is unassigned');
+    assert.deepEqual((await run([condition('customfield_13931', 'notIn', me)], QA)).keys, ['KAN-1', 'KAN-3', 'KAN-4', 'KAN-5'], 'KAN-3 and KAN-5 have no QA');
+    assert.deepEqual((await run([condition('priority', 'notIn', ids(['1', '2']))])).keys, ['KAN-2', 'KAN-5'], 'KAN-5 has no priority');
+    assert.deepEqual((await run([condition('customfield_11300', 'notIn', [{ id: 'Sega', label: 'Sega' }])])).keys, ['KAN-2', 'KAN-3', 'KAN-5']);
+  });
+
+  it('In on a custom user field and a select field, combined with Priority', async () => {
+    assert.deepEqual((await run([condition('priority', 'in', ids(['2', '3'])), condition('customfield_13931', 'in', me)], QA)).keys, ['KAN-2']);
+    assert.deepEqual((await run([condition('customfield_11300', 'in', [{ id: 'Sega', label: 'Sega' }]), condition('reporter', 'notIn', me)])).keys, ['KAN-1', 'KAN-4']);
+  });
+
+  it('lists only what Jira returns: an issue the user can\'t browse never appears', async () => {
+    const { keys: found } = await run([condition('status', 'in', ids([DEVELOPMENT]))]);
+    assert.ok(!found.includes('SECRET-1'));
+  });
+});
+
 describe('Custom views - Jira sorts before it limits', () => {
   it('asks Jira for its first 20 issues in the view\'s order, keeping the total', async () => {
     const requests = [];
@@ -188,10 +336,10 @@ describe('Custom views - Jira sorts before it limits', () => {
       requests.push(new URL(rawUrl));
       return jsonResponse(200, { issues: [REPORTED_BACKLOG], startAt: 0, total: 147 });
     };
-    const view = { conditions: [{ field: { id: 'reporter', name: 'Reporter' }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] }], orderBy: { field: 'priority', direction: 'ASC' } };
+    const view = { conditions: [{ field: { id: 'reporter', name: 'Reporter' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] }], orderBy: { field: 'priority', direction: 'ASC' } };
     const result = await server({ fetchFn }).searchCustomViewIssues(buildCustomViewJql(view));
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].searchParams.get('jql'), 'reporter = currentUser() ORDER BY priority ASC, key ASC');
+    assert.equal(requests[0].searchParams.get('jql'), 'reporter in (currentUser()) ORDER BY priority ASC, key ASC');
     assert.equal(requests[0].searchParams.get('maxResults'), '20');
     assert.equal(requests[0].searchParams.get('startAt'), '0');
     assert.deepEqual({ total: result.total, hasMore: result.hasMore }, { total: 147, hasMore: true });
@@ -200,7 +348,7 @@ describe('Custom views - Jira sorts before it limits', () => {
   it('lists the issues in Jira\'s order, never sorting them again', async () => {
     const order = [OTHERS_IN_PROGRESS, MINE_IN_PROGRESS, REPORTED_BACKLOG];
     const fetchFn = async () => jsonResponse(200, { issues: order, isLast: true });
-    const { issues } = await cloud({ fetchFn }).searchCustomViewIssues('status = 3 ORDER BY key DESC');
+    const { issues } = await cloud({ fetchFn }).searchCustomViewIssues('status in (3) ORDER BY key DESC');
     assert.deepEqual(keys(issues), ['KAN-3', 'KAN-1', 'KAN-2']);
   });
 });
@@ -286,7 +434,14 @@ describe('Custom views - custom fields from Jira (GET /field)', () => {
 describe('Custom views - storage per Jira site', () => {
   const SITE = 'cloud|https://acme.atlassian.net';
   const OTHER_SITE = 'server|https://jira.example.com';
-  const view = (id, name, orderBy = { field: 'updated', direction: 'DESC' }) => ({ id, name, conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }], orderBy });
+  const view = (id, name, orderBy = { field: 'updated', direction: 'DESC' }) => ({ id, name, conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }] }], orderBy });
+
+  it('saves five views for a site, and reads them back in order', async () => {
+    const store = createSettingsStore(createMemoryStorageArea());
+    const five = ['One', 'Two', 'Three', 'Four', 'Five'].map((name, i) => view(`v${i}`, name));
+    await store.saveCustomViews(SITE, five);
+    assert.deepEqual(customViewsForSite(await store.load(), SITE).views.map((v) => v.name), ['One', 'Two', 'Three', 'Four', 'Five']);
+  });
 
   it('saves a site\'s views, and reads them back', async () => {
     const store = createSettingsStore(createMemoryStorageArea());
@@ -294,6 +449,24 @@ describe('Custom views - storage per Jira site', () => {
     const settings = await store.load();
     assert.deepEqual(customViewsForSite(settings, SITE), { version: 1, views: [view('a', 'Development Queue')] });
     assert.deepEqual(customViewsForSite(settings, OTHER_SITE), { version: 1, views: [] });
+  });
+
+  it('reads views saved with Equals or Is one of as In, keeping their values, order, ID, and name', async () => {
+    const stored = { version: 1, views: [{ id: 'old', name: 'Old one', orderBy: { field: 'duedate', direction: 'ASC' }, conditions: [
+      { field: { id: 'status', name: 'Status' }, operator: 'isOneOf', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] },
+      { field: { id: 'reporter', name: 'Reporter' }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] }
+    ] }] };
+    const otherEntry = { version: 9, views: [{ from: 'a newer version' }] };
+    const area = createMemoryStorageArea({ customViewsBySite: { [SITE]: stored, [OTHER_SITE]: otherEntry } });
+    const store = createSettingsStore(area);
+    const [view] = customViewsForSite(await store.load(), SITE).views;
+    assert.deepEqual({ id: view.id, name: view.name, orderBy: view.orderBy }, { id: 'old', name: 'Old one', orderBy: { field: 'duedate', direction: 'ASC' } });
+    assert.deepEqual(view.conditions.map((c) => [c.field.id, c.operator, c.values.map((v) => v.id ?? 'me')]), [['status', 'in', ['3', '4']], ['reporter', 'in', ['me']]]);
+    // Saved again (with In), and the newer version's entry left as it was.
+    await store.saveCustomViews(SITE, [view]);
+    const { customViewsBySite } = await area.get(['customViewsBySite']);
+    assert.deepEqual(customViewsBySite[SITE].views[0].conditions.map((c) => c.operator), ['in', 'in']);
+    assert.deepEqual(customViewsBySite[OTHER_SITE], otherEntry);
   });
 
   it('saves each view\'s order, and reads a view saved without one as Updated descending', async () => {
@@ -323,11 +496,12 @@ describe('Custom views - storage per Jira site', () => {
     assert.deepEqual((await area.get(['customViewsBySite'])).customViewsBySite[SITE], entry);
   });
 
-  it('refuses invalid views, more than two, or no site, saving nothing', async () => {
+  it('refuses invalid views, more than five, or no site, saving nothing', async () => {
     const area = createMemoryStorageArea();
     const store = createSettingsStore(area);
     await assert.rejects(store.saveCustomViews(SITE, [{ id: 'a', name: 'Active', conditions: [] }]), /aren't valid/);
-    await assert.rejects(store.saveCustomViews(SITE, [view('a', 'One'), view('b', 'Two'), view('c', 'Three')]), /aren't valid/);
+    const six = ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map((name, i) => view(`v${i}`, name));
+    await assert.rejects(store.saveCustomViews(SITE, six), /aren't valid/);
     await assert.rejects(store.saveCustomViews('', [view('a', 'One')]), /site is required/);
     assert.deepEqual(await area.get(null), {});
   });

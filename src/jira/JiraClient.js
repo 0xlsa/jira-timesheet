@@ -1074,6 +1074,26 @@ export class JiraClient {
   }
 
   /**
+   * Lists the custom fields custom views can use, from one `GET /field` request: the single-select
+   * and radio-button fields (getSingleSelectFields()), and the single-user fields that can be
+   * compared with Me (the same as getUserPickerFields(): user pickers JQL can search).
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<{ singleSelect: Array<{ id: string, name: string, kind: 'option', type: string }>,
+   *   userPickers: Array<{ id: string, name: string }> }>} Each sorted by name. Rejects with a
+   *   user-facing Error (with `status` for HTTP errors) when the fields can't be read
+   */
+  async getCustomViewFields({ signal } = {}) {
+    try {
+      const data = await this.#getFields(signal);
+      return { singleSelect: parseSingleSelectFields(data), userPickers: parseUserPickerFields(data) };
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
    * Lists the statuses custom views can filter on: every status Jira lists for the user (`GET
    * /status`; v3 on Cloud, with the v2 fallback; v2 on Data Center / Server), no administrator
    * access needed.

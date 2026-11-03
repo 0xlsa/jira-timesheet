@@ -6,9 +6,9 @@ import { h } from '../src/ui/dom.js';
 import { renderWorkingIssues, VIEW_SEARCHING, VIEW_NO_MATCHES, VIEW_FIELD_UNAVAILABLE, VIEW_UPDATING } from '../src/ui/weekView.js';
 import {
   openCustomViewEditor, NO_VALUES, VALUES_UNAVAILABLE, FIELDS_UNAVAILABLE, NO_MATCHING_VALUES, NOT_IN_JIRA,
-  VIEW_SEARCH_HINT, VALUE_FILTER_THRESHOLD, VALUE_SEARCH_DELAY_MS
+  VIEW_SEARCH_HINT, VALUE_FILTER_THRESHOLD, VALUE_SEARCH_DELAY_MS, ADD_CONDITION
 } from '../src/ui/customViewEditor.js';
-import { validateViewDraft, describeView, SYSTEM_FIELDS, ALL_VIEW_ID } from '../src/jira/customViews.js';
+import { validateViewDraft, describeView, SYSTEM_FIELDS, ALL_VIEW_ID, MAX_CUSTOM_VIEWS } from '../src/jira/customViews.js';
 
 const SITE = 'cloud|https://acme.atlassian.net';
 const HOSTILE = '<img src=x onerror=alert(1)>';
@@ -24,16 +24,16 @@ const issue = (key, statusName = 'In Progress') => ({
 /** Active's list. */
 const ACTIVE = [issue('KAN-1'), issue('KAN-2', 'In Review')];
 
-const condition = (fieldId, values, operator = 'equals') => ({ field: { id: fieldId, name: fieldId === 'reporter' ? 'Reporter' : fieldId === 'status' ? 'Status' : fieldId }, operator, values });
+const condition = (fieldId, values, operator = 'in') => ({ field: { id: fieldId, name: fieldId === 'reporter' ? 'Reporter' : fieldId === 'status' ? 'Status' : fieldId }, operator, values });
 const REPORTED = { id: 'reported', name: 'Reported', conditions: [condition('reporter', [{ currentUser: true, label: 'Me' }])] };
-const QUEUE = { id: 'queue', name: 'Development Queue', conditions: [condition('status', [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }], 'isOneOf')] };
+const QUEUE = { id: 'queue', name: 'Development Queue', conditions: [condition('status', [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }], 'in')] };
 
 const ready = (issues, { total = issues.length, hasMore = false } = {}) => ({ status: 'ready', issues, total, hasMore, message: '' });
 /** The Reported view's own search: issues Active Issues doesn't list. */
 const REPORTED_RESULT = ready([issue('OPS-7', 'Backlog'), issue('OPS-8', 'Done')]);
 
 /** renderWorkingIssues()'s `views`, from saved views and their results, recording what's asked. */
-function viewsOptions(saved, { selectedId = ALL_VIEW_ID, unavailable = [], results = {}, canCreate = saved.length < 2 } = {}) {
+function viewsOptions(saved, { selectedId = ALL_VIEW_ID, unavailable = [], results = {}, canCreate = saved.length < MAX_CUSTOM_VIEWS } = {}) {
   const calls = [];
   return {
     calls,
@@ -121,7 +121,7 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     assert.deepEqual(rowKeys(section), ['OPS-7', 'OPS-8'], 'Active\'s issues aren\'t listed too');
     assert.equal(section.querySelectorAll('.working-issues-list').length, 1);
-    assert.equal(section.querySelector('.working-issues-view-query').textContent, 'Jira search: Reporter is Me · Updated, descending');
+    assert.equal(section.querySelector('.working-issues-view-query').textContent, 'Jira search: Reporter in Me · Updated, descending');
     assert.equal(section.querySelector('#recentlyLoggedSwitch'), null);
     assert.equal(header(section), 'My Issues (2)');
     assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-reported');
@@ -221,7 +221,7 @@ describe('Custom views - tabs in My Issues', () => {
     assert.equal(tabs(section)[1].classList.contains('is-unavailable'), true);
   });
 
-  it('has + for a new view, until there are two, and the edit button only for a selected custom view', () => {
+  it('has + for a new view, until there are five, and the edit button only for a selected custom view', () => {
     const { views, calls } = viewsOptions([REPORTED], { selectedId: 'reported' });
     const section = render({ views });
     const bar = section.querySelector('.working-issues-viewbar');
@@ -230,7 +230,11 @@ describe('Custom views - tabs in My Issues', () => {
     section.querySelector('[data-action="add-view"]').click();
     assert.deepEqual(calls, [['edit', 'reported'], ['create']]);
     assert.equal(section.querySelector('[data-action="edit-view"]').getAttribute('aria-label'), 'Edit the Reported view');
-    assert.equal(render({ views: viewsOptions([REPORTED, QUEUE]).views }).querySelector('[data-action="add-view"]'), null);
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ ...QUEUE, id: `q${i}`, name: `Queue ${i + 1}` }));
+    assert.ok(render({ views: viewsOptions(many(4)).views }).querySelector('[data-action="add-view"]'), 'a fifth can be added');
+    const five = render({ views: viewsOptions(many(5)).views });
+    assert.equal(five.querySelector('[data-action="add-view"]'), null);
+    assert.deepEqual(tabTexts(five), ['Active (3)', 'Queue 1', 'Queue 2', 'Queue 3', 'Queue 4', 'Queue 5'], 'all side by side');
     assert.ok(render({ views: viewsOptions([]).views }).querySelector('[data-action="add-view"]'));
     assert.equal(section.querySelector('[data-action="refresh-view"]'), null);
   });
@@ -249,7 +253,7 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     assert.equal(section.querySelector('[role="tablist"]').getAttribute('aria-label'), 'Views of My Issues');
     assert.deepEqual(tabs(section).map((tab) => [tab.getAttribute('aria-selected'), tab.getAttribute('tabindex')]), [['true', '0'], ['false', '-1'], ['false', '-1']]);
-    assert.equal(tabs(section)[1].getAttribute('title'), 'Reporter is Me · Updated, descending');
+    assert.equal(tabs(section)[1].getAttribute('title'), 'Reporter in Me · Updated, descending');
     assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-all');
   });
 
@@ -258,12 +262,12 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     const press = (key) => section.querySelector('[role="tablist"]').dispatchEvent({ type: 'keydown', key });
     press('ArrowRight');
-    assert.equal(document.activeElement, tabs(section)[1]);
+    assert.ok(document.activeElement === tabs(section)[1], 'focus');
     press('ArrowLeft');
-    assert.equal(document.activeElement, tabs(section)[2], 'wraps to the last');
+    assert.ok(document.activeElement === tabs(section)[2], 'wraps to the last');
     press('End');
     press('Home');
-    assert.equal(document.activeElement, tabs(section)[0]);
+    assert.ok(document.activeElement === tabs(section)[0], 'focus');
     assert.deepEqual(calls, [['select', 'reported'], ['select', 'queue'], ['select', 'queue']]);
   });
 
@@ -272,7 +276,7 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views });
     tabs(section)[2].focus();
     render({ views: { ...views, selectedId: 'queue' }, section });
-    assert.equal(document.activeElement, tabs(section)[2]);
+    assert.ok(document.activeElement === tabs(section)[2], 'focus');
     assert.equal(tabs(section)[2].getAttribute('aria-selected'), 'true');
   });
 
@@ -351,21 +355,26 @@ describe('Custom views - editor', () => {
       $(selector).value = value;
       $(selector).dispatchEvent({ type: 'change' });
     };
+    /** The value's checkbox, as drawn now (each change draws the values again, chosen ones first). */
+    const valueInput = (label) => root.querySelectorAll('.custom-view-value').find((el) => el.querySelector('span').textContent === label)?.querySelector('input');
+    const setValue = (label, checked) => {
+      const input = valueInput(label);
+      input.checked = checked;
+      input.dispatchEvent({ type: 'change' });
+    };
     const check = (...labels) => {
-      for (const label of root.querySelectorAll('.custom-view-value')) {
-        if (!labels.includes(label.querySelector('span').textContent)) continue;
-        const input = label.querySelector('input');
-        input.checked = true;
-        input.dispatchEvent({ type: 'change' });
-      }
+      for (const label of labels) if (valueInput(label)) setValue(label, true);
+    };
+    const uncheck = (...labels) => {
+      for (const label of labels) setValue(label, false);
     };
     const submit = () => $('form').dispatchEvent({ type: 'submit' });
     const valueLabels = () => root.querySelectorAll('.custom-view-value').map((label) => label.querySelector('span').textContent);
     const search = (text) => {
-      $('#customViewValueSearch').value = text;
-      $('#customViewValueSearch').dispatchEvent({ type: 'input' });
+      $('#customViewValueSearch-1').value = text;
+      $('#customViewValueSearch-1').dispatchEvent({ type: 'input' });
     };
-    return { root, editor, calls, $, choose, check, submit, valueLabels, search };
+    return { root, editor, calls, $, choose, check, uncheck, submit, valueLabels, search };
   }
 
   it('opens to create a view, focused on its name, with the fields grouped', () => {
@@ -373,54 +382,64 @@ describe('Custom views - editor', () => {
     assert.equal(root.classList.contains('hidden'), false);
     assert.equal(root.getAttribute('aria-labelledby'), 'customViewTitle');
     assert.equal($('#customViewTitle').textContent, 'New view');
-    assert.equal(document.activeElement, $('#customViewName'));
+    assert.ok(document.activeElement === $('#customViewName'), 'focus');
     assert.equal($('#customViewName').getAttribute('maxlength'), '30');
-    assert.deepEqual($('#customViewField').querySelectorAll('optgroup').map((g) => [g.getAttribute('label'), g.querySelectorAll('option').map((o) => o.textContent)]), [
+    assert.deepEqual($('#customViewField-1').querySelectorAll('optgroup').map((g) => [g.getAttribute('label'), g.querySelectorAll('option').map((o) => o.textContent)]), [
       ['Fields', ['Status', 'Priority', 'Assignee', 'Reporter']],
       ['Additional Assignment Fields', ['QA Assignee']]
     ]);
-    assert.equal($('#customViewOperator').disabled, true);
+    assert.equal($('#customViewOperator-1').disabled, true);
     assert.equal($('[data-action="delete-view"]'), null);
     // Where a view's issues come from: its own search, not Active Issues.
     assert.equal($('.custom-view-hint').textContent, VIEW_SEARCH_HINT);
-    assert.match(VIEW_SEARCH_HINT, /first 20 issues you can see in Jira that match, whether Active lists them or not/);
+    assert.match(VIEW_SEARCH_HINT, /first 20 issues you can see in Jira that match all its conditions, whether Active lists them or not/);
   });
 
-  it('offers the values Jira lists, one for Equals and several for Is one of', async () => {
-    const { $, choose, valueLabels, root } = open();
-    choose('#customViewField', 'status');
+  it('offers In and Not in, In first, each with the values Jira lists as checkboxes', async () => {
+    const { $, choose, check, valueLabels, root } = open();
+    choose('#customViewField-1', 'status');
     await flush();
-    assert.deepEqual($('#customViewOperator').querySelectorAll('option').map((o) => o.textContent), ['Equals', 'Is one of']);
+    assert.deepEqual($('#customViewOperator-1').querySelectorAll('option').map((o) => [o.getAttribute('value'), o.textContent]), [['in', 'In'], ['notIn', 'Not in']]);
+    assert.equal($('#customViewOperator-1').value, 'in');
+    assert.equal($('#customViewOperator-1').disabled, false);
     assert.deepEqual(valueLabels(), ['In Progress', 'In Review']);
-    assert.ok(root.querySelectorAll('input[name="customViewValue"]').every((input) => input.getAttribute('type') === 'radio'));
-    choose('#customViewOperator', 'isOneOf');
-    assert.ok(root.querySelectorAll('input[name="customViewValue"]').every((input) => input.getAttribute('type') === 'checkbox'));
+    assert.ok(root.querySelectorAll('input[name="customViewValue-1"]').every((input) => input.getAttribute('type') === 'checkbox'));
     assert.equal(root.querySelector('legend').textContent, 'Values');
+    // Changing the operator keeps the values chosen.
+    check('In Progress', 'In Review');
+    choose('#customViewOperator-1', 'notIn');
+    assert.ok(root.querySelectorAll('input[name="customViewValue-1"]').every((input) => input.getAttribute('type') === 'checkbox'));
+    assert.deepEqual(root.querySelectorAll('input[name="customViewValue-1"]').map((input) => input.checked), [true, true]);
   });
 
-  it('offers only Equals, and only Me, for user fields', async () => {
+  it('offers In and Not in, and only Me, chosen already, for user fields', async () => {
     for (const fieldId of ['assignee', 'reporter', 'customfield_10050']) {
-      const { $, choose, valueLabels, root } = open();
-      choose('#customViewField', fieldId);
+      const { $, choose, valueLabels, root, submit, calls } = open();
+      $('#customViewName').value = 'Mine';
+      choose('#customViewField-1', fieldId);
       await flush();
-      assert.deepEqual($('#customViewOperator').querySelectorAll('option').map((o) => o.textContent), ['Equals'], fieldId);
-      assert.equal($('#customViewOperator').disabled, true);
+      assert.deepEqual($('#customViewOperator-1').querySelectorAll('option').map((o) => o.textContent), ['In', 'Not in'], fieldId);
       assert.deepEqual(valueLabels(), ['Me']);
-      assert.equal(root.querySelector('input[name="customViewValue"]').checked, true);
+      assert.equal(root.querySelector('input[name="customViewValue-1"]').checked, true);
+      choose('#customViewOperator-1', 'notIn');
+      submit();
+      await flush();
+      assert.deepEqual(calls[0][1].conditions[0].operator, 'notIn', fieldId);
+      assert.deepEqual(calls[0][1].conditions[0].values, [{ currentUser: true, label: 'Me' }]);
     }
   });
 
   it('saves a valid view: its trimmed name and one condition', async () => {
     const { $, choose, check, submit, calls } = open();
     $('#customViewName').value = '  Development Queue ';
-    choose('#customViewField', 'status');
+    choose('#customViewField-1', 'status');
     await flush();
-    choose('#customViewOperator', 'isOneOf');
+    choose('#customViewOperator-1', 'in');
     check('In Progress', 'In Review');
     submit();
     await flush();
     assert.deepEqual(calls, [
-      ['save', { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'isOneOf', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] }], orderBy: { field: 'updated', direction: 'DESC' } }],
+      ['save', { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] }], orderBy: { field: 'updated', direction: 'DESC' } }],
       ['close']
     ]);
   });
@@ -428,44 +447,43 @@ describe('Custom views - editor', () => {
   it('saves Assignee equals Me', async () => {
     const { $, choose, submit, calls } = open();
     $('#customViewName').value = 'Mine';
-    choose('#customViewField', 'assignee');
+    choose('#customViewField-1', 'assignee');
     await flush();
     submit();
     await flush();
-    assert.deepEqual(calls[0][1].conditions, [{ field: { id: 'assignee', name: 'Assignee' }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] }]);
+    assert.deepEqual(calls[0][1].conditions, [{ field: { id: 'assignee', name: 'Assignee' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] }]);
   });
 
   it('shows what\'s wrong and saves nothing: name, field, values, the limit', async () => {
     const empty = open();
     empty.submit();
     assert.match(empty.$('#customViewNameError').textContent, /Enter a name/);
-    assert.match(empty.$('#customViewFieldError').textContent, /Choose a field/);
+    assert.match(empty.$('#customViewFieldError-1').textContent, /Choose a field/);
     assert.equal(empty.calls.length, 0);
-    assert.equal(document.activeElement, empty.$('#customViewName'));
+    assert.ok(document.activeElement === empty.$('#customViewName'), 'focus');
 
     const twoValues = open({ views: [{ id: 'x', name: 'Taken', conditions: [] }] });
     twoValues.$('#customViewName').value = 'taken';
-    twoValues.choose('#customViewField', 'status');
+    twoValues.choose('#customViewField-1', 'status');
     await flush();
-    twoValues.choose('#customViewOperator', 'isOneOf');
-    twoValues.check('In Progress');
+    twoValues.choose('#customViewOperator-1', 'notIn');
     twoValues.submit();
     assert.match(twoValues.$('#customViewNameError').textContent, /Another view already has this name/);
-    assert.match(twoValues.$('#customViewValuesError').textContent, /at least two values/);
+    assert.match(twoValues.$('#customViewValuesError-1').textContent, /Choose at least one value/);
 
-    const full = open({ views: [{ id: 'a', name: 'A', conditions: [] }, { id: 'b', name: 'B', conditions: [] }] });
+    const full = open({ views: ['A', 'B', 'D', 'E', 'F'].map((name) => ({ id: name.toLowerCase(), name, conditions: [] })) });
     full.$('#customViewName').value = 'C';
-    full.choose('#customViewField', 'assignee');
+    full.choose('#customViewField-1', 'assignee');
     await flush();
     full.submit();
-    assert.match(full.$('#customViewFormError').textContent, /at most 2 custom views/);
+    assert.match(full.$('#customViewFormError').textContent, /at most 5 custom views/);
     assert.equal(full.calls.length, 0);
   });
 
   it('keeps the form and says why when saving fails', async () => {
     const { $, choose, submit, calls, editor } = open({ onSave: async () => { throw new Error('Storage is full.'); } });
     $('#customViewName').value = 'Mine';
-    choose('#customViewField', 'assignee');
+    choose('#customViewField-1', 'assignee');
     await flush();
     submit();
     await flush();
@@ -486,13 +504,13 @@ describe('Custom views - editor', () => {
     assert.deepEqual(root.querySelectorAll('.custom-view-direction').map((label) => label.textContent), ['Ascending (ASC)', 'Descending (DESC)']);
     const groups = root.querySelectorAll('.form-group');
     const at = (el) => groups.indexOf(el.closest('.form-group'));
-    assert.ok(at(select) > at($('#customViewValues')), 'after the condition');
+    assert.ok(at(select) > at($('#customViewValues-1')), 'after the condition');
   });
 
   it('saves the chosen order and direction', async () => {
     const { $, root, choose, submit, calls } = open();
     $('#customViewName').value = 'By priority';
-    choose('#customViewField', 'reporter');
+    choose('#customViewField-1', 'reporter');
     await flush();
     choose('#customViewOrderBy', 'priority');
     const ascending = root.querySelectorAll('input[name="customViewOrderDirection"]').find((input) => input.value === 'ASC');
@@ -518,33 +536,34 @@ describe('Custom views - editor', () => {
   it('refuses an order that isn\'t offered, saying so, and saves nothing', async () => {
     const { $, root, choose, submit, calls } = open();
     $('#customViewName').value = 'Mine';
-    choose('#customViewField', 'assignee');
+    choose('#customViewField-1', 'assignee');
     await flush();
     for (const input of root.querySelectorAll('input[name="customViewOrderDirection"]')) input.checked = false;
     submit();
     assert.match($('#customViewOrderByError').textContent, /Choose an order and a direction/);
-    assert.equal(document.activeElement, $('#customViewOrderBy'));
+    assert.ok(document.activeElement === $('#customViewOrderBy'), 'focus');
     assert.deepEqual(calls, []);
   });
 
   it('opens a saved view to edit it, with its name, field, operator, and values', async () => {
-    const view = { id: 'queue', name: 'Development Queue', conditions: [condition('status', [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }], 'isOneOf')] };
+    const view = { id: 'queue', name: 'Development Queue', conditions: [condition('status', [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }], 'in')] };
     const { $, root } = open({ view, views: [view] });
     await flush();
     assert.equal($('#customViewTitle').textContent, 'Edit view');
     assert.equal($('#customViewName').value, 'Development Queue');
-    assert.equal($('#customViewField').value, 'status');
-    assert.equal($('#customViewOperator').value, 'isOneOf');
-    assert.deepEqual(root.querySelectorAll('input[name="customViewValue"]').map((input) => input.checked), [true, true]);
+    assert.equal($('#customViewField-1').value, 'status');
+    assert.equal($('#customViewOperator-1').value, 'in');
+    assert.deepEqual(root.querySelectorAll('input[name="customViewValue-1"]').map((input) => input.checked), [true, true]);
   });
 
   it('keeps a saved status Jira doesn\'t list any more, saying so', async () => {
     const view = { id: 'queue', name: 'Queue', conditions: [condition('status', [{ id: '7', label: 'Blocked' }])] };
     const { valueLabels, root, submit, calls } = open({ view, views: [view] });
     await flush();
-    assert.deepEqual(valueLabels(), ['In Progress', 'In Review', 'Blocked']);
+    // Chosen, so first.
+    assert.deepEqual(valueLabels(), ['Blocked', 'In Progress', 'In Review']);
     assert.equal(root.querySelector('.custom-view-value-note').textContent, ` (${NOT_IN_JIRA})`);
-    assert.equal(root.querySelectorAll('input[name="customViewValue"]')[2].checked, true);
+    assert.equal(root.querySelectorAll('input[name="customViewValue-1"]')[0].checked, true);
     submit();
     await flush();
     assert.deepEqual(calls[0][1].conditions[0].values, [{ id: '7', label: 'Blocked' }]);
@@ -554,10 +573,10 @@ describe('Custom views - editor', () => {
     const view = { id: 'team', name: 'Team', conditions: [condition('customfield_10999', [{ id: '1', label: 'X' }])] };
     const { $ } = open({ view, views: [view] });
     await flush();
-    const gone = $('#customViewField').querySelectorAll('option').find((o) => o.getAttribute('value') === 'customfield_10999');
+    const gone = $('#customViewField-1').querySelectorAll('option').find((o) => o.getAttribute('value') === 'customfield_10999');
     assert.equal(gone.textContent, 'customfield_10999 (no longer available)');
     assert.equal(gone.hasAttribute('disabled'), true);
-    assert.equal($('#customViewField').value, '');
+    assert.equal($('#customViewField-1').value, '');
   });
 
   it('adds the custom single-select fields once loaded, choosing a saved one with its values', async () => {
@@ -569,41 +588,41 @@ describe('Custom views - editor', () => {
     await flush();
     await flush();
     assert.equal($('#customViewFieldsStatus').textContent, '');
-    assert.deepEqual($('#customViewField').querySelectorAll('optgroup').map((g) => g.getAttribute('label')), ['Fields', 'Additional Assignment Fields', 'Custom fields']);
-    assert.equal($('#customViewField').value, 'customfield_10100');
-    assert.deepEqual(root.querySelectorAll('input[name="customViewValue"]').map((input) => input.checked), [true]);
+    assert.deepEqual($('#customViewField-1').querySelectorAll('optgroup').map((g) => g.getAttribute('label')), ['Fields', 'Additional Assignment Fields', 'Custom fields']);
+    assert.equal($('#customViewField-1').value, 'customfield_10100');
+    assert.deepEqual(root.querySelectorAll('input[name="customViewValue-1"]').map((input) => input.checked), [true]);
   });
 
   it('says when the custom fields or the values can\'t be loaded', async () => {
     const { $, choose } = open({ loadCustomFields: async () => { throw new Error('no'); }, loadValues: async () => { throw new Error('no'); } });
     await flush();
     assert.equal($('#customViewFieldsStatus').textContent, FIELDS_UNAVAILABLE);
-    choose('#customViewField', 'status');
+    choose('#customViewField-1', 'status');
     await flush();
-    assert.equal($('#customViewValues').textContent, VALUES_UNAVAILABLE);
+    assert.equal($('#customViewValues-1').textContent, VALUES_UNAVAILABLE);
   });
 
   it('says when Jira has no values for the field', async () => {
     const { $, choose } = open();
-    choose('#customViewField', 'priority');
+    choose('#customViewField-1', 'priority');
     await flush();
-    assert.equal($('#customViewValues').textContent, NO_VALUES);
+    assert.equal($('#customViewValues-1').textContent, NO_VALUES);
   });
 
   it('filters a long list by name, keeping what\'s chosen, and Enter doesn\'t save', async () => {
     const values = Array.from({ length: VALUE_FILTER_THRESHOLD + 2 }, (_, i) => ({ id: String(i + 1), label: i === 5 ? 'Selected for Development' : `Status ${i + 1}` }));
     const { root, choose, check, $, calls } = open({ loadValues: async () => values });
-    choose('#customViewField', 'status');
+    choose('#customViewField-1', 'status');
     await flush();
-    const filter = $('#customViewValueFilter');
-    assert.ok(filter);
-    assert.equal(filter.getAttribute('aria-label'), 'Filter values');
+    assert.equal($('#customViewValueFilter-1').getAttribute('aria-label'), 'Filter values');
     check('Status 1');
+    // The values are drawn again on each change: the filter box too.
+    const filter = $('#customViewValueFilter-1');
     filter.value = 'selected';
     filter.dispatchEvent({ type: 'input' });
     const visible = root.querySelectorAll('li').filter((li) => !li.classList.contains('hidden'));
-    assert.deepEqual(visible.map((li) => li.textContent), ['Selected for Development']);
-    assert.equal(root.querySelectorAll('input[name="customViewValue"]').find((input) => input.value === '1').checked, true, 'still chosen');
+    assert.deepEqual(visible.map((li) => li.textContent), ['Status 1', 'Selected for Development'], 'the chosen value stays in view');
+    assert.equal(root.querySelectorAll('input[name="customViewValue-1"]').find((input) => input.value === '1').checked, true, 'still chosen');
     // dispatchEvent() answers false when a listener prevented the default (submitting the form).
     assert.equal(filter.dispatchEvent({ type: 'keydown', key: 'Enter' }), false);
     assert.deepEqual(calls, []);
@@ -612,11 +631,120 @@ describe('Custom views - editor', () => {
     assert.equal(root.querySelectorAll('[role="status"]').find((el) => !el.classList.contains('hidden'))?.textContent, NO_MATCHING_VALUES);
   });
 
+  describe('chosen values first', () => {
+    const STATUSES = ['Verify', 'Analysis', 'Selected for Development', 'Approved', 'Review', 'Scheduled', 'Awaiting Customer']
+      .map((label, i) => ({ id: String(100 + i), label }));
+    const ALPHABETICAL = ['Analysis', 'Approved', 'Awaiting Customer', 'Review', 'Scheduled', 'Selected for Development', 'Verify'];
+    const chosenLabels = (root) => root.querySelectorAll('.custom-view-value').filter((label) => label.querySelector('input').checked).map((label) => label.textContent);
+    async function openStatus(extra = {}) {
+      const editor = open({ loadValues: async () => STATUSES, ...extra });
+      editor.choose('#customViewField-1', 'status');
+      await flush();
+      return editor;
+    }
+
+    it('lists the values alphabetically while none is chosen', async () => {
+      const { valueLabels, root } = await openStatus();
+      assert.deepEqual(valueLabels(), ALPHABETICAL);
+      assert.equal(root.querySelectorAll('.custom-view-value-others').length, 0);
+    });
+
+    it('moves a value to the top as soon as it\'s chosen, the chosen ones alphabetically, then the others', async () => {
+      const { valueLabels, check, root } = await openStatus();
+      check('Verify');
+      assert.deepEqual(valueLabels(), ['Verify', 'Analysis', 'Approved', 'Awaiting Customer', 'Review', 'Scheduled', 'Selected for Development']);
+      check('Selected for Development');
+      check('Review');
+      assert.deepEqual(valueLabels(), ['Review', 'Selected for Development', 'Verify', 'Analysis', 'Approved', 'Awaiting Customer', 'Scheduled']);
+      assert.deepEqual(chosenLabels(root), ['Review', 'Selected for Development', 'Verify']);
+      // A line between the two groups: on the first value not chosen.
+      assert.deepEqual(root.querySelectorAll('.custom-view-value-others').map((li) => li.textContent), ['Analysis']);
+    });
+
+    it('puts a value back in its place among the others as soon as it\'s no longer chosen', async () => {
+      const { valueLabels, check, uncheck } = await openStatus();
+      check('Verify', 'Review');
+      uncheck('Verify');
+      assert.deepEqual(valueLabels(), ['Review', 'Analysis', 'Approved', 'Awaiting Customer', 'Scheduled', 'Selected for Development', 'Verify']);
+      uncheck('Review');
+      assert.deepEqual(valueLabels(), ALPHABETICAL);
+    });
+
+    it('keeps focus on the value just changed, in its new place', async () => {
+      const { check, root } = await openStatus();
+      check('Scheduled');
+      assert.equal(document.activeElement?.value, '105');
+      assert.ok(root.querySelectorAll('input[name="customViewValue-1"]')[0] === document.activeElement, 'focus');
+    });
+
+    it('lists each value once, and saves the chosen ones', async () => {
+      const { valueLabels, check, uncheck, submit, calls, $ } = await openStatus();
+      $('#customViewName').value = 'Queue';
+      check('Verify', 'Analysis', 'Review');
+      uncheck('Analysis');
+      assert.equal(new Set(valueLabels()).size, valueLabels().length);
+      assert.equal(valueLabels().length, STATUSES.length);
+      submit();
+      await flush();
+      assert.deepEqual(calls[0][1].conditions[0].values.map((v) => v.label).sort(), ['Review', 'Verify']);
+    });
+
+    it('starts an edited view with its saved values first', async () => {
+      const view = { id: 'q', name: 'Queue', conditions: [condition('status', [{ id: '106', label: 'Awaiting Customer' }, { id: '100', label: 'Verify' }])] };
+      const { valueLabels } = open({ view, views: [view], loadValues: async () => STATUSES });
+      await flush();
+      assert.deepEqual(valueLabels(), ['Awaiting Customer', 'Verify', 'Analysis', 'Approved', 'Review', 'Scheduled', 'Selected for Development']);
+    });
+
+    it('keeps the chosen values in view, and chosen, whatever the filter shows', async () => {
+      const many = Array.from({ length: VALUE_FILTER_THRESHOLD + 3 }, (_, i) => ({ id: String(i + 1), label: `Status ${String(i + 1).padStart(2, '0')}` }));
+      const { root, $, check } = await openStatus({ loadValues: async () => many });
+      check('Status 07', 'Status 03');
+      const filter = $('#customViewValueFilter-1');
+      filter.value = '1';
+      filter.dispatchEvent({ type: 'input' });
+      const visible = () => root.querySelectorAll('li').filter((li) => !li.classList.contains('hidden')).map((li) => li.textContent);
+      assert.deepEqual(visible(), ['Status 03', 'Status 07', 'Status 01', 'Status 10', 'Status 11', 'Status 12', 'Status 13']);
+      assert.deepEqual(chosenLabels(root), ['Status 03', 'Status 07']);
+      // Choosing among the filtered values keeps the filter, and moves the value up.
+      check('Status 11');
+      assert.equal($('#customViewValueFilter-1').value, '1');
+      assert.deepEqual(visible(), ['Status 03', 'Status 07', 'Status 11', 'Status 01', 'Status 10', 'Status 12', 'Status 13']);
+      // Nothing matches: says so, the chosen ones still there.
+      $('#customViewValueFilter-1').value = 'zzz';
+      $('#customViewValueFilter-1').dispatchEvent({ type: 'input' });
+      assert.deepEqual(visible(), ['Status 03', 'Status 07', 'Status 11']);
+      assert.equal(root.querySelectorAll('[role="status"]').find((el) => !el.classList.contains('hidden'))?.textContent, NO_MATCHING_VALUES);
+    });
+
+    it('lists a custom field\'s chosen values first, alphabetically, then Jira\'s suggestions', async () => {
+      const suggestions = ['Sega', 'Atari', 'Nintendo', 'Devops'].map((label) => ({ id: label, label }));
+      const { root, valueLabels, check, search } = open({
+        loadCustomFields: async () => [{ id: 'customfield_11300', name: 'Team', kind: 'option' }],
+        loadValues: async (field, query) => suggestions.filter((value) => value.label.toLowerCase().startsWith(query.toLowerCase()))
+      });
+      await flush();
+      const select = root.querySelector('#customViewField-1');
+      select.value = 'customfield_11300';
+      select.dispatchEvent({ type: 'change' });
+      await flush();
+      assert.deepEqual(valueLabels(), ['Atari', 'Devops', 'Nintendo', 'Sega']);
+      check('Sega', 'Devops');
+      assert.deepEqual(valueLabels(), ['Devops', 'Sega', 'Atari', 'Nintendo']);
+      // A search that finds neither keeps them, chosen, at the top.
+      search('N');
+      mock.timers.tick(VALUE_SEARCH_DELAY_MS);
+      await flush();
+      assert.deepEqual(valueLabels(), ['Devops', 'Sega', 'Nintendo']);
+      assert.deepEqual(chosenLabels(root), ['Devops', 'Sega']);
+    });
+  });
+
   it('has no filter for a short list', async () => {
     const { $, choose } = open({ loadValues: async () => [{ id: '3', label: 'In Progress' }] });
-    choose('#customViewField', 'status');
+    choose('#customViewField-1', 'status');
     await flush();
-    assert.equal($('#customViewValueFilter'), null);
+    assert.equal($('#customViewValueFilter-1'), null);
   });
 
   describe('a custom field\'s values, searched in Jira', () => {
@@ -638,19 +766,19 @@ describe('Custom views - editor', () => {
     it('lists Jira\'s suggestions at once, with a search box', async () => {
       const { $, choose, valueLabels, asked } = openTeam();
       await flush();
-      choose('#customViewField', 'customfield_10100');
+      choose('#customViewField-1', 'customfield_10100');
       await flush();
       assert.deepEqual(asked, [['customfield_10100', '']]);
-      assert.deepEqual(valueLabels(), OPTIONS);
-      assert.equal($('#customViewValueSearch').getAttribute('aria-label'), 'Search values in Jira');
+      assert.deepEqual(valueLabels(), [...OPTIONS].sort());
+      assert.equal($('#customViewValueSearch-1').getAttribute('aria-label'), 'Search values in Jira');
     });
 
     it('searches Jira once typing pauses, keeping the search box (and focus) as it is', async () => {
       const { $, choose, valueLabels, asked, search } = openTeam();
       await flush();
-      choose('#customViewField', 'customfield_10100');
+      choose('#customViewField-1', 'customfield_10100');
       await flush();
-      const box = $('#customViewValueSearch');
+      const box = $('#customViewValueSearch-1');
       box.focus();
       search('Pl');
       search('Pla');
@@ -660,28 +788,28 @@ describe('Custom views - editor', () => {
       assert.deepEqual(asked.at(-1), ['customfield_10100', 'Pla']);
       assert.equal(asked.length, 2, 'once, for what was typed last');
       assert.deepEqual(valueLabels(), ['Platform', 'Platform Ops']);
-      assert.equal($('#customViewValueSearch'), box);
-      assert.equal(document.activeElement, box);
+      assert.equal($('#customViewValueSearch-1'), box);
+      assert.ok(document.activeElement === box, 'focus');
     });
 
     it('keeps the chosen values listed, checked, whatever the search shows, and saves them by name', async () => {
       const { $, choose, check, valueLabels, search, submit, calls, root } = openTeam();
       await flush();
       $('#customViewName').value = 'Teams';
-      choose('#customViewField', 'customfield_10100');
+      choose('#customViewField-1', 'customfield_10100');
       await flush();
-      choose('#customViewOperator', 'isOneOf');
+      choose('#customViewOperator-1', 'in');
       check('Platform');
       search('Pro');
       mock.timers.tick(VALUE_SEARCH_DELAY_MS);
       await flush();
       assert.deepEqual(valueLabels(), ['Platform', 'Product']);
       check('Product');
-      assert.deepEqual(root.querySelectorAll('input[name="customViewValue"]').map((input) => input.checked), [true, true]);
+      assert.deepEqual(root.querySelectorAll('input[name="customViewValue-1"]').map((input) => input.checked), [true, true]);
       submit();
       await flush();
       assert.deepEqual(calls[0][1].conditions[0], {
-        field: { id: 'customfield_10100', name: 'Team' }, operator: 'isOneOf',
+        field: { id: 'customfield_10100', name: 'Team' }, operator: 'in',
         values: [{ id: 'Platform', label: 'Platform' }, { id: 'Product', label: 'Product' }]
       });
     });
@@ -689,11 +817,11 @@ describe('Custom views - editor', () => {
     it('searches at once on Enter, which doesn\'t save the view', async () => {
       const { $, choose, asked, calls, search } = openTeam();
       await flush();
-      choose('#customViewField', 'customfield_10100');
+      choose('#customViewField-1', 'customfield_10100');
       await flush();
       search('Cis');
       // Before typing pauses.
-      assert.equal($('#customViewValueSearch').dispatchEvent({ type: 'keydown', key: 'Enter' }), false);
+      assert.equal($('#customViewValueSearch-1').dispatchEvent({ type: 'keydown', key: 'Enter' }), false);
       await flush();
       assert.deepEqual(asked.at(-1), ['customfield_10100', 'Cis']);
       mock.timers.tick(VALUE_SEARCH_DELAY_MS);
@@ -705,18 +833,300 @@ describe('Custom views - editor', () => {
     it('says when nothing matches, or Jira can\'t be asked', async () => {
       const { $, choose, search } = openTeam();
       await flush();
-      choose('#customViewField', 'customfield_10100');
+      choose('#customViewField-1', 'customfield_10100');
       await flush();
       search('zzz');
       mock.timers.tick(VALUE_SEARCH_DELAY_MS);
       await flush();
-      assert.equal($('#customViewValueResults').textContent, NO_MATCHING_VALUES);
+      assert.equal($('#customViewValueResults-1').textContent, NO_MATCHING_VALUES);
       const failing = openTeam({ loadValues: async () => { throw new Error('no'); } });
       await flush();
-      failing.choose('#customViewField', 'customfield_10100');
+      failing.choose('#customViewField-1', 'customfield_10100');
       await flush();
-      assert.equal(failing.$('#customViewValueResults').textContent, VALUES_UNAVAILABLE);
+      assert.equal(failing.$('#customViewValueResults-1').textContent, VALUES_UNAVAILABLE);
     });
+  });
+
+  describe('several conditions', () => {
+    const titles = (root) => root.querySelectorAll('.custom-view-condition-title').map((el) => el.textContent);
+    const block = (root, n) => root.querySelectorAll('.custom-view-condition')[n - 1];
+    const addCondition = (root) => root.querySelector('[data-action="add-condition"]').click();
+    /** Chooses a field, operator, and values in one condition block. */
+    async function fill(root, n, { field, operator, values = [] }) {
+      const b = block(root, n);
+      const fieldSelect = b.querySelector('select');
+      fieldSelect.value = field;
+      fieldSelect.dispatchEvent({ type: 'change' });
+      await flush();
+      if (operator) {
+        const operatorSelect = b.querySelectorAll('select')[1];
+        operatorSelect.value = operator;
+        operatorSelect.dispatchEvent({ type: 'change' });
+      }
+      for (const value of values) {
+        const input = block(root, n).querySelectorAll('.custom-view-value').find((label) => label.querySelector('span').textContent === value)?.querySelector('input');
+        if (!input) continue;
+        input.checked = true;
+        input.dispatchEvent({ type: 'change' });
+      }
+    }
+
+    it('starts a new view with one empty, numbered condition, and + Add Condition', () => {
+      const { root } = open();
+      assert.deepEqual(titles(root), ['Condition 1']);
+      const add = root.querySelector('[data-action="add-condition"]');
+      assert.equal(add.textContent, ADD_CONDITION);
+      assert.equal(ADD_CONDITION, '+ Add Condition');
+      assert.equal(block(root, 1).querySelector('[data-action="delete-condition"]').getAttribute('aria-label'), 'Delete condition 1');
+    });
+
+    it('adds empty conditions, focused on their field, keeping the others as they are', async () => {
+      const { root } = open();
+      await fill(root, 1, { field: 'status', values: ['In Progress'] });
+      addCondition(root);
+      assert.deepEqual(titles(root), ['Condition 1', 'Condition 2']);
+      assert.ok(document.activeElement === block(root, 2).querySelector('select'), 'focus');
+      assert.equal(block(root, 2).querySelector('select').value, '');
+      assert.equal(block(root, 1).querySelector('select').value, 'status');
+      assert.equal(block(root, 1).querySelectorAll('input').find((input) => input.checked)?.value, '3');
+    });
+
+    it('saves several conditions, each with its own values: Status, Assignee, and an Additional Assignment Field', async () => {
+      const { root, $, submit, calls } = open();
+      $('#customViewName').value = 'Development Queue';
+      await fill(root, 1, { field: 'status', operator: 'in', values: ['In Progress', 'In Review'] });
+      addCondition(root);
+      await fill(root, 2, { field: 'assignee' });
+      addCondition(root);
+      await fill(root, 3, { field: 'customfield_10050' });
+      submit();
+      await flush();
+      assert.deepEqual(calls[0][1].conditions, [
+        { field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] },
+        { field: { id: 'assignee', name: 'Assignee' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] },
+        { field: { id: 'customfield_10050', name: 'QA Assignee' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] }
+      ]);
+    });
+
+    it('keeps each condition\'s values apart: choosing in one never changes another', async () => {
+      const { root, $, submit, calls } = open({ loadValues: async (field) => (field.kind === 'user' ? [{ currentUser: true, label: 'Me' }]
+        : field.id === 'status' ? VALUES.status : [{ id: '1', label: 'Highest' }, { id: '2', label: 'High' }]) });
+      $('#customViewName').value = 'Queue';
+      await fill(root, 1, { field: 'status', values: ['In Review'] });
+      addCondition(root);
+      await fill(root, 2, { field: 'priority', values: ['High'] });
+      assert.notEqual(block(root, 1).querySelector('input').getAttribute('name'), block(root, 2).querySelector('input').getAttribute('name'));
+      assert.equal(block(root, 1).querySelectorAll('input').find((input) => input.checked).value, '4');
+      submit();
+      await flush();
+      assert.deepEqual(calls[0][1].conditions, [
+        { field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '4', label: 'In Review' }] },
+        { field: { id: 'priority', name: 'Priority' }, operator: 'in', values: [{ id: '2', label: 'High' }] }
+      ]);
+    });
+
+    it('removes a condition, renumbering the others and keeping what they have', async () => {
+      const { root } = open({ loadValues: async (field) => (field.kind === 'user' ? [{ currentUser: true, label: 'Me' }]
+        : field.id === 'status' ? VALUES.status : [{ id: '2', label: 'High' }]) });
+      await fill(root, 1, { field: 'status', values: ['In Progress'] });
+      addCondition(root);
+      await fill(root, 2, { field: 'priority', values: ['High'] });
+      addCondition(root);
+      await fill(root, 3, { field: 'assignee' });
+      block(root, 2).querySelector('[data-action="delete-condition"]').click();
+      assert.deepEqual(titles(root), ['Condition 1', 'Condition 2']);
+      assert.equal(block(root, 2).querySelector('select').value, 'assignee');
+      assert.equal(block(root, 2).querySelector('[data-action="delete-condition"]').getAttribute('aria-label'), 'Delete condition 2');
+      assert.ok(document.activeElement === block(root, 2).querySelector('[data-action="toggle-condition"]'), 'focus');
+      assert.equal(block(root, 1).querySelectorAll('input').find((input) => input.checked).value, '3');
+    });
+
+    it('never saves a view without conditions', async () => {
+      const { root, $, submit, calls } = open();
+      $('#customViewName').value = 'Empty';
+      block(root, 1).querySelector('[data-action="delete-condition"]').click();
+      assert.deepEqual(titles(root), []);
+      assert.ok(document.activeElement === root.querySelector('[data-action="add-condition"]'), 'focus');
+      submit();
+      await flush();
+      assert.equal($('#customViewConditionsError').textContent, 'Add at least one condition.');
+      assert.deepEqual(calls, []);
+    });
+
+    it('starts a condition afresh when its field changes: In, and no values from the other field', async () => {
+      const { root } = open();
+      await fill(root, 1, { field: 'status', operator: 'notIn', values: ['In Progress', 'In Review'] });
+      await fill(root, 1, { field: 'priority' });
+      assert.equal(block(root, 1).querySelectorAll('select')[1].value, 'in');
+      await fill(root, 1, { field: 'status' });
+      assert.equal(block(root, 1).querySelectorAll('select')[1].value, 'in');
+      assert.deepEqual(block(root, 1).querySelectorAll('input').map((input) => input.checked), [false, false]);
+    });
+
+    it('shows each condition\'s own errors, and focuses the first', async () => {
+      const { root, $, submit, calls } = open();
+      $('#customViewName').value = 'Errors';
+      await fill(root, 1, { field: 'status', values: ['In Progress'] });
+      addCondition(root);
+      await fill(root, 2, { field: 'status', values: ['In Review'] });
+      addCondition(root);
+      submit();
+      await flush();
+      assert.equal($('#customViewFieldError-1').textContent, '');
+      assert.equal($('#customViewFieldError-2').textContent, 'Another condition already uses this field.');
+      assert.equal($('#customViewFieldError-3').textContent, 'Choose a field.');
+      assert.ok(document.activeElement === $('#customViewField-2'), 'focus');
+      assert.deepEqual(calls, []);
+    });
+
+    it('restores every saved condition when editing, in order', async () => {
+      const view = { id: 'q', name: 'Queue', conditions: [
+        condition('status', [{ id: '3', label: 'In Progress' }]),
+        condition('assignee', [{ currentUser: true, label: 'Me' }]),
+        condition('customfield_10050', [{ currentUser: true, label: 'Me' }])
+      ], orderBy: { field: 'priority', direction: 'ASC' } };
+      const { root, submit, calls } = open({ view, views: [view] });
+      await flush();
+      assert.deepEqual(titles(root), ['Condition 1', 'Condition 2', 'Condition 3']);
+      assert.deepEqual(root.querySelectorAll('.custom-view-condition').map((b) => b.querySelector('select').value), ['status', 'assignee', 'customfield_10050']);
+      submit();
+      await flush();
+      assert.deepEqual(calls[0][1].conditions.map((c) => c.field.id), ['status', 'assignee', 'customfield_10050']);
+      assert.deepEqual(calls[0][1].orderBy, { field: 'priority', direction: 'ASC' });
+    });
+
+    it('offers the site\'s custom user fields once loaded, with In, Not in, and Me only', async () => {
+      const { root } = open({ loadCustomFields: async () => [{ id: 'customfield_13931', name: 'QA Assignee', kind: 'user', group: 'User fields' }] });
+      await flush();
+      await flush();
+      const groups = block(root, 1).querySelector('select').querySelectorAll('optgroup');
+      assert.deepEqual(groups.map((g) => g.getAttribute('label')), ['Fields', 'Additional Assignment Fields', 'User fields']);
+      await fill(root, 1, { field: 'customfield_13931' });
+      assert.deepEqual(block(root, 1).querySelectorAll('select')[1].querySelectorAll('option').map((o) => o.textContent), ['In', 'Not in']);
+      assert.deepEqual(block(root, 1).querySelectorAll('.custom-view-value').map((label) => label.textContent), ['Me']);
+    });
+  });
+
+  describe('collapsible condition cards', () => {
+    const cards = (root) => root.querySelectorAll('.custom-view-condition');
+    const toggleOf = (card) => card.querySelector('[data-action="toggle-condition"]');
+    const isOpen = (card) => toggleOf(card).getAttribute('aria-expanded') === 'true';
+    const summaryOf = (card) => card.querySelector('.custom-view-condition-summary');
+    const PENDING_VERIFY = [{ id: '10100', label: 'Pending' }, { id: '10200', label: 'Verify' }];
+    const values = async (field) => (field.kind === 'user' ? [{ currentUser: true, label: 'Me' }]
+      : field.id === 'status' ? [...PENDING_VERIFY, { id: '3', label: 'In Progress' }] : [{ id: '2', label: 'High' }]);
+    const twoConditions = {
+      id: 'q', name: 'Queue', conditions: [
+        { field: { id: 'status', name: 'Status' }, operator: 'notIn', values: [...PENDING_VERIFY].reverse() },
+        { field: { id: 'assignee', name: 'Assignee' }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] }
+      ]
+    };
+
+    it('heads each card with its chevron and number, then Delete, and sums it up while collapsed', async () => {
+      const { root } = open({ view: twoConditions, views: [twoConditions], loadValues: values });
+      await flush();
+      const [first] = cards(root);
+      const header = first.querySelector('.custom-view-condition-header');
+      assert.deepEqual(header.children.map((child) => child.getAttribute('data-action')), ['toggle-condition', 'delete-condition']);
+      assert.ok(toggleOf(first).querySelector('.custom-view-condition-chevron'));
+      assert.equal(toggleOf(first).textContent, 'Condition 1');
+      assert.equal(header.querySelector('[data-action="delete-condition"]').textContent, 'Delete');
+      assert.equal(summaryOf(first).textContent, 'Status · Not in · Pending, Verify');
+      assert.equal(summaryOf(cards(root)[1]).textContent, 'Assignee · In · Me');
+    });
+
+    it('opens a view with several conditions collapsed, to their summaries', async () => {
+      const { root } = open({ view: twoConditions, views: [twoConditions], loadValues: values });
+      await flush();
+      for (const card of cards(root)) {
+        assert.equal(isOpen(card), false);
+        assert.ok(card.classList.contains('is-collapsed'));
+        assert.ok(card.querySelector('.custom-view-condition-body').classList.contains('hidden'));
+        assert.equal(summaryOf(card).classList.contains('hidden'), false);
+      }
+    });
+
+    it('opens a single condition, and a new view\'s empty one, expanded', async () => {
+      const single = { ...twoConditions, conditions: [twoConditions.conditions[0]] };
+      const { root } = open({ view: single, views: [single], loadValues: values });
+      await flush();
+      assert.equal(isOpen(cards(root)[0]), true);
+      assert.ok(summaryOf(cards(root)[0]).classList.contains('hidden'), 'no summary while expanded');
+      const fresh = open();
+      assert.equal(isOpen(cards(fresh.root)[0]), true);
+      assert.equal(summaryOf(cards(fresh.root)[0]).textContent, 'No field chosen yet');
+    });
+
+    it('expands and collapses one card from its header, the others as they were', async () => {
+      const { root } = open({ view: twoConditions, views: [twoConditions], loadValues: values });
+      await flush();
+      toggleOf(cards(root)[1]).click();
+      assert.deepEqual(cards(root).map(isOpen), [false, true]);
+      toggleOf(cards(root)[1]).click();
+      assert.deepEqual(cards(root).map(isOpen), [false, false]);
+      assert.equal(toggleOf(cards(root)[0]).getAttribute('aria-controls'), cards(root)[0].querySelector('.custom-view-condition-body').id);
+    });
+
+    it('keeps the summary in step with the field, operator, and values chosen', async () => {
+      const { root } = open({ loadValues: values });
+      const card = cards(root)[0];
+      const select = card.querySelector('select');
+      select.value = 'status';
+      select.dispatchEvent({ type: 'change' });
+      await flush();
+      assert.equal(summaryOf(card).textContent, 'Status · In · No values chosen');
+      for (const label of ['Verify', 'Pending']) {
+        const input = card.querySelectorAll('.custom-view-value').find((el) => el.querySelector('span').textContent === label).querySelector('input');
+        input.checked = true;
+        input.dispatchEvent({ type: 'change' });
+      }
+      const operator = card.querySelectorAll('select')[1];
+      operator.value = 'notIn';
+      operator.dispatchEvent({ type: 'change' });
+      toggleOf(card).click();
+      assert.equal(summaryOf(card).textContent, 'Status · Not in · Pending, Verify');
+    });
+
+    it('adds a new condition expanded, leaving the others collapsed', async () => {
+      const { root } = open({ view: twoConditions, views: [twoConditions], loadValues: values });
+      await flush();
+      root.querySelector('[data-action="add-condition"]').click();
+      assert.deepEqual(cards(root).map(isOpen), [false, false, true]);
+      assert.ok(document.activeElement === cards(root)[2].querySelector('select'), 'focus on the new field');
+    });
+
+    it('deletes a collapsed condition, renumbering the others, focus on the next one\'s header', async () => {
+      const { root } = open({ view: twoConditions, views: [twoConditions], loadValues: values });
+      await flush();
+      cards(root)[0].querySelector('[data-action="delete-condition"]').click();
+      assert.equal(cards(root).length, 1);
+      assert.equal(toggleOf(cards(root)[0]).textContent, 'Condition 1');
+      assert.equal(summaryOf(cards(root)[0]).textContent, 'Assignee · In · Me');
+      assert.ok(document.activeElement === toggleOf(cards(root)[0]), 'focus on the remaining card\'s header');
+    });
+
+    it('expands a collapsed condition that has something to fix on Save, and focuses it', async () => {
+      const broken = { ...twoConditions, conditions: [twoConditions.conditions[0], { field: { id: 'priority', name: 'Priority' }, operator: 'in', values: [{ id: '9', label: 'Gone' }] }] };
+      const { root, $, submit, calls } = open({ view: broken, views: [broken], loadValues: values });
+      await flush();
+      // Clear the second condition's only value, while it's collapsed.
+      const input = cards(root)[1].querySelectorAll('input').find((el) => el.checked);
+      input.checked = false;
+      input.dispatchEvent({ type: 'change' });
+      submit();
+      await flush();
+      assert.deepEqual(cards(root).map(isOpen), [false, true]);
+      assert.match($('#customViewValuesError-2').textContent, /Choose at least one value/);
+      assert.deepEqual(calls, []);
+    });
+  });
+
+  it('names the Ascending / Descending group for assistive technology only, without a visible label', () => {
+    const { root } = open();
+    const fieldset = root.querySelector('#customViewOrderASC').closest('fieldset');
+    const legend = fieldset.querySelector('legend');
+    assert.equal(legend.textContent, 'Direction');
+    assert.equal(legend.className, 'sr-only');
   });
 
   it('deletes a view only after confirming, and Keep it goes back', async () => {

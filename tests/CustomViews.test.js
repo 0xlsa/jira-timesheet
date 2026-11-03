@@ -21,7 +21,10 @@ import {
   nameProblem,
   validateViewDraft,
   isViewAvailable,
-  usesCustomOptionField,
+  usesCustomField,
+  viewUserFieldIds,
+  normalizeConditions,
+  MAX_VIEW_JQL_LENGTH,
   parseNamedValues,
   parseFieldSuggestions,
   buildCustomViewJql,
@@ -33,10 +36,10 @@ import {
   DEFAULT_ORDER_BY
 } from '../src/jira/customViews.js';
 
-const statusCondition = (ids, operator = ids.length > 1 ? 'isOneOf' : 'equals') => ({
+const statusCondition = (ids, operator = ids.length > 1 ? 'in' : 'in') => ({
   field: { id: 'status', name: 'Status' }, operator, values: ids.map((id) => ({ id, label: `Status ${id}` }))
 });
-const meCondition = (fieldId, name = fieldId) => ({ field: { id: fieldId, name }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] });
+const meCondition = (fieldId, name = fieldId) => ({ field: { id: fieldId, name }, operator: 'in', values: [{ currentUser: true, label: 'Me' }] });
 const DEFAULT_ORDER = { field: 'updated', direction: 'DESC' };
 const view = (id, name, condition = statusCondition(['3']), orderBy = DEFAULT_ORDER) => ({ id, name, conditions: [condition], orderBy });
 
@@ -63,10 +66,12 @@ describe('Custom views - storage', () => {
     }
   });
 
-  it('keeps at most two views, each ID and name once (names in any case)', () => {
-    const { views } = normalizeSiteViews({ version: 1, views: [view('a', 'Queue'), view('a', 'Other'), view('b', 'QUEUE'), view('c', 'Review'), view('d', 'Third')] });
-    assert.deepEqual(views.map((v) => v.id), ['a', 'c']);
-    assert.equal(MAX_CUSTOM_VIEWS, 2);
+  it('keeps at most five views, each ID and name once (names in any case)', () => {
+    const { views } = normalizeSiteViews({ version: 1, views: [
+      view('a', 'Queue'), view('a', 'Other'), view('b', 'QUEUE'), view('c', 'Review'), view('d', 'Third'), view('e', 'Fourth'), view('f', 'Fifth'), view('g', 'Sixth')
+    ] });
+    assert.deepEqual(views.map((v) => v.id), ['a', 'c', 'd', 'e', 'f']);
+    assert.equal(MAX_CUSTOM_VIEWS, 5);
   });
 
   it('drops malformed views, keeping the valid ones', () => {
@@ -77,7 +82,8 @@ describe('Custom views - storage', () => {
       { id: 'f2', name: 'All', conditions: [statusCondition(['1'])] },
       { id: 'f', name: '   ', conditions: [statusCondition(['1'])] },
       { id: 'g', name: 'x'.repeat(31), conditions: [statusCondition(['1'])] },
-      { id: 'h', name: 'Two conditions', conditions: [statusCondition(['1']), statusCondition(['2'])] },
+      { id: 'h', name: 'Same field twice', conditions: [statusCondition(['1']), statusCondition(['2'])] },
+      { id: 'h2', name: 'One bad condition', conditions: [statusCondition(['1']), { field: { id: 'labels' }, operator: 'in', values: [{ id: 'x' }] }] },
       { id: 'i', name: 'No condition', conditions: [] },
       view('ok', 'Fine')
     ] });
@@ -97,41 +103,50 @@ describe('Custom views - storage', () => {
 });
 
 describe('Custom views - conditions', () => {
-  it('accepts Equals with one value, and Is one of with two or more, for option fields', () => {
-    assert.ok(normalizeCondition(statusCondition(['1'])));
-    assert.ok(normalizeCondition(statusCondition(['1', '2'])));
-    assert.equal(normalizeCondition(statusCondition(['1', '2'], 'equals')), null);
-    assert.equal(normalizeCondition(statusCondition(['1'], 'isOneOf')), null);
+  it('accepts In and Not in with one value or several, for option fields, and no values never', () => {
+    for (const operator of ['in', 'notIn']) {
+      assert.equal(normalizeCondition(statusCondition(['1'], operator)).operator, operator);
+      assert.equal(normalizeCondition(statusCondition(['1', '2'], operator)).values.length, 2);
+      assert.equal(normalizeCondition(statusCondition([], operator)), null);
+    }
+  });
+
+  it('reads the operators views had before as In, keeping every value', () => {
+    assert.deepEqual(normalizeCondition({ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }),
+      { field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }] });
+    assert.deepEqual(normalizeCondition({ field: { id: 'priority', name: 'Priority' }, operator: 'isOneOf', values: [{ id: '1', label: 'Highest' }, { id: '2', label: 'High' }] }).values.map((v) => v.id), ['1', '2']);
+    assert.equal(normalizeCondition({ ...meCondition('customfield_13931'), operator: 'equals' }).operator, 'in');
   });
 
   it('keeps values by ID once, with numeric IDs as text and labels defaulting to the ID', () => {
-    assert.deepEqual(normalizeCondition({ field: { id: 'priority' }, operator: 'isOneOf', values: [{ id: 2, label: 'High' }, { id: '2' }, { id: '3' }] }),
-      { field: { id: 'priority', name: 'priority' }, operator: 'isOneOf', values: [{ id: '2', label: 'High' }, { id: '3', label: '3' }] });
+    assert.deepEqual(normalizeCondition({ field: { id: 'priority' }, operator: 'in', values: [{ id: 2, label: 'High' }, { id: '2' }, { id: '3' }] }),
+      { field: { id: 'priority', name: 'priority' }, operator: 'in', values: [{ id: '2', label: 'High' }, { id: '3', label: '3' }] });
   });
 
-  it('accepts Me, with Equals only, on user fields; never on Status or Priority', () => {
+  it('accepts Me alone, with In or Not in, on user fields; never on Status or Priority', () => {
     for (const id of ['assignee', 'reporter', 'customfield_10050']) {
       assert.deepEqual(normalizeCondition(meCondition(id)).values, [{ currentUser: true, label: 'Me' }]);
-      assert.equal(normalizeCondition({ ...meCondition(id), operator: 'isOneOf' }), null);
+      assert.equal(normalizeCondition({ ...meCondition(id), operator: 'notIn' }).operator, 'notIn');
+      assert.equal(normalizeCondition({ ...meCondition(id), values: [{ currentUser: true }, { currentUser: true }] }), null);
     }
     assert.equal(normalizeCondition(meCondition('status')), null);
     assert.equal(normalizeCondition(meCondition('priority')), null);
   });
 
   it('never stores another person: Assignee and Reporter take Me only', () => {
-    assert.equal(normalizeCondition({ field: { id: 'assignee' }, operator: 'equals', values: [{ id: 'someone', label: 'Someone Else' }] }), null);
-    assert.equal(normalizeCondition({ field: { id: 'reporter' }, operator: 'equals', values: [{ accountId: 'x' }] }), null);
-    assert.equal(normalizeCondition({ field: { id: 'assignee' }, operator: 'equals', values: [{ currentUser: true, accountId: 'me', displayName: 'Me Myself' }] }).values[0].accountId, undefined);
+    assert.equal(normalizeCondition({ field: { id: 'assignee' }, operator: 'in', values: [{ id: 'someone', label: 'Someone Else' }] }), null);
+    assert.equal(normalizeCondition({ field: { id: 'reporter' }, operator: 'in', values: [{ accountId: 'x' }] }), null);
+    assert.equal(normalizeCondition({ field: { id: 'assignee' }, operator: 'in', values: [{ currentUser: true, accountId: 'me', displayName: 'Me Myself' }] }).values[0].accountId, undefined);
   });
 
   it('accepts only the fields views support', () => {
     for (const id of ['summary', 'labels', 'components', 'customfield_', 'customfield_10x', 'worklog', 'status;drop']) {
-      assert.equal(normalizeCondition({ field: { id }, operator: 'equals', values: [{ id: '1' }] }), null, id);
+      assert.equal(normalizeCondition({ field: { id }, operator: 'in', values: [{ id: '1' }] }), null, id);
     }
   });
 
-  it('accepts only Equals and Is one of', () => {
-    for (const operator of ['isNot', 'notIn', 'in', '!=', undefined]) {
+  it('accepts only In and Not in (and the operators views had before)', () => {
+    for (const operator of ['isNot', 'not in', 'IN', '!=', '=', 'in;', 'toString', undefined]) {
       assert.equal(normalizeCondition({ ...statusCondition(['1']), operator }), null, String(operator));
     }
   });
@@ -139,18 +154,20 @@ describe('Custom views - conditions', () => {
   it('tells user conditions from option ones, and offers each kind its operators', () => {
     assert.equal(conditionKind(meCondition('assignee')), 'user');
     assert.equal(conditionKind(statusCondition(['1'])), 'option');
-    assert.deepEqual(operatorsFor('user'), ['equals']);
-    assert.deepEqual(operatorsFor('option'), ['equals', 'isOneOf']);
+    assert.deepEqual(operatorsFor('user'), ['in', 'notIn']);
+    assert.deepEqual(operatorsFor('option'), ['in', 'notIn']);
   });
 });
 
 describe('Custom views - validating a new or edited view', () => {
-  const draft = (overrides = {}) => ({ name: 'Development Queue', field: STATUS, operator: 'equals', values: [{ id: '3', label: 'In Progress' }], orderBy: DEFAULT_ORDER, ...overrides });
+  /** A draft with one condition: `field`, `operator`, and `values` override the condition's. */
+  const draft = ({ field = STATUS, operator = 'in', values = [{ id: '3', label: 'In Progress' }], ...overrides } = {}) =>
+    ({ name: 'Development Queue', conditions: [{ field, operator, values }], orderBy: DEFAULT_ORDER, ...overrides });
 
   it('accepts a valid view, trimming its name', () => {
     const { errors, view: valid } = validateViewDraft(draft({ name: '  Development Queue  ' }), { views: [] });
     assert.deepEqual(errors, {});
-    assert.deepEqual(valid, { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id: '3', label: 'In Progress' }] }], orderBy: DEFAULT_ORDER });
+    assert.deepEqual(valid, { name: 'Development Queue', conditions: [{ field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id: '3', label: 'In Progress' }] }], orderBy: DEFAULT_ORDER });
   });
 
   it('requires a name', () => {
@@ -178,10 +195,12 @@ describe('Custom views - validating a new or edited view', () => {
     assert.deepEqual(validateViewDraft(draft({ name: 'DEVELOPMENT QUEUE' }), { views, editingId: 'a' }).errors, {});
   });
 
-  it('allows at most two custom views', () => {
-    const views = [view('a', 'One'), view('b', 'Two')];
-    assert.match(validateViewDraft(draft({ name: 'Three' }), { views }).errors.form, /at most 2 custom views/);
-    assert.deepEqual(validateViewDraft(draft({ name: 'One again' }), { views, editingId: 'a' }).errors, {});
+  it('allows at most five custom views', () => {
+    const four = ['One', 'Two', 'Three', 'Four'].map((name, i) => view(`v${i}`, name));
+    assert.deepEqual(validateViewDraft(draft({ name: 'Five' }), { views: four }).errors, {}, 'a fifth');
+    const five = [...four, view('v4', 'Five')];
+    assert.match(validateViewDraft(draft({ name: 'Six' }), { views: five }).errors.form, /at most 5 custom views/);
+    assert.deepEqual(validateViewDraft(draft({ name: 'One again' }), { views: five, editingId: 'v0' }).errors, {}, 'editing one of five');
   });
 
   it('notices when the edited view was deleted meanwhile', () => {
@@ -189,22 +208,72 @@ describe('Custom views - validating a new or edited view', () => {
   });
 
   it('requires a field, an operator it allows, and the right number of values', () => {
-    assert.match(validateViewDraft(draft({ field: null }), { views: [] }).errors.field, /Choose a field/);
-    assert.match(validateViewDraft(draft({ operator: 'isNot' }), { views: [] }).errors.operator, /Choose an operator/);
-    assert.match(validateViewDraft(draft({ values: [] }), { views: [] }).errors.values, /Choose a value/);
-    assert.match(validateViewDraft(draft({ operator: 'isOneOf', values: [{ id: '3', label: 'A' }] }), { views: [] }).errors.values, /at least two values/);
-    assert.deepEqual(validateViewDraft(draft({ operator: 'isOneOf', values: [{ id: '3', label: 'A' }, { id: '4', label: 'B' }] }), { views: [] }).errors, {});
+    assert.match(validateViewDraft(draft({ field: null }), { views: [] }).errors.byCondition[0].field, /Choose a field/);
+    assert.match(validateViewDraft(draft({ operator: 'isNot' }), { views: [] }).errors.byCondition[0].operator, /Choose an operator/);
+    assert.match(validateViewDraft(draft({ values: [] }), { views: [] }).errors.byCondition[0].values, /Choose at least one value/);
+    assert.match(validateViewDraft(draft({ operator: 'notIn', values: [] }), { views: [] }).errors.byCondition[0].values, /Choose at least one value/);
+    for (const operator of ['in', 'notIn']) {
+      assert.deepEqual(validateViewDraft(draft({ operator, values: [{ id: '3', label: 'A' }] }), { views: [] }).errors, {}, `${operator}, one value`);
+      assert.deepEqual(validateViewDraft(draft({ operator, values: [{ id: '3', label: 'A' }, { id: '4', label: 'B' }] }), { views: [] }).errors, {}, `${operator}, two values`);
+    }
   });
 
-  it('allows only Equals and Me for user fields', () => {
+  it('allows In and Not in, with Me alone, for user fields', () => {
     assert.deepEqual(validateViewDraft(draft({ field: ASSIGNEE, values: [{ ...ME_VALUE }] }), { views: [] }).errors, {});
-    assert.match(validateViewDraft(draft({ field: ASSIGNEE, operator: 'isOneOf', values: [{ ...ME_VALUE }] }), { views: [] }).errors.operator, /Choose an operator/);
-    assert.match(validateViewDraft(draft({ field: ASSIGNEE, values: [{ id: 'someone', label: 'Someone' }] }), { views: [] }).errors.values, /Choose Me/);
+    assert.deepEqual(validateViewDraft(draft({ field: ASSIGNEE, operator: 'notIn', values: [{ ...ME_VALUE }] }), { views: [] }).errors, {});
+    assert.match(validateViewDraft(draft({ field: ASSIGNEE, operator: 'equals', values: [{ ...ME_VALUE }] }), { views: [] }).errors.byCondition[0].operator, /Choose an operator/, 'drafts use the new operators');
+    assert.match(validateViewDraft(draft({ field: ASSIGNEE, values: [{ id: 'someone', label: 'Someone' }] }), { views: [] }).errors.byCondition[0].values, /Choose Me/);
   });
 
-  it('keeps exactly one condition', () => {
-    const { view: valid } = validateViewDraft(draft(), { views: [] });
-    assert.equal(valid.conditions.length, 1);
+  it('keeps one condition as one, and accepts several, each checked, at most one per field', () => {
+    assert.equal(validateViewDraft(draft(), { views: [] }).view.conditions.length, 1);
+    const several = { ...draft(), conditions: [
+      { field: STATUS, operator: 'in', values: [{ id: '10413', label: 'Selected for Development' }] },
+      { field: PRIORITY, operator: 'in', values: [{ id: '1', label: 'Highest' }, { id: '2', label: 'High' }] },
+      { field: { id: 'customfield_13931', name: 'QA Assignee', kind: 'user' }, operator: 'in', values: [{ ...ME_VALUE }] }
+    ] };
+    const { errors, view: valid } = validateViewDraft(several, { views: [] });
+    assert.deepEqual(errors, {});
+    assert.deepEqual(valid.conditions.map((c) => [c.field.id, c.operator, c.values.map((v) => v.id ?? 'me')]),
+      [['status', 'in', ['10413']], ['priority', 'in', ['1', '2']], ['customfield_13931', 'in', ['me']]]);
+  });
+
+  it('says which condition is wrong, and how, keeping the others', () => {
+    const { errors, view: valid } = validateViewDraft({ ...draft(), conditions: [
+      { field: STATUS, operator: 'in', values: [{ id: '3', label: 'In Progress' }] },
+      { field: null, operator: 'in', values: [] },
+      { field: PRIORITY, operator: 'notIn', values: [] },
+      { field: STATUS, operator: 'in', values: [{ id: '4', label: 'In Review' }] },
+      { field: ASSIGNEE, operator: 'isOneOf', values: [{ ...ME_VALUE }] }
+    ] }, { views: [] });
+    assert.equal(valid, null);
+    assert.deepEqual(errors.byCondition, [
+      null,
+      { field: 'Choose a field.' },
+      { values: 'Choose at least one value.' },
+      { field: 'Another condition already uses this field.' },
+      { operator: 'Choose an operator.' }
+    ]);
+  });
+
+  it('requires at least one condition', () => {
+    const { errors, view: valid } = validateViewDraft({ ...draft(), conditions: [] }, { views: [] });
+    assert.equal(valid, null);
+    assert.equal(errors.conditions, 'Add at least one condition.');
+  });
+
+  it('refuses a view whose JQL would be too long for one Jira request', () => {
+    const many = Array.from({ length: 300 }, (_, i) => ({ id: String(10000 + i), label: `Status ${i}` }));
+    const { errors } = validateViewDraft(draft({ operator: 'in', values: many }), { views: [] });
+    assert.match(errors.conditions, /too long for Jira/);
+    assert.equal(MAX_VIEW_JQL_LENGTH, 2000);
+  });
+
+  it('reads stored conditions only when every one is valid, each on its own field', () => {
+    assert.equal(normalizeConditions([statusCondition(['1']), meCondition('reporter')]).length, 2);
+    assert.equal(normalizeConditions([]), null);
+    assert.equal(normalizeConditions([statusCondition(['1']), { field: { id: 'labels' } }]), null);
+    assert.equal(normalizeConditions([meCondition('reporter'), meCondition('reporter')]), null);
     assert.equal(normalizeView({ id: 'x', name: 'Two', conditions: [statusCondition(['1']), statusCondition(['2'])] }), null);
   });
 });
@@ -212,13 +281,13 @@ describe('Custom views - validating a new or edited view', () => {
 describe('Custom views - fields', () => {
   it('offers the standard fields: Status, Priority, Assignee, Reporter', () => {
     assert.deepEqual(SYSTEM_FIELDS.map((f) => [f.id, f.kind]), [['status', 'option'], ['priority', 'option'], ['assignee', 'user'], ['reporter', 'user']]);
-    assert.deepEqual(OPERATORS, { EQUALS: 'equals', IS_ONE_OF: 'isOneOf' });
+    assert.deepEqual(OPERATORS, { IN: 'in', NOT_IN: 'notIn' });
   });
 
   it('describes a view\'s search for its panel', () => {
-    assert.equal(describeView(view('a', 'A', meCondition('reporter', 'Reporter'))), 'Reporter is Me · Updated, descending');
-    assert.equal(describeView(view('b', 'B', statusCondition(['1', '2']), { field: 'priority', direction: 'ASC' })), 'Status is one of Status 1, Status 2 · Priority, ascending');
-    assert.equal(describeView({ conditions: [meCondition('reporter', 'Reporter')] }), 'Reporter is Me · Updated, descending', 'an old view');
+    assert.equal(describeView(view('a', 'A', meCondition('reporter', 'Reporter'))), 'Reporter in Me · Updated, descending');
+    assert.equal(describeView(view('b', 'B', statusCondition(['1', '2']), { field: 'priority', direction: 'ASC' })), 'Status in Status 1, Status 2 · Priority, ascending');
+    assert.equal(describeView({ conditions: [meCondition('reporter', 'Reporter')] }), 'Reporter in Me · Updated, descending', 'an old view');
   });
 });
 
@@ -257,7 +326,7 @@ describe('Custom views - custom fields from Jira', () => {
 });
 
 describe('Custom views - availability of a view\'s field', () => {
-  const selectView = view('a', 'Team', { field: { id: 'customfield_10100', name: 'Team' }, operator: 'equals', values: [{ id: '1', label: 'X' }] });
+  const selectView = view('a', 'Team', { field: { id: 'customfield_10100', name: 'Team' }, operator: 'in', values: [{ id: '1', label: 'X' }] });
   const qaView = view('b', 'QA', meCondition('customfield_10050', 'QA Assignee'));
 
   it('keeps the standard fields available', () => {
@@ -265,9 +334,20 @@ describe('Custom views - availability of a view\'s field', () => {
     assert.equal(isViewAvailable(view('r', 'R', meCondition('reporter')), { assignmentFieldIds: [], singleSelectFieldIds: new Set() }), true);
   });
 
-  it('keeps a user custom field available while it\'s an Additional Assignment Field', () => {
-    assert.equal(isViewAvailable(qaView, { assignmentFieldIds: ['customfield_10050'], singleSelectFieldIds: null }), true);
-    assert.equal(isViewAvailable(qaView, { assignmentFieldIds: [], singleSelectFieldIds: null }), false);
+  it('keeps a custom user field available while it\'s an Additional Assignment Field or one of the site\'s single-user fields', () => {
+    assert.equal(isViewAvailable(qaView, { assignmentFieldIds: ['customfield_10050'], singleSelectFieldIds: null, userPickerFieldIds: new Set() }), true);
+    assert.equal(isViewAvailable(qaView, { assignmentFieldIds: [], singleSelectFieldIds: null, userPickerFieldIds: new Set(['customfield_10050']) }), true);
+    assert.equal(isViewAvailable(qaView, { assignmentFieldIds: [], singleSelectFieldIds: null, userPickerFieldIds: null }), true, 'assumed while not known');
+    assert.equal(isViewAvailable(qaView, { assignmentFieldIds: [], singleSelectFieldIds: null, userPickerFieldIds: new Set(['customfield_99999']) }), false, 'gone from Jira');
+  });
+
+  it('allows the JQL only the custom user fields it may compare with Me', () => {
+    const known = { assignmentFieldIds: ['customfield_10600'], userPickerFieldIds: new Set(['customfield_13931', 'customfield_10600']) };
+    const two = view('q', 'QA and Dev', meCondition('customfield_13931'));
+    two.conditions.push(meCondition('customfield_10600'));
+    assert.deepEqual(viewUserFieldIds(two, known), ['customfield_13931', 'customfield_10600']);
+    assert.deepEqual(viewUserFieldIds(two, { assignmentFieldIds: [], userPickerFieldIds: new Set(['customfield_10600']) }), ['customfield_10600']);
+    assert.deepEqual(viewUserFieldIds(two, { assignmentFieldIds: [], userPickerFieldIds: null }), ['customfield_13931', 'customfield_10600']);
   });
 
   it('keeps a custom option field available while Jira lists it, and assumes so while that isn\'t known', () => {
@@ -276,9 +356,11 @@ describe('Custom views - availability of a view\'s field', () => {
     assert.equal(isViewAvailable(selectView, { assignmentFieldIds: [], singleSelectFieldIds: new Set() }), false);
   });
 
-  it('asks for Jira\'s fields only when a view filters on a custom option field', () => {
-    assert.equal(usesCustomOptionField([view('s', 'S'), qaView]), false);
-    assert.equal(usesCustomOptionField([selectView]), true);
+  it('asks for Jira\'s fields only when a view filters on a custom field it needs them for', () => {
+    assert.equal(usesCustomField([view('s', 'S'), view('r', 'R', meCondition('reporter'))]), false);
+    assert.equal(usesCustomField([selectView]), true);
+    assert.equal(usesCustomField([qaView]), true, 'a custom user field, to check it\'s still a user field');
+    assert.equal(usesCustomField([qaView], ['customfield_10050']), false, 'unless it\'s an Additional Assignment Field');
   });
 });
 
@@ -309,64 +391,67 @@ describe('Custom views - their own JQL', () => {
   const ORDER = ' ORDER BY updated DESC, key DESC';
 
   it('compares Reporter and Assignee with currentUser()', () => {
-    assert.equal(jql(meCondition('reporter')), `reporter = currentUser()${ORDER}`);
-    assert.equal(jql(meCondition('assignee')), `assignee = currentUser()${ORDER}`);
+    assert.equal(jql(meCondition('reporter')), `reporter in (currentUser())${ORDER}`);
+    assert.equal(jql(meCondition('assignee')), `assignee in (currentUser())${ORDER}`);
   });
 
-  it('compares an Additional Assignment Field with currentUser(), by its number, while it is one', () => {
-    assert.equal(jql(meCondition('customfield_10050'), { assignmentFieldIds: ['customfield_10050'] }), `cf[10050] = currentUser()${ORDER}`);
-    assert.throws(() => jql(meCondition('customfield_10050'), { assignmentFieldIds: [] }), /no longer available/);
+  it('compares a custom user field with currentUser(), by its number, only when it\'s allowed', () => {
+    assert.equal(jql(meCondition('customfield_10050'), { userFieldIds: ['customfield_10050'] }), `cf[10050] in (currentUser())${ORDER}`);
+    assert.throws(() => jql(meCondition('customfield_10050'), { userFieldIds: [] }), /no longer available/);
   });
 
   it('compares Status by its IDs: Equals and Is one of', () => {
-    assert.equal(jql(statusCondition(['10413'])), `status = 10413${ORDER}`);
+    assert.equal(jql(statusCondition(['10413'])), `status in (10413)${ORDER}`);
     assert.equal(jql(statusCondition(['10413', '3'])), `status in (10413, 3)${ORDER}`);
   });
 
   it('compares Priority by its IDs', () => {
     const priority = (ids, operator) => ({ field: { id: 'priority', name: 'Priority' }, operator, values: ids.map((id) => ({ id, label: `P${id}` })) });
-    assert.equal(jql(priority(['2'], 'equals')), `priority = 2${ORDER}`);
-    assert.equal(jql(priority(['1', '2'], 'isOneOf')), `priority in (1, 2)${ORDER}`);
+    assert.equal(jql(priority(['2'], 'in')), `priority in (2)${ORDER}`);
+    assert.equal(jql(priority(['1', '2'], 'in')), `priority in (1, 2)${ORDER}`);
   });
 
   it('compares a custom single-select or radio-button field by the option\'s quoted name', () => {
-    assert.equal(jql(option('customfield_11300', 'equals', ['Platform'])), `cf[11300] = "Platform"${ORDER}`);
-    assert.equal(jql(option('customfield_12802', 'isOneOf', ['Yes', 'Cisco UC Apps'])), `cf[12802] in ("Yes", "Cisco UC Apps")${ORDER}`);
+    assert.equal(jql(option('customfield_11300', 'in', ['Platform'])), `cf[11300] in ("Platform")${ORDER}`);
+    assert.equal(jql(option('customfield_12802', 'in', ['Yes', 'Cisco UC Apps'])), `cf[12802] in ("Yes", "Cisco UC Apps")${ORDER}`);
   });
 
   it('keeps every custom option name inside its quotes: an injection attempt stays one name', () => {
     const attempt = 'x") OR project = SECRET OR (cf[1] = "y';
-    assert.equal(jql(option('customfield_11300', 'equals', [attempt])),
-      `cf[11300] = "x\\") OR project = SECRET OR (cf[1] = \\"y"${ORDER}`);
-    assert.equal(jql(option('customfield_11300', 'equals', ['back\\slash "quoted"'])), `cf[11300] = "back\\\\slash \\"quoted\\""${ORDER}`);
+    assert.equal(jql(option('customfield_11300', 'in', [attempt])),
+      `cf[11300] in ("x\\") OR project = SECRET OR (cf[1] = \\"y")${ORDER}`);
+    assert.equal(jql(option('customfield_11300', 'in', ['back\\slash "quoted"'])), `cf[11300] in ("back\\\\slash \\"quoted\\"")${ORDER}`);
+    assert.equal(jql(option('customfield_11300', 'notIn', [attempt])),
+      `(cf[11300] not in ("x\\") OR project = SECRET OR (cf[1] = \\"y") OR cf[11300] is EMPTY)${ORDER}`);
     assert.equal(jqlString('O\'Brien'), '"O\'Brien"');
   });
 
   it('refuses names a JQL string can\'t carry, such as line breaks', () => {
-    assert.throws(() => jql(option('customfield_11300', 'equals', ['two\nlines'])), /isn't valid/);
+    assert.throws(() => jql(option('customfield_11300', 'in', ['two\nlines'])), /aren't valid/);
     assert.throws(() => jqlString('tab\there'), /can't be searched/);
   });
 
   it('refuses Status and Priority values that aren\'t Jira\'s numeric IDs', () => {
     for (const id of ['1 OR 1=1', '3)', 'In Progress', '-1', '1.5', '']) {
-      assert.throws(() => jql({ field: { id: 'status', name: 'Status' }, operator: 'equals', values: [{ id, label: 'x' }] }), /isn't valid/, id);
-      assert.throws(() => jql({ field: { id: 'priority', name: 'Priority' }, operator: 'equals', values: [{ id, label: 'x' }] }), /isn't valid/, id);
+      assert.throws(() => jql({ field: { id: 'status', name: 'Status' }, operator: 'in', values: [{ id, label: 'x' }] }), /aren't valid/, id);
+      assert.throws(() => jql({ field: { id: 'priority', name: 'Priority' }, operator: 'in', values: [{ id, label: 'x' }] }), /aren't valid/, id);
     }
   });
 
-  it('refuses unsupported fields and operators, and anything but one condition', () => {
-    assert.throws(() => jql({ field: { id: 'project', name: 'Project' }, operator: 'equals', values: [{ id: '1', label: 'X' }] }), /isn't valid/);
-    assert.throws(() => jql({ field: { id: 'status) OR (1', name: 'S' }, operator: 'equals', values: [{ id: '1', label: 'X' }] }), /isn't valid/);
-    assert.throws(() => jql({ ...statusCondition(['1']), operator: 'notIn' }), /isn't valid/);
-    assert.throws(() => jql({ ...statusCondition(['1']), operator: 'isNot' }), /isn't valid/);
-    assert.throws(() => buildCustomViewJql({ conditions: [] }), /exactly one condition/);
-    assert.throws(() => buildCustomViewJql({ conditions: [statusCondition(['1']), statusCondition(['2'])] }), /exactly one condition/);
-    assert.throws(() => buildCustomViewJql(null), /exactly one condition/);
+  it('refuses unsupported fields and operators, no conditions, and a field twice', () => {
+    assert.throws(() => jql({ field: { id: 'project', name: 'Project' }, operator: 'in', values: [{ id: '1', label: 'X' }] }), /aren't valid/);
+    assert.throws(() => jql({ field: { id: 'status) OR (1', name: 'S' }, operator: 'in', values: [{ id: '1', label: 'X' }] }), /aren't valid/);
+    assert.throws(() => jql({ ...statusCondition(['1']), operator: 'not in' }), /aren't valid/);
+    assert.throws(() => jql({ ...statusCondition(['1']), operator: 'isNot' }), /aren't valid/);
+    assert.throws(() => jql({ ...statusCondition(['1']), operator: ') OR (1' }), /aren't valid/);
+    assert.throws(() => buildCustomViewJql({ conditions: [] }), /at least one condition/);
+    assert.throws(() => buildCustomViewJql({ conditions: [statusCondition(['1']), statusCondition(['2'])] }), /aren't valid/, 'a field twice');
+    assert.throws(() => buildCustomViewJql(null), /at least one condition/);
   });
 
   it('never compares a person but Me: an account or a name is refused', () => {
     for (const values of [[{ id: 'someone', label: 'Someone' }], [{ accountId: 'abc' }], [{ currentUser: true }, { currentUser: true }]]) {
-      assert.throws(() => jql({ field: { id: 'assignee', name: 'Assignee' }, operator: 'equals', values }), /isn't valid/);
+      assert.throws(() => jql({ field: { id: 'assignee', name: 'Assignee' }, operator: 'in', values }), /aren't valid/);
     }
   });
 
@@ -408,9 +493,9 @@ describe('Custom views - custom option values from Jira\'s suggestions', () => {
   });
 
   it('stores a suggested option by its name, which the view\'s JQL compares', () => {
-    const condition = normalizeCondition({ field: { id: 'customfield_11300', name: 'Team' }, operator: 'equals', values: parseFieldSuggestions({ results: [{ value: '"Cisco UC Apps"' }] }) });
+    const condition = normalizeCondition({ field: { id: 'customfield_11300', name: 'Team' }, operator: 'in', values: parseFieldSuggestions({ results: [{ value: '"Cisco UC Apps"' }] }) });
     assert.deepEqual(condition.values, [{ id: 'Cisco UC Apps', label: 'Cisco UC Apps' }]);
-    assert.equal(buildCustomViewJql({ conditions: [condition] }), 'cf[11300] = "Cisco UC Apps" ORDER BY updated DESC, key DESC');
+    assert.equal(buildCustomViewJql({ conditions: [condition] }), 'cf[11300] in ("Cisco UC Apps") ORDER BY updated DESC, key DESC');
   });
 });
 
@@ -426,24 +511,24 @@ describe('Custom views - order', () => {
   });
 
   it('orders the JQL by the view\'s field and direction, then by key the same way', () => {
-    assert.equal(jql({ field: 'updated', direction: 'DESC' }), 'reporter = currentUser() ORDER BY updated DESC, key DESC');
-    assert.equal(jql({ field: 'updated', direction: 'ASC' }), 'reporter = currentUser() ORDER BY updated ASC, key ASC');
-    assert.equal(jql({ field: 'created', direction: 'DESC' }), 'reporter = currentUser() ORDER BY created DESC, key DESC');
-    assert.equal(jql({ field: 'priority', direction: 'ASC' }), 'reporter = currentUser() ORDER BY priority ASC, key ASC');
-    assert.equal(jql({ field: 'duedate', direction: 'ASC' }), 'reporter = currentUser() ORDER BY duedate ASC, key ASC');
-    assert.equal(jql({ field: 'status', direction: 'DESC' }), 'reporter = currentUser() ORDER BY status DESC, key DESC');
-    assert.equal(jql({ field: 'key', direction: 'ASC' }), 'reporter = currentUser() ORDER BY key ASC', 'no tiebreaker for the key itself');
+    assert.equal(jql({ field: 'updated', direction: 'DESC' }), 'reporter in (currentUser()) ORDER BY updated DESC, key DESC');
+    assert.equal(jql({ field: 'updated', direction: 'ASC' }), 'reporter in (currentUser()) ORDER BY updated ASC, key ASC');
+    assert.equal(jql({ field: 'created', direction: 'DESC' }), 'reporter in (currentUser()) ORDER BY created DESC, key DESC');
+    assert.equal(jql({ field: 'priority', direction: 'ASC' }), 'reporter in (currentUser()) ORDER BY priority ASC, key ASC');
+    assert.equal(jql({ field: 'duedate', direction: 'ASC' }), 'reporter in (currentUser()) ORDER BY duedate ASC, key ASC');
+    assert.equal(jql({ field: 'status', direction: 'DESC' }), 'reporter in (currentUser()) ORDER BY status DESC, key DESC');
+    assert.equal(jql({ field: 'key', direction: 'ASC' }), 'reporter in (currentUser()) ORDER BY key ASC', 'no tiebreaker for the key itself');
   });
 
   it('keeps the condition exactly as before, the order after it', () => {
     assert.equal(jql({ field: 'priority', direction: 'ASC' }, statusCondition(['3', '10413'])), 'status in (3, 10413) ORDER BY priority ASC, key ASC');
-    assert.equal(jql({ field: 'duedate', direction: 'DESC' }, { field: { id: 'customfield_11300', name: 'Team' }, operator: 'equals', values: [{ id: 'Sega', label: 'Sega' }] }),
-      'cf[11300] = "Sega" ORDER BY duedate DESC, key DESC');
+    assert.equal(jql({ field: 'duedate', direction: 'DESC' }, { field: { id: 'customfield_11300', name: 'Team' }, operator: 'in', values: [{ id: 'Sega', label: 'Sega' }] }),
+      'cf[11300] in ("Sega") ORDER BY duedate DESC, key DESC');
   });
 
   it('orders a view saved without an order, or with one that isn\'t valid, by Updated descending', () => {
     for (const orderBy of [undefined, null, {}, { field: 'updated' }, { direction: 'ASC' }]) {
-      assert.equal(jql(orderBy), 'reporter = currentUser() ORDER BY updated DESC, key DESC', JSON.stringify(orderBy));
+      assert.equal(jql(orderBy), 'reporter in (currentUser()) ORDER BY updated DESC, key DESC', JSON.stringify(orderBy));
     }
   });
 
@@ -454,7 +539,7 @@ describe('Custom views - order', () => {
       { field: 'Updated', direction: 'DESC' }, { field: 'updated', direction: 'RANDOM' }
     ]) {
       assert.equal(normalizeOrderBy(orderBy), null, JSON.stringify(orderBy));
-      assert.equal(jql(orderBy), 'reporter = currentUser() ORDER BY updated DESC, key DESC', JSON.stringify(orderBy));
+      assert.equal(jql(orderBy), 'reporter in (currentUser()) ORDER BY updated DESC, key DESC', JSON.stringify(orderBy));
     }
   });
 
@@ -466,10 +551,123 @@ describe('Custom views - order', () => {
   });
 
   it('refuses a draft without a valid order', () => {
-    const draft = (orderBy) => ({ name: 'A', field: STATUS, operator: 'equals', values: [{ id: '3', label: 'In Progress' }], orderBy });
+    const draft = (orderBy) => ({ name: 'A', conditions: [{ field: STATUS, operator: 'in', values: [{ id: '3', label: 'In Progress' }] }], orderBy });
     for (const orderBy of [undefined, { field: 'summary', direction: 'ASC' }, { field: 'updated', direction: 'up' }]) {
       assert.match(validateViewDraft(draft(orderBy), { views: [] }).errors.orderBy, /Choose an order and a direction/);
     }
     assert.deepEqual(validateViewDraft(draft({ field: 'duedate', direction: 'ASC' }), { views: [] }).view.orderBy, { field: 'duedate', direction: 'ASC' });
+  });
+});
+
+describe('Custom views - several conditions, all met (AND)', () => {
+  const ORDER = ' ORDER BY updated DESC, key DESC';
+  const jql = (conditions, context, orderBy) => buildCustomViewJql({ conditions, orderBy }, context);
+  const priority = (ids, operator = ids.length > 1 ? 'in' : 'in') => ({ field: { id: 'priority', name: 'Priority' }, operator, values: ids.map((id) => ({ id, label: `P${id}` })) });
+  const option = (fieldId, labels) => ({ field: { id: fieldId, name: fieldId }, operator: labels.length > 1 ? 'in' : 'in', values: labels.map((label) => ({ id: label, label })) });
+
+  it('joins one clause per condition with AND, in their order, before ORDER BY', () => {
+    assert.equal(jql([statusCondition(['10413']), priority(['2'])]), `status in (10413) AND priority in (2)${ORDER}`);
+    assert.equal(jql([statusCondition(['10413']), priority(['2']), meCondition('assignee')]),
+      `status in (10413) AND priority in (2) AND assignee in (currentUser())${ORDER}`);
+    assert.equal(jql([statusCondition(['10413', '3']), meCondition('reporter')], {}, { field: 'priority', direction: 'ASC' }),
+      'status in (10413, 3) AND reporter in (currentUser()) ORDER BY priority ASC, key ASC');
+  });
+
+  it('combines custom option fields, quoted, with the others', () => {
+    assert.equal(jql([option('customfield_11300', ['Sega', 'Cisco UC Apps']), priority(['1', '2'])]),
+      `cf[11300] in ("Sega", "Cisco UC Apps") AND priority in (1, 2)${ORDER}`);
+  });
+
+  it('compares custom user fields with Me by their numbers, alone or with Status and Priority', () => {
+    const qa = meCondition('customfield_13931', 'QA Assignee');
+    const dev = meCondition('customfield_10600', 'Development Lead');
+    const allowed = { userFieldIds: ['customfield_13931', 'customfield_10600'] };
+    assert.equal(jql([qa], allowed), `cf[13931] in (currentUser())${ORDER}`);
+    assert.equal(jql([statusCondition(['10413']), qa], allowed), `status in (10413) AND cf[13931] in (currentUser())${ORDER}`);
+    assert.equal(jql([priority(['2']), qa], allowed), `priority in (2) AND cf[13931] in (currentUser())${ORDER}`);
+    assert.equal(jql([qa, dev], allowed), `cf[13931] in (currentUser()) AND cf[10600] in (currentUser())${ORDER}`);
+    assert.equal(jql([meCondition('assignee'), qa], allowed), `assignee in (currentUser()) AND cf[13931] in (currentUser())${ORDER}`);
+  });
+
+  it('refuses the whole view when any condition is wrong: never a broader search without it', () => {
+    assert.throws(() => jql([statusCondition(['10413']), { field: { id: 'labels' }, operator: 'in', values: [{ id: 'x' }] }]), /aren't valid/);
+    assert.throws(() => jql([statusCondition(['10413']), meCondition('customfield_13931')], { userFieldIds: [] }), /no longer available/);
+    assert.throws(() => jql([statusCondition(['1 OR project = X'])]), /aren't valid/);
+  });
+
+  it('keeps every value quoted in its own clause: an injection attempt in one condition stays a name', () => {
+    const attempt = 'x") OR (project = SECRET';
+    assert.equal(jql([statusCondition(['3']), option('customfield_11300', [attempt])]),
+      `status in (3) AND cf[11300] in ("x\\") OR (project = SECRET")${ORDER}`);
+  });
+
+  it('describes every condition, joined with "and"', () => {
+    assert.equal(describeView({ conditions: [statusCondition(['3']), meCondition('customfield_13931', 'QA Assignee')] }),
+      'Status in Status 3 and QA Assignee in Me · Updated, descending');
+  });
+});
+
+describe('Custom views - In and Not in', () => {
+  const ORDER = ' ORDER BY updated DESC, key DESC';
+  const jql = (conditions, context) => buildCustomViewJql({ conditions }, context);
+  const status = (operator, ids) => ({ field: { id: 'status', name: 'Status' }, operator, values: ids.map((id) => ({ id, label: `S${id}` })) });
+  const priority = (operator, ids) => ({ field: { id: 'priority', name: 'Priority' }, operator, values: ids.map((id) => ({ id, label: `P${id}` })) });
+  const select = (operator, labels) => ({ field: { id: 'customfield_11300', name: 'Team' }, operator, values: labels.map((label) => ({ id: label, label })) });
+  const user = (id, operator) => ({ field: { id, name: id }, operator, values: [{ currentUser: true, label: 'Me' }] });
+  const QA = { userFieldIds: ['customfield_13931'] };
+
+  it('In: one value or several, on every kind of field', () => {
+    assert.equal(jql([status('in', ['10100'])]), `status in (10100)${ORDER}`);
+    assert.equal(jql([status('in', ['10100', '10200'])]), `status in (10100, 10200)${ORDER}`);
+    assert.equal(jql([priority('in', ['1', '2'])]), `priority in (1, 2)${ORDER}`);
+    assert.equal(jql([select('in', ['Sega', 'Cisco UC Apps'])]), `cf[11300] in ("Sega", "Cisco UC Apps")${ORDER}`);
+    assert.equal(jql([user('assignee', 'in')]), `assignee in (currentUser())${ORDER}`);
+    assert.equal(jql([user('reporter', 'in')]), `reporter in (currentUser())${ORDER}`);
+    assert.equal(jql([user('customfield_13931', 'in')], QA), `cf[13931] in (currentUser())${ORDER}`);
+  });
+
+  it('Not in: one value or several; Status alone needs nothing more, as it\'s never empty', () => {
+    assert.equal(jql([status('notIn', ['10100'])]), `status not in (10100)${ORDER}`);
+    assert.equal(jql([status('notIn', ['10100', '10200'])]), `status not in (10100, 10200)${ORDER}`);
+  });
+
+  it('Not in also finds issues where the field is empty, which Jira\'s NOT IN alone leaves out', () => {
+    assert.equal(jql([priority('notIn', ['1', '2'])]), `(priority not in (1, 2) OR priority is EMPTY)${ORDER}`);
+    assert.equal(jql([select('notIn', ['Sega'])]), `(cf[11300] not in ("Sega") OR cf[11300] is EMPTY)${ORDER}`);
+    assert.equal(jql([user('assignee', 'notIn')]), `(assignee not in (currentUser()) OR assignee is EMPTY)${ORDER}`);
+    assert.equal(jql([user('reporter', 'notIn')]), `(reporter not in (currentUser()) OR reporter is EMPTY)${ORDER}`);
+    assert.equal(jql([user('customfield_13931', 'notIn')], QA), `(cf[13931] not in (currentUser()) OR cf[13931] is EMPTY)${ORDER}`);
+  });
+
+  it('keeps each Not in\'s OR inside its parentheses, so AND applies to the whole condition', () => {
+    assert.equal(jql([status('notIn', ['10100', '10200']), priority('in', ['1', '2']), user('customfield_13931', 'in')], QA),
+      `status not in (10100, 10200) AND priority in (1, 2) AND cf[13931] in (currentUser())${ORDER}`);
+    assert.equal(jql([priority('notIn', ['3']), user('assignee', 'in')]),
+      `(priority not in (3) OR priority is EMPTY) AND assignee in (currentUser())${ORDER}`);
+  });
+
+  it('adds no condition of its own: no assignee, reporter, or Additional Assignment Field unless chosen', () => {
+    for (const conditions of [[status('notIn', ['10100', '10200'])], [status('in', ['10413'])], [priority('in', ['1'])], [select('notIn', ['Sega'])]]) {
+      const query = jql(conditions, { userFieldIds: ['customfield_13931', 'customfield_10050'] });
+      assert.doesNotMatch(query, /assignee|reporter|currentUser|cf\[13931\]|cf\[10050\]|worklog|statusCategory/, query);
+    }
+    // Only the user's own condition, exactly once.
+    const mine = jql([status('notIn', ['10100', '10200']), user('assignee', 'in')]);
+    assert.equal(mine.match(/currentUser\(\)/g).length, 1);
+    assert.equal(mine, `status not in (10100, 10200) AND assignee in (currentUser())${ORDER}`);
+  });
+
+  it('turns saved Equals and Is one of views into the same In JQL, keeping values and order', () => {
+    const old = normalizeView({ id: 'v', name: 'Old', conditions: [
+      { field: { id: 'status', name: 'Status' }, operator: 'isOneOf', values: [{ id: '3', label: 'In Progress' }, { id: '4', label: 'In Review' }] },
+      { field: { id: 'customfield_13931', name: 'QA' }, operator: 'equals', values: [{ currentUser: true, label: 'Me' }] }
+    ], orderBy: { field: 'priority', direction: 'ASC' } });
+    assert.deepEqual(old.conditions.map((c) => [c.operator, c.values.length]), [['in', 2], ['in', 1]]);
+    assert.deepEqual(old.orderBy, { field: 'priority', direction: 'ASC' });
+    assert.equal(buildCustomViewJql(old, QA), 'status in (3, 4) AND cf[13931] in (currentUser()) ORDER BY priority ASC, key ASC');
+  });
+
+  it('describes Not in and In', () => {
+    assert.equal(describeView({ conditions: [status('notIn', ['1', '2']), user('assignee', 'in')] }), 'Status not in S1, S2 and assignee in Me · Updated, descending');
   });
 });

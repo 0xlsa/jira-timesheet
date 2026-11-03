@@ -27,7 +27,7 @@ The extension uses the browser's extension storage (`storage.local`) to keep:
 | API token (Jira Cloud) or personal access token (Data Center / Server) | To authenticate your requests to Jira |
 | The result of your last successful **Test Connection**: your Jira display name, username, account ID or user key, email address as Jira reports it, and, on Data Center / Server, the Jira version, deployment type, and server title | To show which account is connected |
 | When you last saved your settings | Kept with the settings |
-| Your custom views of My Work, for each Jira site: their names, the field, operator, and values each one searches for (Jira's IDs and names for statuses and priorities, option names for custom fields; for a person, only "Me"), and the order it sorts by. The issues they find aren't stored. | To show your views |
+| Your custom views of My Work, for each Jira site: their names, the conditions each one searches for (each a field, an operator, and values: Jira's IDs and names for statuses and priorities, option names for custom fields; for a person, only "Me"), and the order it sorts by. The issues they find aren't stored. | To show your views |
 
 It also stores your light or dark theme choice in the page's local storage.
 
@@ -41,7 +41,7 @@ To show and change your worklogs, the extension sends requests directly from you
 - **To show your week:** a search for issues with worklogs you authored in the selected week, which returns those issues' keys, summaries, and statuses, and your worklogs on them.
 - **When you look up an issue to log work on:** the issue key you typed (such as `ABC-12`), to find matching issues, which returns their keys, summaries, and statuses.
 - **When you log, edit, or delete work:** the worklog's date and start time, duration, and work description, or the request to delete it.
-- **With custom views of My Work:** each view you open runs its own search, built from its field, operator, values (for a person, only "Me", sent as the current user), and order, which returns the first 20 matching issues you can see in Jira, with their keys, summaries, and statuses. When you create or edit a view, your Jira site's lists of statuses, priorities, and fields, and, for a custom field, the values Jira suggests for what you type. Your views themselves are never sent to Jira, only the searches built from them.
+- **With custom views of My Work:** each view you open runs its own search, built from its conditions (for a person, only "Me", sent as the current user) and order, which returns the first 20 matching issues you can see in Jira, with their keys, summaries, and statuses. When you create or edit a view, your Jira site's lists of statuses, priorities, and fields, and, for a custom field, the values Jira suggests for what you type. Your views themselves are never sent to Jira, only the searches built from them.
 
 Jira data received this way is used only to display your timesheet and is kept in memory while the page is open. Apart from the connection-test result described above, it isn't saved.
 

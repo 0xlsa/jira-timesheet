@@ -2968,6 +2968,84 @@ body {
   margin-bottom: 16px;
 }
 
+/* Conditions: one card each, divided by a line: a header (chevron and number, which expands and
+   collapses it) with Delete on the right, its summary while collapsed, then its fields; then
+   + Add Condition */
+.custom-view-condition {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.custom-view-condition:last-child {
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 12px;
+}
+
+.custom-view-condition-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.custom-view-condition-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  color: var(--text-main);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-view-condition-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.custom-view-condition-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+  transition: transform var(--transition);
+}
+
+.custom-view-condition.is-collapsed .custom-view-condition-chevron {
+  transform: rotate(-90deg);
+}
+
+.custom-view-condition-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* Below the number, lined up with it: "Status · Not in · Pending, Verify" */
+.custom-view-condition-summary {
+  margin: 2px 0 8px 22px;
+  font-size: 12px;
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.custom-view-condition-body {
+  padding-top: 10px;
+}
+
+.custom-view-condition .form-group {
+  margin-bottom: 12px;
+}
+
+.custom-view-add-condition {
+  margin-top: 4px;
+}
+
 .custom-view-values-group {
   border: 0;
   padding: 0;
@@ -3013,6 +3091,13 @@ body {
   display: flex;
   flex-wrap: wrap;
   column-gap: 20px;
+}
+
+/* The values not chosen, after the chosen ones: a line between the two groups */
+.custom-view-value-others {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
 }
 
 .custom-view-value-note {

@@ -38,7 +38,7 @@ describe('Custom views page wiring', () => {
 
   it('runs each view\'s own search with its JQL, keyed by the Jira site and the JQL', () => {
     const search = functionSource('viewSearchFor');
-    assert.match(search, /jql = buildCustomViewJql\(view, \{ assignmentFieldIds: context\.assignmentFieldIds \}\);/);
+    assert.match(search, /jql = buildCustomViewJql\(view, \{ userFieldIds: viewUserFieldIds\(view, context\) \}\);/);
     assert.match(search, /key: `\$\{siteId\(client\.deploymentType, client\.baseUrl\)\}\\n\$\{jql\}`/);
     assert.match(search, /run: \(signal\) => client\.searchCustomViewIssues\(jql, \{ signal \}\)/);
     assert.match(search, /if \(!isViewAvailable\(view, context\)\) return null;/);
@@ -79,6 +79,24 @@ describe('Custom views page wiring', () => {
     assert.match(calls[1], /includeRecentlyLogged: settings\.showRecentlyLoggedIssues\n/);
     for (const call of calls) assert.doesNotMatch(call, /view/i);
     assert.match(functionSource('workingIssuesOptions'), /recentlyLogged: \{ checked: savedSettings\?\.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues \}/);
+  });
+
+  it('offers the site\'s single-user fields and single-select fields, from one GET /field, and knows them for availability', () => {
+    const load = functionSource('loadCustomFields');
+    assert.match(load, /client\.getCustomViewFields\(\)\.then\(\(\{ singleSelect, userPickers \}\) => \{/);
+    assert.match(load, /\.\.\.named\(userPickers\)\.map\(\(field\) => \(\{ id: field\.id, name: field\.name, kind: 'user', group: 'User fields' \}\)\)/);
+    // Two fields with one name show their IDs.
+    assert.match(load, /\? \{ \.\.\.field, name: `\$\{field\.name\} \(\$\{field\.id\}\)` \} : field/);
+    assert.match(functionSource('customViewsOptions'), /userPickerFieldIds: customFieldCatalog\?\.site === site \? customFieldCatalog\.userIds : null/);
+    assert.match(functionSource('openViewEditor'), /loadCustomFields: \(\) => loadCustomFields\(client\),/);
+    // The Additional Assignment Fields are offered at once, as before.
+    assert.match(functionSource('openViewEditor'), /assignmentFieldsFor\(client\)\.map\(\(field\) => \(\{ id: field\.id, name: field\.name, kind: 'user', group: 'Additional Assignment Fields' \}\)\)/);
+  });
+
+  it('checks every condition of a saved view again against what\'s stored', () => {
+    const editor = functionSource('openViewEditor');
+    assert.match(editor, /conditions: valid\.conditions\.map\(\(condition\) => \(\{\s*field: \{ \.\.\.condition\.field, kind: conditionKind\(condition\) \},/);
+    assert.match(editor, /errors\.byCondition\?\.flatMap/);
   });
 
   it('offers every status and priority Jira lists, a custom field\'s suggested values, and Me', () => {
