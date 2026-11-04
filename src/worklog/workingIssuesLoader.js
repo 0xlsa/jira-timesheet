@@ -1,28 +1,38 @@
 /**
- * Loads the My Active Issues section's contents and reports each state it goes through. A newer
+ * Loads My Issues' Active view and reports each state it goes through. A newer
  * load cancels an older one, so a slow answer never replaces a newer one (after a Sync or a change
  * of settings). The list doesn't depend on the week displayed: loading what's already shown (same
  * Jira site, Additional Assignment Fields, and Show Recently Logged Issues), or already loading,
  * does nothing unless forced. No DOM: the page controller renders the states.
+ *
+ * A load can keep the issues shown while it runs (`keepShown`, for Show Recently Logged Issues):
+ * the last issues loaded for the same Jira site stay, marked `refreshing`, until Jira's new answer
+ * replaces them in one state; if the load fails, they stay, with `refreshError` saying why. The
+ * issues are always Jira's answer to one load: never changed while waiting for the next.
  */
 
 import { loadActiveIssues } from './weeklyWorklogService.js';
 
 /**
  * @param {(state: { status: 'loading' | 'ready' | 'error', issues?: Array<object>, message?: string,
- *   includeRecentlyLogged?: boolean } | null) => void}
- *   onChange - Called with each new state; null when there's nothing to show
+ *   includeRecentlyLogged?: boolean, refreshing?: true, refreshError?: string } | null) => void}
+ *   onChange - Called with each new state; null when there's nothing to show. `refreshing`: the
+ *   issues are the last ones loaded, kept while a newer load runs; `refreshError`: that load failed,
+ *   so they're still the last ones loaded
  * @param {object} [options]
  * @param {(err: Error) => void} [options.logError=console.error] - Reports a failed load
  * @param {() => Date} [options.now] - The clock that ends the recently logged window
  * @returns {{ refresh: (client: object, options?: { force?: boolean, assignmentFields?: Array<{ id: string }>,
- *   includeRecentlyLogged?: boolean }) => Promise<void>, clear: () => void }}
+ *   includeRecentlyLogged?: boolean, keepShown?: boolean }) => Promise<void>, clear: () => void }}
  */
 export function createWorkingIssuesLoader(onChange, { logError = (err) => console.error('Failed to load active issues:', err), now = () => new Date() } = {}) {
   // Load in flight, cancelled when a newer one starts: { controller, key }.
   let request = null;
   // What the issues shown were loaded for, once loaded; null while loading, after an error, or cleared.
   let shownKey = null;
+  // The issues shown, once loaded, kept for a load with `keepShown`: { site, key, state }; null while
+  // nothing loaded is shown (loading without keepShown, after an error, or cleared).
+  let shown = null;
 
   return {
     /**
@@ -37,27 +47,42 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
      *   different set loads again
      * @param {boolean} [options.includeRecentlyLogged=true] - Show Recently Logged Issues; a change
      *   loads again
+     * @param {boolean} [options.keepShown=false] - Keep the issues shown (the same Jira site's) while
+     *   this load runs, and after it fails, instead of reporting `loading` or `error`
      */
-    async refresh(client, { force = false, assignmentFields = [], includeRecentlyLogged = true } = {}) {
+    async refresh(client, { force = false, assignmentFields = [], includeRecentlyLogged = true, keepShown = false } = {}) {
+      const site = `${client.deploymentType}|${client.baseUrl}`;
       const fieldsKey = assignmentFields.map((field) => field.id).join(',');
-      const key = `${client.deploymentType}|${client.baseUrl}|${includeRecentlyLogged ? 'logged' : 'assigned'}${fieldsKey ? `|${fieldsKey}` : ''}`;
+      const key = `${site}|${includeRecentlyLogged ? 'logged' : 'assigned'}${fieldsKey ? `|${fieldsKey}` : ''}`;
       if (!force && (request?.key === key || (!request && shownKey === key))) return;
 
       request?.controller.abort();
       const current = { controller: new AbortController(), key };
       request = current;
       shownKey = null;
+      // The issues shown stay only for the same site; otherwise they go, as before.
+      const previous = keepShown && shown?.site === site ? shown : null;
+      shown = previous;
 
-      onChange({ status: 'loading' });
+      onChange(previous ? { ...previous.state, refreshing: true } : { status: 'loading' });
       try {
         const issues = await loadActiveIssues(client, { now: now(), signal: current.controller.signal, assignmentFields, includeRecentlyLogged });
         if (current.controller.signal.aborted) return;
+        const state = { status: 'ready', issues, includeRecentlyLogged };
         shownKey = key;
-        onChange({ status: 'ready', issues, includeRecentlyLogged });
+        shown = { site, key, state };
+        onChange(state);
       } catch (err) {
         if (current.controller.signal.aborted) return;
         logError(err);
-        onChange({ status: 'error', message: err.message || 'Unable to retrieve issues from Jira.' });
+        const message = err.message || 'Unable to retrieve issues from Jira.';
+        if (previous) {
+          // Still the issues of the last load that worked.
+          shownKey = previous.key;
+          onChange({ ...previous.state, refreshError: message });
+        } else {
+          onChange({ status: 'error', message });
+        }
       } finally {
         if (request === current) request = null;
       }
@@ -68,6 +93,7 @@ export function createWorkingIssuesLoader(onChange, { logError = (err) => consol
       request?.controller.abort();
       request = null;
       shownKey = null;
+      shown = null;
       onChange(null);
     }
   };

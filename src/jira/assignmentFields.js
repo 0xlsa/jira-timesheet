@@ -1,6 +1,6 @@
 /**
  * Additional Assignment Fields: Jira user fields (such as a "QA Assignee") that also count as
- * assigning an issue to the user in My Active Issues, alongside the standard Assignee.
+ * assigning an issue to the user in My Work, alongside the standard Assignee.
  *
  * Only single-user custom fields are supported: custom fields whose schema is the user picker
  * (`com.atlassian.jira.plugin.system.customfieldtypes:userpicker`), as both Jira Cloud

@@ -192,7 +192,8 @@ body {
 
 /* The cog and the ? button while their drawer is open (their aria-expanded follows the drawer) */
 .header-icon-btn[aria-controls="settingsDrawer"][aria-expanded="true"],
-.header-icon-btn[aria-controls="shortcutsDrawer"][aria-expanded="true"] {
+.header-icon-btn[aria-controls="shortcutsDrawer"][aria-expanded="true"],
+.header-icon-btn[aria-controls="changelogDrawer"][aria-expanded="true"] {
   color: var(--primary);
   background-color: var(--primary-light);
 }
@@ -883,13 +884,13 @@ body {
 
 .badge-today {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--primary);
   background-color: var(--primary-light);
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: var(--radius-xs);
 }
 
@@ -960,10 +961,10 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  padding: 20px 22px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .day-panel-header {
@@ -982,7 +983,7 @@ body {
   font-weight: inherit;
 }
 
-/* The header button: chevron, then the date and its count, as My Active Issues' header */
+/* The header button: chevron, then the date and its count, as My Work's header */
 .day-panel-toggle {
   display: flex;
   align-items: center;
@@ -1043,8 +1044,9 @@ body {
 }
 
 /* Circular add worklog button in the selected day's heading, and the timer and log work buttons
-   of each My Active Issues row */
+   of each My Work row */
 .working-issue-timer-btn,
+.working-issues-view-btn,
 .working-issue-log-btn,
 .day-add-btn {
   flex-shrink: 0;
@@ -1063,6 +1065,7 @@ body {
 }
 
 .working-issue-timer-btn:hover,
+.working-issues-view-btn:hover,
 .working-issue-log-btn:hover,
 .day-add-btn:hover {
   color: var(--primary);
@@ -1071,6 +1074,7 @@ body {
 }
 
 .working-issue-timer-btn:focus-visible,
+.working-issues-view-btn:focus-visible,
 .working-issue-log-btn:focus-visible,
 .day-add-btn:focus-visible {
   outline: 2px solid var(--border-focus);
@@ -1078,6 +1082,7 @@ body {
 }
 
 .working-issue-timer-btn .icon,
+.working-issues-view-btn .icon,
 .working-issue-log-btn .icon,
 .day-add-btn .icon {
   width: 16px;
@@ -1098,7 +1103,7 @@ body {
   border-color: var(--danger);
 }
 
-/* Play (Start, and Resume while paused) in My Active Issues and the Log work panel: solid primary
+/* Play (Start, and Resume while paused) in My Work and the Log work panel: solid primary
    blue with a white icon, as the Log work button. Pause keeps the neutral style. */
 .working-issue-timer-btn[data-timer-action="start"],
 .working-issue-timer-btn[data-timer-action="resume"] {
@@ -1125,7 +1130,7 @@ body {
 .worklog-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 /* Individual Worklog Item */
@@ -1141,7 +1146,7 @@ body {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: 10px 14px;
   transition: border-color var(--transition);
 }
 
@@ -1250,12 +1255,15 @@ body {
   min-width: 0;
 }
 
+/* One line, cut with an ellipsis; the full title is the tooltip (the span's title). */
 .issue-summary {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-main);
   line-height: 1.4;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .worklog-duration-badge {
@@ -1366,7 +1374,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px 14px;
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 12px;
   color: var(--text-subtle);
   flex-wrap: wrap;
@@ -1393,7 +1401,7 @@ body {
   line-height: 1.45;
 }
 
-/* My Active Issues: collapsible list of the user's issues in progress or with work logged this week,
+/* My Work: collapsible list of the user's issues in progress or with work logged this week,
    between the weekday cards and the selected-day panel. Kept compact so the timesheet stays in front. */
 .working-issues {
   background-color: var(--bg-card);
@@ -1612,8 +1620,8 @@ body {
   white-space: nowrap;
 }
 
-/* Active Issues and Pending Worklogs groups, one below the other in the section's body. Each header
-   expands and collapses its own group; a click anywhere on it but the switch toggles. */
+/* My Issues and Pending Worklogs groups, one below the other in the section's body. Each header
+   expands and collapses its own group; a click anywhere on it toggles. */
 .working-issues-group-header {
   display: flex;
   flex-wrap: wrap;
@@ -1665,20 +1673,43 @@ body {
   transform: rotate(-90deg);
 }
 
-/* Space between the Active Issues list and the Pending Worklogs header */
+/* Space between a group's contents and the next group's header */
 .working-issues-group + .working-issues-group {
   margin-top: 4px;
 }
 
-/* Show Recently Logged Issues, at the right of the Active Issues header: its label, then the
-   Settings switch, with smaller text. At narrow widths it wraps below the title. */
+/* Show Recently Logged Issues, Active's own, below the view tabs: its label, then the Settings
+   switch, with smaller text, on a line of its own above the issues, then a small spinner while
+   Active's issues load again. */
+.working-issues-recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 0 8px;
+}
+
 .switch-row.working-issues-recent {
+  width: fit-content;
   gap: 8px;
-  margin: 0 0 0 auto;
-  padding: 4px 0;
+  margin: 0;
   white-space: nowrap;
   font-size: 12px;
   color: var(--text-subtle);
+}
+
+.working-issues-recent-status {
+  display: inline-flex;
+  align-items: center;
+}
+
+.working-issues-recent-status .working-issues-spinner {
+  width: 12px;
+  height: 12px;
+}
+
+/* Without view tabs above it (no Jira site yet), the switch starts the group's contents */
+.working-issues-group-body > .working-issues-recent-row {
+  padding-top: 4px;
 }
 
 .working-issues-empty {
@@ -1854,7 +1885,7 @@ body {
   .issue-summary {
     grid-column: 1 / -1;
     grid-row: 2;
-    margin-top: 8px;
+    margin-top: 6px;
     padding-top: 0;
   }
 
@@ -1884,6 +1915,8 @@ body {
    drawers (above it). */
 .worklog-editor,
 .shortcuts-drawer,
+.changelog-drawer,
+.custom-view-editor,
 .settings-drawer {
   position: fixed;
   top: 0;
@@ -1903,6 +1936,8 @@ body {
    hidden once this ends (PANEL_CLOSE_MS in src/ui/panel.js). */
 .worklog-editor.is-closed,
 .shortcuts-drawer.is-closed,
+.changelog-drawer.is-closed,
+.custom-view-editor.is-closed,
 .settings-drawer.is-closed {
   transform: translateX(100%);
   opacity: 0;
@@ -1916,6 +1951,10 @@ body {
   .worklog-editor.is-closed,
   .shortcuts-drawer,
   .shortcuts-drawer.is-closed,
+  .changelog-drawer,
+  .changelog-drawer.is-closed,
+  .custom-view-editor,
+  .custom-view-editor.is-closed,
   .settings-drawer,
   .settings-drawer.is-closed {
     transition: none;
@@ -1925,6 +1964,8 @@ body {
 @media (max-width: 720px) {
   .worklog-editor,
   .shortcuts-drawer,
+  .changelog-drawer,
+  .custom-view-editor,
   .settings-drawer {
     width: 100%;
     border-left: none;
@@ -2442,11 +2483,15 @@ body {
 
 /* The Connection Settings drawer shares this drawer's layout (only one is open at a time). */
 .shortcuts-drawer,
+.changelog-drawer,
+.custom-view-editor,
 .settings-drawer {
   z-index: 45;
 }
 
 .shortcuts-drawer-body,
+.changelog-drawer-body,
+.custom-view-editor-body,
 .settings-drawer-body {
   display: flex;
   flex-direction: column;
@@ -2456,6 +2501,8 @@ body {
 }
 
 .shortcuts-header,
+.changelog-header,
+.custom-view-header,
 .settings-drawer-header {
   display: flex;
   align-items: center;
@@ -2463,6 +2510,8 @@ body {
 }
 
 .shortcuts-title,
+.changelog-title,
+.custom-view-title,
 .settings-drawer-title {
   flex: 1;
   font-size: 18px;
@@ -2550,6 +2599,8 @@ body {
 
 /* Shortcut list: categories with description on the left and keys on the right */
 .shortcuts-list,
+.changelog-list,
+.custom-view-scroll,
 .settings-drawer-scroll {
   flex: 1;
   overflow-y: auto;
@@ -2559,7 +2610,8 @@ body {
   scrollbar-color: var(--border-color) transparent;
 }
 
-.shortcuts-list:focus-visible {
+.shortcuts-list:focus-visible,
+.changelog-list:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: -2px;
 }
@@ -2622,6 +2674,496 @@ body {
   font-size: 13px;
   text-align: center;
   color: var(--text-muted);
+}
+
+/* ==========================================================================
+   CHANGELOG DRAWER
+   Every release, newest first, in the same place as the other drawers (src/ui/changelogDrawer.js).
+   ========================================================================== */
+
+.changelog-release + .changelog-release {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.changelog-release-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.changelog-version {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.changelog-latest {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border: 1px solid var(--primary-border);
+  border-radius: 999px;
+}
+
+.changelog-date {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.changelog-section + .changelog-section {
+  margin-top: 10px;
+}
+
+/* The category, like the shortcuts drawer's category titles */
+.changelog-category {
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+}
+
+.changelog-items {
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.changelog-items li + li {
+  margin-top: 4px;
+}
+
+/* An item's sub-items: a list under its text, set apart by its markers, size, and colour */
+.changelog-subitems {
+  margin: 4px 0 2px;
+  padding-left: 18px;
+  list-style: circle;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+
+.changelog-items .changelog-subitems li + li {
+  margin-top: 2px;
+}
+
+/* The latest release: on a highlighted card at the top, what the drawer is for */
+.changelog-release.is-latest {
+  padding: 14px 16px;
+  background-color: var(--bg-card-highlight);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.changelog-release.is-latest .changelog-version {
+  font-size: 17px;
+}
+
+/* A highlight of the latest release: a star before it, and the text a little stronger */
+.changelog-items li.is-highlight {
+  position: relative;
+  list-style: none;
+  font-weight: 600;
+}
+
+.changelog-highlight-icon {
+  position: absolute;
+  top: 3px;
+  left: -17px;
+  width: 13px;
+  height: 13px;
+  color: var(--warning);
+}
+
+/* The preview of unreleased changes (development output only): dashed, so it never reads as a release */
+.changelog-release.is-unreleased {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px dashed var(--warning-border);
+  border-radius: var(--radius-md);
+  background-color: var(--warning-bg);
+}
+
+.changelog-unreleased-note {
+  margin: -4px 0 8px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.changelog-message {
+  padding: 24px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* The NEW badge on the header's Changelog button, until the latest release notes have been seen */
+.header-new-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.3px;
+  color: #ffffff;
+  background-color: var(--primary);
+  border: 1px solid var(--bg-page);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   UPDATE ANNOUNCEMENT
+   A small card above the summary cards, once after an update (src/ui/updateAnnouncement.js).
+   ========================================================================== */
+
+.update-announcement-card {
+  align-items: flex-start;
+}
+
+.update-announcement-highlights {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.update-announcement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.update-announcement-close {
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   CUSTOM VIEWS
+   The view tabs in My Issues (src/ui/weekView.js), and the editor drawer (src/ui/customViewEditor.js).
+   ========================================================================== */
+
+/* The tabs (Active and the custom views), side by side, then the selected custom view's edit button
+   and the + button */
+.working-issues-viewbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.working-issues-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Every tab, Active and the custom views alike, has the same shape: the issue key badges' slightly rounded
+   corners and padding. Unselected: the duration presets' look (the Log work panel's 15m / 30m / 1h);
+   selected: the issue key badges' colours. */
+.working-issues-view-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--text-main);
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.working-issues-view-tab:hover {
+  background-color: var(--bg-hover);
+}
+
+.working-issues-view-tab.is-selected {
+  color: #58a6ff;
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+[data-theme="light"] .working-issues-view-tab.is-selected {
+  color: var(--primary);
+}
+
+.working-issues-view-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.working-issues-view-tab-count {
+  white-space: pre;
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+
+.working-issues-view-tab.is-selected .working-issues-view-tab-count {
+  color: inherit;
+}
+
+/* Moving a custom view's tab: a vertical touch still scrolls the page; a drag moves the tab. While
+   it's dragged, it fades, and a line (a shadow, so nothing moves) shows where it would go. */
+.working-issues-view-tab.is-movable {
+  touch-action: pan-y;
+}
+
+.working-issues-view-tabs.is-reordering {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.working-issues-view-tabs.is-reordering .working-issues-view-tab {
+  cursor: grabbing;
+}
+
+.working-issues-view-tab.is-dragging {
+  opacity: 0.45;
+}
+
+.working-issues-view-tab.is-drop-before {
+  box-shadow: -3px 0 0 0 var(--primary);
+}
+
+.working-issues-view-tab.is-drop-after {
+  box-shadow: 3px 0 0 0 var(--primary);
+}
+
+/* A view whose field is gone from Jira: struck-through name, so it reads as needing attention */
+.working-issues-view-tab.is-unavailable .working-issues-view-tab-name {
+  text-decoration: line-through;
+}
+
+.working-issues-viewbar .working-issues-view-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.working-issues-viewbar .working-issues-view-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* What the selected view searches ("Jira search: Reporter is Me"), above its results */
+.working-issues-view-query {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.working-issues-view-query-label {
+  font-weight: 600;
+}
+
+/* A view searched again, its issues still shown below: a small spinner and a note */
+.working-issues-view-updating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.working-issues-view-updating .working-issues-spinner {
+  width: 12px;
+  height: 12px;
+}
+
+/* More issues match than the view lists */
+.working-issues-view-more {
+  margin: 0;
+  padding: 8px 0 2px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+/* The editor's form: what a view is, the Settings form's fields, then Save and Cancel, and Delete
+   apart below */
+.custom-view-form .form-group,
+.custom-view-hint {
+  margin-bottom: 16px;
+}
+
+/* Conditions: one card each, divided by a line: a header (chevron and number, which expands and
+   collapses it) with Delete on the right, its summary while collapsed, then its fields; then
+   + Add Condition */
+.custom-view-condition {
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.custom-view-condition:last-child {
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 12px;
+}
+
+.custom-view-condition-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.custom-view-condition-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  color: var(--text-main);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.custom-view-condition-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.custom-view-condition-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  color: var(--text-subtle);
+  transition: transform var(--transition);
+}
+
+.custom-view-condition.is-collapsed .custom-view-condition-chevron {
+  transform: rotate(-90deg);
+}
+
+.custom-view-condition-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* Below the number, lined up with it: "Status · Not in · Pending, Verify" */
+.custom-view-condition-summary {
+  margin: 2px 0 8px 22px;
+  font-size: 12px;
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.custom-view-condition-body {
+  padding-top: 10px;
+}
+
+.custom-view-condition .form-group {
+  margin-bottom: 12px;
+}
+
+.custom-view-add-condition {
+  margin-top: 4px;
+}
+
+.custom-view-values-group {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+/* The values, in one scrolling area */
+.custom-view-value-scroll {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.custom-view-value-filter {
+  margin-bottom: 8px;
+}
+
+.custom-view-value-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.custom-view-value,
+.custom-view-direction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.custom-view-value input,
+.custom-view-direction input {
+  width: auto;
+  margin: 0;
+}
+
+/* Ascending and Descending, side by side */
+.custom-view-directions {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 20px;
+}
+
+/* The values not chosen, after the chosen ones: a line between the two groups */
+.custom-view-value-others {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.custom-view-value-note {
+  color: var(--text-muted);
+}
+
+.custom-view-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.custom-view-actions .btn {
+  flex: 1 1 0;
+}
+
+.custom-view-delete {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.custom-view-delete-question {
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--text-main);
 }
 
 /* ==========================================================================

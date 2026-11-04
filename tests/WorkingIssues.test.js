@@ -560,7 +560,7 @@ describe('Active issues loader', () => {
 
 // Issues the user logged work on are listed only in the weeks of those worklogs; in-progress issues
 // assigned to the user are listed every week, whatever their worklogs.
-describe('My Active Issues - across weeks', () => {
+describe('My Work - across weeks', () => {
   let restoreDocument;
   before(() => {
     restoreDocument = installFakeDocument();
@@ -632,10 +632,10 @@ describe('My Active Issues - across weeks', () => {
   });
 });
 
-// My Active Issues through the loader, as the page shows it: the in-progress issues assigned to the
+// My Work through the loader, as the page shows it: the in-progress issues assigned to the
 // user, and (with Show Recently Logged Issues on) those the user logged work on in the 14 days
 // before "now", whatever week is displayed. "Now" is Friday 13 November 2026, 15:30 UTC.
-describe('My Active Issues - recently logged issues', () => {
+describe('My Work - recently logged issues', () => {
   let restoreDocument;
   before(() => {
     restoreDocument = installFakeDocument();
@@ -769,7 +769,7 @@ describe('My Active Issues - recently logged issues', () => {
   });
 });
 
-describe('WeekView - My Active Issues section', () => {
+describe('WeekView - My Work section', () => {
   let restoreDocument;
   before(() => {
     restoreDocument = installFakeDocument();
@@ -819,19 +819,19 @@ describe('WeekView - My Active Issues section', () => {
     }
   });
 
-  it('is titled My Active Issues, visibly and for assistive technology', () => {
+  it('is titled My Work, visibly and for assistive technology', () => {
     const container = document.createElement('div');
     renderWeek(container, buildEmptyWeek(MONDAY), {
       selectedDateKey: '2026-10-26', onSelectDay: () => {},
       workingIssues: { state: { status: 'ready', issues: [] }, expanded: false }
     });
     const section = container.querySelector('#workingIssues');
-    assert.equal(section.getAttribute('aria-label'), 'My Active Issues');
-    assert.equal(section.querySelector('.working-issues-title').textContent, 'My Active Issues');
+    assert.equal(section.getAttribute('aria-label'), 'My Work');
+    assert.equal(section.querySelector('.working-issues-title').textContent, 'My Work');
     assert.doesNotMatch(toHtml(section), /Working Issues/);
   });
 
-  it('is left out without My Active Issues options', () => {
+  it('is left out without My Work options', () => {
     const container = document.createElement('div');
     renderWeek(container, buildEmptyWeek(MONDAY), { selectedDateKey: '2026-10-26', onSelectDay: () => {} });
     assert.equal(container.querySelector('.working-issues'), null);

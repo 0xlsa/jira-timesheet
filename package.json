@@ -1,10 +1,11 @@
 {
   "name": "timesheet-for-jira",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Your Jira worklogs as a weekly timesheet, at a glance.",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "changelog": "node scripts/changelog.mjs --mode development --out src/changelog/changelog.json"
   },
   "keywords": [
     "jira",

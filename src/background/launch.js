@@ -58,8 +58,11 @@ export async function createSettingsMenu(api) {
 /**
  * Wires the toolbar icon, its Settings menu item, and the first install to openTimesheet().
  * @param {object} api
+ * @param {object} [options]
+ * @param {() => Promise<void>} [options.onInstall] - Runs on a fresh install, before the timesheet
+ *   opens (it records the installed version for the Changelog); the page opens even if it fails
  */
-export function setUpTimesheetLaunchers(api) {
+export function setUpTimesheetLaunchers(api, { onInstall } = {}) {
   const report = (err) => console.error('Failed to open Timesheet for Jira:', err);
 
   api.action?.onClicked?.addListener(() => {
@@ -73,8 +76,15 @@ export function setUpTimesheetLaunchers(api) {
   // Note: details.reason is a string ('install', 'update', 'browser_update') in both browsers.
   api.runtime?.onInstalled?.addListener((details) => {
     createSettingsMenu(api).catch((err) => console.warn('Could not add the Settings menu item:', err));
-    // Open the timesheet on the first install to guide the user through setup.
-    if (details.reason === 'install') openTimesheet(api).catch(() => {});
+    // Open the timesheet on the first install to guide the user through setup, once the install is
+    // recorded, so the page doesn't take it for an update.
+    if (details.reason === 'install') {
+      Promise.resolve()
+        .then(() => onInstall?.())
+        .catch((err) => console.warn('Could not record the install:', err))
+        .then(() => openTimesheet(api))
+        .catch(() => {});
+    }
   });
   api.runtime?.onStartup?.addListener(() => {
     createSettingsMenu(api).catch((err) => console.warn('Could not add the Settings menu item:', err));

@@ -18,7 +18,7 @@
 
 ## Screenshots
 
-The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. A banner shows the next public holiday, and My Active Issues shows a running timer even when it's collapsed. It has light and dark themes.
+The weekly timesheet shows each day's total and the week's total, with the selected day's worklogs below. A banner shows the next public holiday, and My Work shows a running timer even when it's collapsed. It has light and dark themes.
 
 ![Timesheet for Jira: weekly overview, light theme](docs/screenshots/weekly-overview-light.png)
 
@@ -90,9 +90,25 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 - A button in the URL field opens the entered instance in a new tab (valid HTTPS URLs only).
 - Instance URLs can include a context path, such as `https://jira.example.com/jira`.
 
+**Custom views of My Work**
+- My Work has two groups, each expanding and collapsing on its own: **My Issues** and **Pending Worklogs**.
+- At the top of My Issues, its views side by side as tabs, each with its count: **Active** (the built-in view: your issues, exactly as before) and up to five custom views of your own per Jira site (**20+** when more match). **+** creates a view, until there are five; the selected custom view's ✎ renames, changes, or deletes it. Drag a custom view's tab left or right to reorder the tabs (a line shows where it goes; Escape cancels), or press **Alt+Shift+←** or **→** on it; Active always stays first. The order is saved per Jira site, apart from the views, so moving a tab never searches Jira again; a new view goes last. The one list below shows the selected view. The selected tab is remembered, and views changed in another tab show at once.
+- **Show recently logged** belongs to Active: it's just below the tabs while Active is selected, and hidden while a custom view is. It never changes a custom view's results. Flipping it keeps the issues listed, with a small spinner beside it, until Jira's new list replaces them in one go; if that load fails, they stay and a message says why. Flipped quickly several times, only the last flip's list is shown.
+- A custom view is a Jira search of its own, apart from Active: it lists the first 20 issues you can see in Jira that match its condition, whether Active lists them or not, in the view's order. It makes one request and never asks for more pages; when more issues match, it says so ("Showing the first 20 of 147 matching issues."; Jira Cloud's search doesn't give the count, so there it says "Showing the first 20 matching issues."). A view is searched when it's shown (selected, with My Issues expanded), then kept for as long as the page is open; **Sync** searches again, as does **Retry** after a failure.
+- A view has a name (up to 30 characters, unique, not "Active" or "All") and one or more conditions, all of which an issue must meet (AND). **+ Add Condition** adds one, and each condition's **Delete** takes it away. Each condition is a card whose header (chevron and number) expands and collapses it; collapsed, one line sums it up, such as `Status · Not in · Pending, Verify`. A view with several conditions opens with them collapsed; a new condition, a single one, and one with something to fix on **Save** show expanded. A condition is a field, **In** or **Not in**, and one or more values; choosing another field starts it afresh (In, no values), and changing the operator keeps the values. The values chosen are listed first, then the others, each alphabetically; choosing or clearing one moves it at once, and filtering or searching the values never hides a chosen one. Each field can have one condition. The fields are Status and Priority (every value Jira lists, with a filter for long lists), custom single-select and radio-button fields (the values Jira suggests as you type), and Assignee, Reporter, and custom single-user fields such as a QA Assignee (your Additional Assignment Fields, and every other user picker Jira can search, found through `GET /field`), which only compare with **Me** (In or Not in). Multi-user fields aren't offered: "Me" there would mean "among them", not "assigned to me". Two fields with the same name show their IDs.
+- A view also has an order: **Order by** Updated, Created, Priority, Due date, Status, or Issue key (Jira's own sortable fields, checked on Jira Cloud and Data Center), **Ascending** or **Descending**. A new view, and one saved before views had an order, is ordered by Updated, descending. Jira sorts the issues before it takes the first 20, as `ORDER BY <field> <direction>`, then by key in the same direction, so issues with the same value come back in the same order. Status sorts by the workflow's order of statuses and Priority by the site's order of priorities, as in Jira; sorting descending, Jira puts issues without a value (such as no due date) first. Changing a view's order searches Jira again, keeping the issues shown until the new ones are in.
+- A view adds no condition of its own: Status Not in Pending, Verify lists every issue in another status you can see in Jira, whoever it's assigned to or reported by. Only a condition you add, such as Assignee In Me or QA Assignee In Me, limits it to your issues. **Not in** also lists issues where the field is empty (Assignee Not in Me includes unassigned issues; QA Assignee Not in Me, issues without a QA), which Jira's own `NOT IN` leaves out; Status is never empty. Views saved with the operators views had before (Equals, Is one of) are read as In, with their values.
+- The view's JQL is built from its conditions and order alone, one clause per condition joined with `AND`, from allow-listed fields, operators, and orders: statuses and priorities by Jira's IDs, a custom field by its number (`cf[13931]`), its options by name, in quotes (Jira Data Center doesn't accept option IDs in JQL, so an option renamed in Jira stops matching until you edit the view), and Me as `currentUser()`. For example, `status not in (10100, 10200) AND priority in (1, 2) AND cf[13931] in (currentUser()) ORDER BY updated DESC, key DESC`, or `(assignee not in (currentUser()) OR assignee is EMPTY)` for Assignee Not in Me. Nothing you type goes into the JQL unquoted, and no other person can be chosen. A view's JQL is at most 2,000 characters: its search is a GET request, which Jira refuses much over 8 KB once encoded.
+- Views are saved per Jira site in the browser's extension storage; the issues they find are only kept while the page is open. A view whose field is gone from Jira says so, with **Edit view**. A custom view's rows have the same timer and log work buttons as Active's, on the same timer; only Active lists the running timer's issue when Jira doesn't.
+
+**What's New**
+- The **What's New** button in the header opens a drawer that shows what the latest release brings: its version, date, and changes under **New features**, **Improvements**, **Bug fixes**, and **Security updates** (only the ones with entries), with the release's highlights marked by a star. Only the latest release is shown; the full history stays in `CHANGELOG.md`. It works offline: the release notes are packaged with the extension.
+- After an update, a **NEW** badge on the button stays until you've seen the latest release notes in What's New. Opening another drawer, or closing the announcement below, doesn't remove it.
+- The first time you open the timesheet after an update, a small announcement at the top, **What's New in vX.Y.Z**, lists the new version's highlights (at most three), with **Explore updates** to open What's New and a close button. It appears once per release and never blocks the page. A fresh install shows neither the announcement nor the badge.
+
 **General**
 - Light and dark themes, with a toggle in the header.
-- No runtime dependencies and no build step.
+- No runtime dependencies, and no build step apart from generating the release notes for What's New (see [Changelog](#changelog)).
 
 ## Supported browsers, Jira editions, and authentication
 
@@ -227,7 +243,7 @@ The [privacy policy](docs/store-listing/common/privacy-policy.md) explains what 
 
 ## Development and tests
 
-There's no build step and there are no runtime dependencies. Edit the files and reload the extension in the browser.
+There are no runtime dependencies and no build step. Edit the files and reload the extension in the browser. The one generated file is the release notes What's New shows: run `npm run changelog` before loading the extension unpacked, and again after editing `CHANGELOG.md`, to preview the unreleased changes in What's New (see [Changelog](#changelog)). Without it, What's New says the release notes couldn't be loaded.
 
 The tests use Node.js's built-in test runner, with no dependencies to install. They were last run with Node.js 22.
 
@@ -237,23 +253,69 @@ npm test
 
 This runs `node --test tests/*.test.js`, as defined in `package.json`.
 
+### Changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) is the only record of release history, written by hand in the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with [Semantic Versioning](https://semver.org/). Version 1.2.0 is the first documented release; the versions before it were development milestones, whose history is in Git (tags `v1.0.0` and `v1.1.0`).
+
+- Add each user-facing change under `## [Unreleased]`, in `### Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
+- Items are plain text on one line (or continued on lines indented by two spaces): no code spans, bold, emphasis, links, images, or HTML. The check names the line of anything else.
+- An item may have sub-items, one level only: `  - ` (two spaces, then `- `) under it, plain text too, continued on lines indented by four spaces. What's New lists them under their item; the update announcement shows only a highlight's own text. A sub-item can't be a highlight.
+- End an item with `<!-- highlight -->` to make it one of its release's highlights, which the update announcement lists.
+- Releases are `## [X.Y.Z] - YYYY-MM-DD`, newest first, one for every published version, patch releases included. Versions are numbers only, since browser manifests allow no pre-release suffix.
+
+`scripts/changelog.mjs` checks the file and turns it into the JSON the extension shows (`src/changelog/changelog.json`, generated, never edited by hand). The extension never reads `CHANGELOG.md` itself. There are two outputs, marked by the JSON's `channel`:
+
+| | Development output | Release output |
+| --- | --- | --- |
+| Written by | `npm run changelog` (into `src/`, for loading the extension unpacked from the repository; ignored by Git) and `task build:*` (into `dist/`) | `task package:*` (into `dist/`, then the zip) |
+| `[Unreleased]` | Included, and previewed first in What's New as **What's New — Unreleased** | Never included |
+| Released versions | Included | Included |
+
+The preview is never a release: it has no version or date, isn't marked Latest, and never turns on the NEW badge, shows the update announcement, or counts as read or announced. Only released versions do.
+
+The checks differ for development and release:
+
+| Check | Development (`npm run changelog`, `task build:*`) | Release (`task package:*`) |
+| --- | --- | --- |
+| `CHANGELOG.md` follows the format | Required | Required |
+| `[Unreleased]` has changes | Allowed | Fails: it must be empty |
+| Released versions | None needed | At least one; the latest equals the version in `manifest.json` and `package.json` |
+| Highlights in the latest release | Not checked | 1 to 3 |
+| Packaged release notes | — | Must be the release output (`channel` is `release`, and there's no `unreleased`) |
+
+Between releases, the manifest and `package.json` keep the last version number (currently 1.2.0) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
+
+To release a version (1.3.0 next):
+
+1. Move the `[Unreleased]` changes into a new `## [1.3.0] - YYYY-MM-DD` section, with the actual release date, and leave an empty `## [Unreleased]` above it.
+2. Mark 1 to 3 of its changes with `<!-- highlight -->`.
+3. Set the same version in `manifest.json` and `package.json`.
+4. Run `npm test`, then `task package:chrome` and `task package:firefox`. Both stop if anything above doesn't hold.
+5. Commit, then tag the release commit with an annotated tag and push it: `git tag -a v1.3.0 -m "Timesheet for Jira 1.3.0"` and `git push origin v1.3.0`.
+
+```bash
+npm run changelog                                   # check CHANGELOG.md and write the development output into src/
+node scripts/changelog.mjs                          # only check CHANGELOG.md
+node scripts/changelog.mjs --check-release 1.3.0    # check it's ready to release 1.3.0
+```
+
 ### Packaging for the browser stores
 
-Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, and `unzip`. From the repository root:
+Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, `unzip`, and Node.js (to generate the release notes). To use another Node.js command than `node`, such as a wrapper script that runs it in a container, set `NODE` to its path. From the repository root:
 
 ```bash
 task package:chrome    # release/timesheet-for-jira-chrome.zip, for the Chrome Web Store
 task package:firefox   # release/timesheet-for-jira-firefox.zip, for Firefox Add-ons
 ```
 
-Each task deletes the browser's previous zip, then copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/` or `dist/firefox/`. The zip contains only these files, not the repository: no tests, docs, store listings, `package.json`, or hidden files. The manifest copy differs per browser:
+Each task deletes the browser's previous zip, then copies the runtime files (the manifest, `background.js`, the options page, `icons/`, and `src/`) into `dist/chrome/` or `dist/firefox/`, and generates the release notes there from `CHANGELOG.md` (`src/changelog/changelog.json`, replacing any copy from `src/`): the development output for `task build:*`, the release output for `task package:*`. The zip contains only these files, not the repository: no tests, docs, store listings, `CHANGELOG.md`, `scripts/`, `package.json`, or hidden files. The manifest copy differs per browser:
 
 - **Chrome** leaves out the Firefox-only keys (`browser_specific_settings` and `background.scripts`).
 - **Firefox** leaves out `background.service_worker`. Firefox doesn't run extension service workers, so it runs `background.js` from `background.scripts` instead.
 
 The task then checks the build and stops with an error, without writing a zip, if any check fails:
 
-- **Both:** the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, and a version that matches `package.json`. It has no `host_permissions`, and `optional_host_permissions` includes `https://*/*`. Every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build.
+- **Both:** the manifest is valid JSON with Manifest V3, a name, a description, a 128 px icon, and a version that matches `package.json`. It has no `host_permissions`, and `optional_host_permissions` includes `https://*/*`. Every file the manifest names, every local file the HTML pages load, and every relative import resolves inside the build. The release notes in the build are the release output, never the development one; `[Unreleased]` is empty; and `CHANGELOG.md`'s latest release is the manifest's version, with 1 to 3 highlights (see [Changelog](#changelog)).
 - **Chrome:** the description is at most 132 characters, and there's a background service worker.
 - **Firefox:** `browser_specific_settings.gecko.id` is set and is an email-like ID or a GUID in braces. The task prints it, because it's the ID the add-on is published under (currently `timesheet-for-jira@0xlsa`); changing it in `manifest.json` publishes a different add-on. `strict_min_version` is set (the task prints it), and it's at least 128 when the manifest uses `optional_host_permissions` and at least 140 when it declares `data_collection_permissions`. With `gecko_android`, the Android minimum must be at least 142; without it, the task reports that Android isn't supported. `background.scripts` is set and `background.service_worker` isn't, and no script calls `chrome.*` directly outside `src/compat/browser-api.js`. A missing `browser_specific_settings.gecko.data_collection_permissions` is reported as a warning, not an error; the declaration and its reasoning are in `docs/store-listing/firefox/listing.md`.
 
@@ -292,6 +354,15 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `SettingsDraft.test.js` | The Connection Settings form's unsaved values: a copy of the saved settings, switching editions without losing either edition's values, and saving or discarding them |
 | `CompositionAndPlatform.test.js` | The Jira client factory, worklog author matching, and the platform adapter (extension APIs and the non-extension fallback) |
 | `BackgroundMessages.test.js` | The background script's `TEST_CONNECTION` and `FETCH_WORKLOGS` message handlers |
+| `Changelog.test.js` | The `CHANGELOG.md` format and every rule the generator checks, the development and release outputs (only the development one has `[Unreleased]`), the release check (empty `[Unreleased]`, version, and 1 to 3 highlights), the repository's own `CHANGELOG.md`, and the command line |
+| `ChangelogState.test.js` | Reading the generated release notes (unreleased changes only from the development output), when the update announcement and the NEW badge show (update, fresh install, an update from before What's New), and recording what was announced and read |
+| `CustomViews.test.js` | Custom views' rules: storage per site (and entries from other versions left untouched), names (Active and All reserved), the five-view limit, the tab order (saved order, new views last, gone ones skipped, moves, where a drag drops across wrapped rows), one or more conditions (each checked, one per field, combined with AND), In and Not in (empty fields kept by Not in, no implicit conditions, Equals and Is one of read as In), operators by field, Me only for people, which custom fields qualify, the views' JQL (IDs, quoted option names, `currentUser()`, refused fields, operators, and values, injection attempts), the views' orders (Jira's sortable fields, ASC or DESC, Updated descending by default and for views saved without one, nothing else ever in the JQL), and Jira's value suggestions |
+| `CustomViewsScope.test.js` | Active's search exactly as before, and each view's own search: one request of 20 on Cloud and Data Center / Server, issues outside Active Issues, Jira's total and "more match", no other page, no person read, Jira's refusals, the value suggestions, GET /field (single-select and single-user fields, multi-user ones left out), an issue found only through a custom user field such as QA Assignee, In and Not in against a Jira that evaluates them (other people's issues found, only explicit user conditions narrowing to you, the intersection, empty fields kept by Not in, unbrowsable issues never shown), views saved with Equals or Is one of read as In, the lists of statuses and priorities, and per-site storage |
+| `ActiveIssuesRefresh.test.js` | Show recently logged keeping Active's issues while they load again: one replacement once Jira answers, the issues kept after a failure, only the last of quick flips applied, the spinner beside the switch, and custom views left alone |
+| `CustomViewSearch.test.js` | The views' results for the page: searched once when shown, no duplicate searches, refresh and Sync, edited and deleted views' results dropped, an edited view's issues kept until its new search answers, late answers ignored, and failures |
+| `CustomViewsUI.test.js` | The view tabs in My Issues (dragging and Alt+Shift+arrow moves, Active never moved, no tab chosen by a drag, the move announced, Active and the custom views side by side, one list, Active by default with Show recently logged, counts and 20+, + and ✎, what each view searches, the searching, empty, more-match, error, and missing-field states, the same timer buttons with no timer-only row, keyboard and ARIA) and the view editor (conditions added, removed, and renumbered, each with its own field, operator, and values, a new field starting afresh, each condition's errors, fields and operators, Jira's values, custom user fields, a custom field's values searched as you type, the order, validation, save, delete, cancel) |
+| `ChangelogDrawer.test.js` | The What's New drawer (only the latest release, in full, under user-friendly category labels, with its highlights; the What's New — Unreleased preview, never read; read only once the latest is on screen; load failures) and the update announcement (at most three highlights; closing it never counts as reading), both showing release notes as text only |
+| `ChangelogPage.test.js` | What's New's place in the page: its header button and drawer, one drawer at a time, the announcement, the background's install record, and the build and packaging steps |
 
 ## Architecture and project structure
 
@@ -339,6 +410,9 @@ graph TD
 | Find the week's worklogs | `GET /rest/api/3/search/jql`, paged with `nextPageToken` | `GET /rest/api/2/search`, paged with `startAt` |
 | Suggest issues for a typed key | `GET /rest/api/3/search/jql` with `maxResults=10&fields=summary,status` | `GET /rest/api/2/search` with `validateQuery=warn&maxResults=10&fields=summary,status` |
 | Look up the exact typed key (when it isn't among the suggestions) | `GET /rest/api/3/issue/{key}?fields=summary,status` | `GET /rest/api/2/issue/{key}?fields=summary,status` |
+| A custom view's issues (one page, never more) | `GET /rest/api/3/search/jql` with the view's JQL and `maxResults=20&fields=summary,status` | `GET /rest/api/2/search` with the view's JQL and `startAt=0&maxResults=20&fields=summary,status` |
+| A custom view's values: statuses, priorities, fields | `GET /rest/api/3/status`, `GET /rest/api/3/priority/search`, `GET /rest/api/3/field` | `GET /rest/api/2/status`, `GET /rest/api/2/priority`, `GET /rest/api/2/field` |
+| A custom field's values for a view, as you type | `GET /rest/api/3/jql/autocompletedata/suggestions?fieldName=cf[…]&fieldValue=…` | `GET /rest/api/2/jql/autocompletedata/suggestions?fieldName=cf[…]&fieldValue=…` |
 | All worklogs of an issue (when it has more than 20) | `GET /rest/api/3/issue/{issue}/worklog` | `GET /rest/api/2/issue/{issue}/worklog` |
 | Log work | `POST /rest/api/3/issue/{issue}/worklog` | `POST /rest/api/2/issue/{issue}/worklog` |
 | Edit a worklog | `PUT /rest/api/3/issue/{issue}/worklog/{id}` | `PUT /rest/api/2/issue/{issue}/worklog/{id}` |
@@ -361,10 +435,15 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── JiraPatProvider.js         # Bearer auth (PAT)
 │   ├── background/
 │   │   └── launch.js                  # Opens the timesheet: toolbar icon, its Settings item, first install
+│   ├── changelog/
+│   │   ├── changelogState.js          # Release notes, and what was announced and read
+│   │   └── changelog.json             # Generated from CHANGELOG.md (npm run changelog; not in Git)
 │   ├── compat/
 │   │   └── browser-api.js             # WebExtensions access and platform adapter
 │   ├── jira/
 │   │   ├── JiraClient.js              # Jira REST client
+│   │   ├── customViews.js             # Custom views of My Issues: storage, checks, their JQL
+│   │   ├── customViewSearch.js        # Custom views' search results, kept for the page
 │   │   ├── issueKeySearch.js          # Partial issue keys: JQL and matching
 │   │   └── createJiraClient.js        # Builds a client from connection settings
 │   ├── settings/
@@ -376,7 +455,10 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   ├── weekView.js                # Weekday cards and worklog cards
 │   │   ├── worklogEditor.js           # Edit worklog / Log work panel
 │   │   ├── issuePicker.js             # Issue field with key autocomplete
-│   │   └── deleteWorklogDialog.js     # Delete worklog confirmation
+│   │   ├── deleteWorklogDialog.js     # Delete worklog confirmation
+│   │   ├── changelogDrawer.js         # What's New drawer
+│   │   ├── customViewEditor.js        # Custom view editor drawer
+│   │   └── updateAnnouncement.js      # What's new, after an update
 │   ├── validation/
 │   │   └── JiraUrlValidator.js        # URL validation and origin checks
 │   └── worklog/
@@ -390,7 +472,10 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   ├── store-assets/chrome/       # Chrome Web Store promo tiles
 │   └── screenshots/               # Screenshots used in this README and the store listings
 │       └── source/                # How the screenshots are captured (capture.py)
-├── package.json                  # Metadata and the test script
+├── scripts/
+│   └── changelog.mjs              # Checks CHANGELOG.md and writes the release notes: development or release output (not packaged)
+├── CHANGELOG.md                  # Release history, the source of What's New
+├── package.json                  # Metadata, the test script, and npm run changelog
 ├── Taskfile.yml                  # Store packaging (task package:chrome, task package:firefox)
 ├── LICENSE                       # MIT License
 └── README.md

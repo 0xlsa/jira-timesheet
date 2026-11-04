@@ -29,13 +29,13 @@ import {
   replaceWorklogInWeek,
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
-import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite } from './src/settings/settingsStore.js';
+import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite, customViewOrderForSite } from './src/settings/settingsStore.js';
 import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays, VIEW_TAB_SHORTCUTS } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -58,6 +58,34 @@ import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSetting
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 import { createWeekPicker } from './src/ui/weekPicker.js';
 import { dateFromKey, renderNextHolidayBanner } from './src/ui/nextHolidayBanner.js';
+import {
+  loadChangelog,
+  createChangelogStateStore,
+  announcementFor,
+  hasUnreadRelease,
+  releaseHighlights,
+  LAST_ANNOUNCED_KEY,
+  LAST_READ_KEY
+} from './src/changelog/changelogState.js';
+import { openChangelogDrawer } from './src/ui/changelogDrawer.js';
+import { showUpdateAnnouncement, hideUpdateAnnouncement } from './src/ui/updateAnnouncement.js';
+import {
+  ALL_VIEW_ID,
+  MAX_CUSTOM_VIEWS,
+  ME_VALUE,
+  SYSTEM_FIELDS,
+  buildCustomViewJql,
+  describeView,
+  orderViews,
+  reorderViewIds,
+  isViewAvailable,
+  usesCustomField,
+  viewUserFieldIds,
+  validateViewDraft,
+  conditionKind
+} from './src/jira/customViews.js';
+import { createCustomViewSearch } from './src/jira/customViewSearch.js';
+import { openCustomViewEditor } from './src/ui/customViewEditor.js';
 
 const platform = createPlatform();
 const settingsStore = createSettingsStore(platform.storage);
@@ -107,6 +135,11 @@ const daysContainer = document.getElementById('daysContainer');
 const worklogEditorRoot = document.getElementById('worklogEditor');
 const shortcutsDrawerRoot = document.getElementById('shortcutsDrawer');
 const shortcutsHelpBtn = document.getElementById('shortcutsHelpBtn');
+const changelogBtn = document.getElementById('changelogBtn');
+const changelogNewBadge = document.getElementById('changelogNewBadge');
+const changelogDrawerRoot = document.getElementById('changelogDrawer');
+const customViewEditorRoot = document.getElementById('customViewEditor');
+const updateAnnouncementRoot = document.getElementById('updateAnnouncement');
 const deleteWorklogDialog = document.getElementById('deleteWorklogDialog');
 const appToast = document.getElementById('appToast');
 
@@ -159,7 +192,7 @@ const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus')
 let currentMonday = getMondayOfWeek(new Date());
 let selectedDateKey = getLocalDateKey(new Date());
 // Whether the selected day's panel shows its worklogs: one state for every day, remembered across
-// sessions as My Active Issues' is; collapsed until the user expands it or selects a day.
+// sessions as My Work's is; collapsed until the user expands it or selects a day.
 let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'true';
 
 /** Selecting a day, here or in another week, shows its worklogs; its header still collapses them. */
@@ -189,12 +222,12 @@ let isBusyFetching = false;
 let currentClient = null;
 let currentBaseUrl = '';
 
-// My Active Issues section (see src/ui/weekView.js): what it shows (null hides it, when there is no
+// My Work section (see src/ui/weekView.js): what it shows (null hides it, when there is no
 // Jira to ask) and whether it's expanded: collapsed until the user expands it, then as they last
 // left it. The loader (src/worklog/workingIssuesLoader.js) is created with the section's renderer below.
 let workingIssuesState = null;
 let isWorkingIssuesExpanded = localStorage.getItem('jts-working-issues-expanded') === 'true';
-// Its Active Issues and Pending Worklogs groups, each expanded until the user collapses it, then as
+// Its My Issues and Pending Worklogs groups, each expanded until the user collapses it, then as
 // they last left it, independently of each other.
 const workingIssuesGroupsExpanded = {
   active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
@@ -207,6 +240,10 @@ let worklogEditor = null;
 let isDeleteDialogOpen = false;
 // Open keyboard shortcuts drawer (see src/ui/shortcutsDrawer.js), or null.
 let shortcutsDrawer = null;
+// Open What's New drawer (see src/ui/changelogDrawer.js), or null.
+let changelogDrawer = null;
+// Open custom view editor (see src/ui/customViewEditor.js), or null.
+let customViewEditor = null;
 // While the Connection Settings drawer is open: where focus returns, and whether it covers the
 // worklog panel. Null when it's closed.
 let settingsDrawerState = null;
@@ -300,7 +337,7 @@ function showNextHoliday() {
 }
 
 // Additional Assignment Fields (src/jira/assignmentFields.js): Jira user fields that also count as
-// assigning an issue to the user in My Active Issues, per Jira site. Saved as they change.
+// assigning an issue to the user in My Work, per Jira site. Saved as they change.
 const assignmentFieldsSettings = createAssignmentFieldsSettings({
   list: assignmentFieldsList,
   addButton: assignmentFieldsAddBtn,
@@ -314,12 +351,18 @@ const assignmentFieldsSettings = createAssignmentFieldsSettings({
   }
 });
 
+// Flips of Show Recently Logged Issues so far: an older flip's save doesn't load the issues again.
+let recentlyLoggedFlips = 0;
+
 /**
- * Show Recently Logged Issues (the switch on the header of My Active Issues' Active Issues group): saved as it changes, then
- * My Active Issues loads again with or without the issues only logged recently.
+ * Show Recently Logged Issues (the switch below Active's tab, in My Issues): saved as it changes, then
+ * Active loads again with or without the issues only logged recently, keeping the issues shown
+ * until the new ones are in. Flipped again before that, only the last flip loads (and the loader
+ * cancels a load a newer one replaces).
  * @param {boolean} show
  */
 async function setShowRecentlyLoggedIssues(show) {
+  const flip = ++recentlyLoggedFlips;
   try {
     await settingsStore.saveShowRecentlyLoggedIssues(show);
     savedSettings = await settingsStore.load();
@@ -327,7 +370,8 @@ async function setShowRecentlyLoggedIssues(show) {
     console.warn('Could not save the Show Recently Logged Issues setting:', err);
     return;
   }
-  refreshActiveIssues();
+  if (flip !== recentlyLoggedFlips) return;
+  refreshActiveIssues({ keepShown: true });
 }
 
 /** The Additional Assignment Fields of a client's Jira site, from the saved settings. */
@@ -419,12 +463,14 @@ function uncoverWorklogEditor(covered) {
 
 /**
  * Closes the panel on the right through its usual close action, the one on top first: the keyboard
- * shortcuts or Connection Settings drawer, else the worklog panel (which asks first when there are
- * unsaved changes).
+ * shortcuts, What's New, or Connection Settings drawer, else the worklog panel (which asks first when
+ * there are unsaved changes).
  * @returns {boolean} False when nothing is open, so Escape keeps its default
  */
 function closeOpenPanel() {
   if (shortcutsDrawer) shortcutsDrawer.close();
+  else if (changelogDrawer) changelogDrawer.close();
+  else if (customViewEditor) customViewEditor.close();
   else if (settingsDrawerState) closeSettings();
   else if (worklogEditor) worklogEditor.requestClose();
   else return false;
@@ -432,9 +478,20 @@ function closeOpenPanel() {
 }
 
 /**
+ * Closes the drawers (keyboard shortcuts, What's New, and Connection Settings) before a worklog
+ * panel or dialog opens.
+ */
+function closeDrawers() {
+  shortcutsDrawer?.close();
+  changelogDrawer?.close();
+  customViewEditor?.close();
+  closeSettings();
+}
+
+/**
  * Opens the Connection Settings drawer, with the form showing the saved settings (anything
- * changed but not saved on an earlier visit is discarded). The keyboard shortcuts drawer closes,
- * since only one drawer is open at a time.
+ * changed but not saved on an earlier visit is discarded). The keyboard shortcuts and What's New
+ * drawers close, since only one drawer is open at a time.
  */
 function openSettings() {
   if (settingsDrawerState) return;
@@ -447,6 +504,8 @@ function openSettings() {
   connectionSection.setConfigured(isConnectionCollapsed);
   connectionSection.setExpanded(!isConnectionCollapsed);
   shortcutsDrawer?.close();
+  changelogDrawer?.close();
+  customViewEditor?.close();
   settingsDrawerState = { returnFocus: document.activeElement, coversEditor: coverWorklogEditor() };
   showPanel(settingsDrawerRoot);
   settingsBtn.setAttribute('aria-expanded', 'true');
@@ -538,11 +597,11 @@ function renderDays(aggregatedData, baseUrl = '') {
 }
 
 // ============================================================================
-// My Active Issues
+// My Work
 // ============================================================================
 
 /**
- * Options for the My Active Issues section, or undefined to leave it out.
+ * Options for the My Work section, or undefined to leave it out.
  * @returns {object | undefined}
  */
 function workingIssuesOptions() {
@@ -553,8 +612,10 @@ function workingIssuesOptions() {
     onToggle: (expanded) => {
       isWorkingIssuesExpanded = expanded;
       localStorage.setItem('jts-working-issues-expanded', String(expanded));
+      // The selected custom view is searched once it shows.
+      if (expanded && workingIssuesGroupsExpanded.active) setWorkingIssuesState(workingIssuesState);
     },
-    onRetry: refreshActiveIssues,
+    onRetry: () => refreshActiveIssues(),
     // Like the worklog cards' + buttons: once the week has loaded.
     onLogWork: currentAggregatedData?.sourceWorklogs ? startLogWorkOnIssue : undefined,
     timer: timerOptions(),
@@ -563,13 +624,15 @@ function workingIssuesOptions() {
     onGroupToggle: (group, expanded) => {
       workingIssuesGroupsExpanded[group] = expanded;
       localStorage.setItem(`jts-working-issues-${group}-expanded`, String(expanded));
+      if (group === 'active' && expanded) setWorkingIssuesState(workingIssuesState);
     },
-    recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues }
+    recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues },
+    views: customViewsOptions()
   };
 }
 
 /**
- * Shows a new My Active Issues state, updating the section in place when it's on the page.
+ * Shows a new My Work state, updating the section in place when it's on the page.
  * @param {object | null} state
  */
 function setWorkingIssuesState(state) {
@@ -606,7 +669,7 @@ const timer = createTimerController({
 });
 
 /**
- * Timer options for My Active Issues, or undefined (no timer controls) before the timer has loaded
+ * Timer options for My Work, or undefined (no timer controls) before the timer has loaded
  * or while no Jira site is connected.
  * @returns {object | undefined}
  */
@@ -630,7 +693,7 @@ function timerOptions() {
 
 /**
  * The timer's issue for a Jira issue on the connected site: the same site ID and identifiers
- * wherever a timer starts (an Active Issues row or the Log work panel).
+ * wherever a timer starts (a My Issues row or the Log work panel).
  * @param {{ issueId?: string, issueKey: string, issueSummary?: string }} issue
  */
 function timedIssue(issue) {
@@ -643,7 +706,7 @@ function timedIssue(issue) {
 }
 
 /**
- * Pending worklog options for My Active Issues (which then shows its Active Issues and Pending Worklogs groups),
+ * Pending worklog options for My Work (which then shows its My Issues and Pending Worklogs groups),
  * or undefined while the timer's state isn't known.
  * @returns {object | undefined}
  */
@@ -709,7 +772,7 @@ async function submitPending(id) {
 
 /**
  * The Log work panel's timer button (beside the issue's key): its state for an issue, and Start and
- * Stop through the timer, as an Active Issues row's buttons. Neither logs work in Jira.
+ * Stop through the timer, as a My Issues row's buttons. Neither logs work in Jira.
  * @returns {object}
  */
 function logWorkTimerOptions() {
@@ -722,7 +785,7 @@ function logWorkTimerOptions() {
     async onStart(issue) {
       if (!currentClient) return false;
       const started = await timer.start(timedIssue(issue));
-      if (started) showToast(`Timer started on ${issue.issueKey}`, { success: true, subtitle: 'Stop it in My Active Issues' });
+      if (started) showToast(`Timer started on ${issue.issueKey}`, { success: true, subtitle: 'Stop it in My Work' });
       return started;
     },
     async onStop() {
@@ -755,8 +818,7 @@ function focusPendingWorklog(id, buttonClass) {
  * @param {string} id
  */
 function startEditPending(id) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const entry = findPendingWorklog(id);
@@ -809,8 +871,7 @@ function startEditPending(id) {
  * @param {string} id
  */
 function confirmDiscardPending(id) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -835,23 +896,347 @@ function confirmDiscardPending(id) {
   });
 }
 
-// Loads the My Active Issues section's contents on its own: the worklogs load and show whatever
+// Loads the My Work section's contents on its own: the worklogs load and show whatever
 // happens there. Asked with every week load, but it doesn't depend on the week, so it only loads
 // again on Sync, a change of settings, or a worklog change; a newer load cancels an older one.
-const workingIssues = createWorkingIssuesLoader(setWorkingIssuesState);
+// A load that kept the issues shown and failed leaves them, and says why in a toast.
+const workingIssues = createWorkingIssuesLoader((state) => {
+  if (state?.refreshError) {
+    showToast(`Couldn't update your issues, so the ones shown are from before. ${state.refreshError}`, { durationMs: 8000 });
+    const { refreshError, ...shown } = state;
+    state = shown;
+  }
+  setWorkingIssuesState(state);
+});
 
 /**
- * Reloads My Active Issues: Retry, a change of Issue Selection settings, and after a worklog is
- * logged, edited, or deleted, which can add a recently logged issue or remove one.
+ * Reloads the Active view's issues: Retry, a change of Issue Selection settings, and after a worklog
+ * is logged, edited, or deleted, which can add a recently logged issue or remove one. With
+ * `keepShown` (Show Recently Logged Issues), the issues shown stay until Jira's new ones replace them.
+ * @param {{ keepShown?: boolean }} [options]
  */
-function refreshActiveIssues() {
+function refreshActiveIssues({ keepShown = false } = {}) {
   if (!currentClient) return;
   workingIssues.refresh(currentClient, {
     force: true,
     assignmentFields: assignmentFieldsFor(currentClient),
-    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues === true
+    includeRecentlyLogged: savedSettings?.showRecentlyLoggedIssues === true,
+    keepShown
   });
 }
+
+// ============================================================================
+// Custom Views of My Work
+// ============================================================================
+
+// Custom views (src/jira/customViews.js) are tabs beside Active in My Issues, and Jira searches of
+// their own: each runs its JQL (buildCustomViewJql()) through JiraClient.searchCustomViewIssues(),
+// apart from Active's search (workingIssues, above), which they never change. Their results are kept
+// for this page only (src/jira/customViewSearch.js) and searched when a view shows: My Work and My
+// Issues expanded, with the view selected. Sync searches again, as does Retry after a failure.
+
+// The view shown in My Issues: Active, or a custom view's ID, remembered across sessions. One that
+// no longer exists shows Active.
+let selectedViewId = localStorage.getItem('jts-working-issues-view') || ALL_VIEW_ID;
+// The site's custom fields views can use (GET /field): its single-select fields and its single-user
+// fields, loaded once per page and Jira site when a view filters on a custom field, or the editor
+// opens: { site, optionIds, userIds, request }, the IDs null until loaded.
+let customFieldCatalog = null;
+
+// The views' results; each answer draws My Work again.
+const viewSearch = createCustomViewSearch(() => {
+  if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+});
+// Each custom view's results key when last drawn, by view ID: after an edit changes its JQL (its
+// conditions or order), its new search starts from the results it showed, which stay until Jira answers.
+const viewSearchKeys = new Map();
+
+// What was last said about the view tabs to assistive technology ("Moved Reported to position 2 of 4.").
+let viewTabsAnnouncement = '';
+
+/**
+ * A Jira site's custom views, from the saved settings.
+ * @returns {{ views: Array<object>, unsupported?: true }}
+ */
+function customViewsFor(client, settings = savedSettings) {
+  return client ? customViewsForSite(settings, siteId(client.deploymentType, client.baseUrl)) : { views: [] };
+}
+
+/**
+ * The site's custom fields for the editor, asked for once per page and site: its single-user fields
+ * (compared with Me; the Additional Assignment Fields are offered already) and its single-select
+ * fields. A failure is asked again the next time they're needed.
+ * @returns {Promise<Array<{ id: string, name: string, kind: 'user' | 'option', group: string }>>}
+ */
+function loadCustomFields(client) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  if (customFieldCatalog?.site !== site) {
+    const catalog = { site, optionIds: null, userIds: null, request: null };
+    catalog.request = client.getCustomViewFields().then(({ singleSelect, userPickers }) => {
+      catalog.optionIds = new Set(singleSelect.map((field) => field.id));
+      catalog.userIds = new Set(userPickers.map((field) => field.id));
+      // A view whose field is gone says so now.
+      if (customFieldCatalog === catalog && workingIssuesState) setWorkingIssuesState(workingIssuesState);
+      // Jira allows two fields with one name (two "QA Lead" fields): their ID tells them apart.
+      const named = (fields) => fields.map((field) => (fields.filter((other) => other.name === field.name).length > 1
+        ? { ...field, name: `${field.name} (${field.id})` } : field));
+      return [
+        ...named(userPickers).map((field) => ({ id: field.id, name: field.name, kind: 'user', group: 'User fields' })),
+        ...named(singleSelect).map((field) => ({ ...field, group: 'Custom fields' }))
+      ];
+    }, (err) => {
+      if (customFieldCatalog === catalog) customFieldCatalog = null;
+      throw err;
+    });
+    customFieldCatalog = catalog;
+  }
+  return customFieldCatalog.request;
+}
+
+/** Learns whether the custom fields the site's views filter on are still in Jira. */
+function checkViewFields(client, settings = savedSettings) {
+  if (!client) return;
+  const assignmentFieldIds = assignmentFieldsFor(client, settings).map((field) => field.id);
+  if (!usesCustomField(customViewsFor(client, settings).views, assignmentFieldIds)) return;
+  loadCustomFields(client).catch((err) => console.warn('Could not load the Jira custom fields for custom views:', err));
+}
+
+/** Draws the views again, after they're saved or deleted, here or in another tab. */
+function updateCustomViews() {
+  if (!currentClient) return;
+  checkViewFields(currentClient);
+  if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+}
+
+/**
+ * A view's search: its results' key (the Jira site and the view's JQL) and how to run it; null when
+ * its field is unavailable, so it can't be searched.
+ * @returns {{ key: string, run: (signal: AbortSignal) => Promise<object> } | null}
+ */
+function viewSearchFor(client, view, context) {
+  if (!isViewAvailable(view, context)) return null;
+  let jql;
+  try {
+    jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context) });
+  } catch {
+    return null;
+  }
+  return {
+    key: `${siteId(client.deploymentType, client.baseUrl)}\n${jql}`,
+    run: (signal) => client.searchCustomViewIssues(jql, { signal })
+  };
+}
+
+/**
+ * The custom views options for My Work (the tabs), or undefined without a Jira site. Searches the
+ * selected custom view when it shows, and drops the results no view has any more.
+ * @returns {object | undefined}
+ */
+function customViewsOptions() {
+  if (!currentClient) return undefined;
+  const client = currentClient;
+  const site = siteId(client.deploymentType, client.baseUrl);
+  const { views: saved, unsupported } = customViewsFor(client);
+  // In their tabs' order (reordering never changes a view, its search, or its results).
+  const views = orderViews(saved, customViewOrderForSite(savedSettings, site));
+  const context = {
+    assignmentFieldIds: assignmentFieldsFor(client).map((field) => field.id),
+    singleSelectFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.optionIds : null,
+    userPickerFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.userIds : null
+  };
+  const searches = new Map(views.map((view) => [view.id, viewSearchFor(client, view, context)]));
+
+  const selectedId = views.some((view) => view.id === selectedViewId) ? selectedViewId : ALL_VIEW_ID;
+  const selectedSearch = searches.get(selectedId);
+  if (selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded.active) {
+    viewSearch.load(selectedSearch.key, selectedSearch.run, { from: viewSearchKeys.get(selectedId) });
+  }
+  // A deleted view's results, or an edited one's old results, go (their searches are cancelled).
+  viewSearch.retain([...searches.values()].filter(Boolean).map((search) => search.key));
+  viewSearchKeys.clear();
+  for (const [id, search] of searches) if (search) viewSearchKeys.set(id, search.key);
+
+  return {
+    items: views.map((view) => {
+      const search = searches.get(view.id);
+      return { id: view.id, name: view.name, description: describeView(view), unavailable: !search, result: search ? viewSearch.get(search.key) : null };
+    }),
+    selectedId,
+    // Views saved by another version of the extension are left alone: none can be added.
+    canCreate: !unsupported && views.length < MAX_CUSTOM_VIEWS,
+    // As views can only be added then: views saved by another version keep their order.
+    canReorder: !unsupported && views.length > 1,
+    onMove: (id, toIndex) => moveView(client, views.map((view) => view.id), id, toIndex),
+    announcement: viewTabsAnnouncement,
+    onSelect: selectView,
+    onCreate: () => openViewEditor(null),
+    onEdit: (id) => openViewEditor(id),
+    onRefresh: (id) => {
+      const search = searches.get(id);
+      if (!search) return;
+      viewSearch.refresh(search.key, search.run);
+      setWorkingIssuesState(workingIssuesState);
+    }
+  };
+}
+
+/**
+ * Moves a custom view's tab (`ids`: the site's custom views in their tabs' order): shown at once,
+ * then saved (settingsStore.saveCustomViewOrder()), which other tabs follow. The views themselves,
+ * their searches, and their results are untouched, and the selected view stays selected. If it
+ * can't be saved, the order goes back to what's stored, and a toast says why.
+ */
+function moveView(client, ids, id, toIndex) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  const order = reorderViewIds(ids, id, toIndex);
+  if (order.join() === ids.join()) return;
+  const name = customViewsFor(client).views.find((view) => view.id === id)?.name ?? 'The view';
+  // Active is always first: a custom view's place among the tabs is one more than among the views.
+  viewTabsAnnouncement = `Moved ${name} to position ${order.indexOf(id) + 2} of ${order.length + 1}.`;
+  savedSettings = { ...savedSettings, customViewOrderBySite: { ...savedSettings?.customViewOrderBySite, [site]: order } };
+  if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+  settingsStore.saveCustomViewOrder(site, order).catch(async (err) => {
+    console.warn('Could not save the order of the custom views:', err);
+    showToast(err.message || "Couldn't save the order of the views.", { durationMs: 8000 });
+    try {
+      savedSettings = await settingsStore.load();
+    } catch {
+      // Keep what's shown.
+    }
+    if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+  });
+}
+
+/** Shows a view's tab (Active or a custom view, searched when it hasn't been), and remembers it. */
+function selectView(id) {
+  selectedViewId = id;
+  localStorage.setItem('jts-working-issues-view', id);
+  if (workingIssuesState) setWorkingIssuesState(workingIssuesState);
+}
+
+// Jira's lists of statuses and priorities (GET /status, GET /priority), asked for once per page and
+// Jira site, the first time the editor needs one: { site, status, priority } (promises).
+let jiraValueLists = null;
+
+/**
+ * Jira's own list of values for Status or Priority; null when it can't be read (asked again the
+ * next time).
+ * @returns {Promise<Array<{ id: string, label: string }> | null>}
+ */
+function jiraFieldValues(client, field) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  if (jiraValueLists?.site !== site) jiraValueLists = { site };
+  jiraValueLists[field.id] ??= (field.id === 'status' ? client.getStatuses() : client.getPriorities()).catch((err) => {
+    console.warn(`Could not load Jira's list of ${field.id} values:`, err);
+    if (jiraValueLists?.site === site) delete jiraValueLists[field.id];
+    return null;
+  });
+  return jiraValueLists[field.id];
+}
+
+/**
+ * The values to choose for a field in the editor: Me for a user field; every status or priority
+ * Jira lists; for a custom field, Jira's suggestions for its options that start with `query`.
+ * @param {{ id: string, kind: 'user' | 'option' }} field
+ * @param {string} [query]
+ * @returns {Promise<Array<object>>} Rejects when Jira can't be asked
+ */
+async function fieldValues(field, query = '') {
+  if (field.kind === 'user') return [{ ...ME_VALUE }];
+  if (!currentClient) throw new Error('No Jira site is connected.');
+  if (field.id === 'status' || field.id === 'priority') {
+    const values = await jiraFieldValues(currentClient, field);
+    if (!values) throw new Error(`Couldn't load Jira's ${field.id} values.`);
+    return values;
+  }
+  return currentClient.getFieldValueSuggestions(field.id, query);
+}
+
+/**
+ * Opens the custom view editor: a new view (`viewId` null), or the saved view with that ID. Saving
+ * or deleting writes the site's views (settingsStore.saveCustomViews()), checked again against
+ * what's stored then, so a change made meanwhile in another tab isn't lost.
+ * @param {string | null} viewId
+ */
+function openViewEditor(viewId) {
+  const client = currentClient;
+  if (!client) return;
+  const view = viewId ? customViewsFor(client).views.find((item) => item.id === viewId) ?? null : null;
+  if (viewId && !view) return;
+  closeDrawers();
+  const site = siteId(client.deploymentType, client.baseUrl);
+  const returnFocus = document.activeElement;
+  const coversEditor = coverWorklogEditor();
+
+  /** The site's views as stored now (another tab may have changed them). */
+  const storedViews = async () => {
+    savedSettings = await settingsStore.load();
+    const stored = customViewsFor(client);
+    if (stored.unsupported) throw new Error('This Jira site\'s custom views were saved by another version of Timesheet for Jira. Update the extension to change them.');
+    return stored.views;
+  };
+
+  /** Saves the site's views, then shows `showId` (or Active). */
+  const store = async (views, showId) => {
+    await settingsStore.saveCustomViews(site, views);
+    savedSettings = await settingsStore.load();
+    selectedViewId = showId;
+    localStorage.setItem('jts-working-issues-view', showId);
+    updateCustomViews();
+  };
+
+  customViewEditor = openCustomViewEditor(customViewEditorRoot, {
+    view,
+    fields: [
+      ...SYSTEM_FIELDS.map((field) => ({ ...field, group: 'Fields' })),
+      ...assignmentFieldsFor(client).map((field) => ({ id: field.id, name: field.name, kind: 'user', group: 'Additional Assignment Fields' }))
+    ],
+    loadCustomFields: () => loadCustomFields(client),
+    loadValues: fieldValues,
+    validate: (draft) => validateViewDraft(draft, { views: customViewsFor(client).views, editingId: view?.id }),
+    async onSave(valid) {
+      const views = await storedViews();
+      const { errors } = validateViewDraft({
+        name: valid.name,
+        conditions: valid.conditions.map((condition) => ({
+          field: { ...condition.field, kind: conditionKind(condition) },
+          operator: condition.operator,
+          values: condition.values
+        })),
+        orderBy: valid.orderBy
+      }, { views, editingId: view?.id });
+      const problem = errors.form ?? errors.name ?? errors.conditions ?? errors.orderBy ??
+        errors.byCondition?.flatMap((found) => (found ? Object.values(found) : []))[0];
+      if (problem) throw new Error(problem);
+      const saved = { id: view?.id ?? crypto.randomUUID(), ...valid };
+      await store(view ? views.map((item) => (item.id === view.id ? saved : item)) : [...views, saved], saved.id);
+      showToast(view ? `Saved the ${saved.name} view` : `Created the ${saved.name} view`, { success: true });
+    },
+    onDelete: view && (async () => {
+      const views = await storedViews();
+      await store(views.filter((item) => item.id !== view.id), ALL_VIEW_ID);
+      showToast(`Deleted the ${view.name} view`);
+    }),
+    onClose: () => {
+      customViewEditor = null;
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, or to the view's tab once the section has been drawn again.
+      const target = returnFocus?.isConnected && returnFocus !== document.body
+        ? returnFocus
+        : daysContainer.querySelector(`#workingIssuesViewTab-${CSS.escape(customViewsOptions()?.selectedId ?? ALL_VIEW_ID)}`);
+      target?.focus();
+    }
+  });
+}
+
+// Custom views saved, deleted, or reordered in another tab: show them here too.
+platform.watchStorage((changes) => {
+  if (!('customViewsBySite' in changes) && !('customViewOrderBySite' in changes)) return;
+  settingsStore.load().then((settings) => {
+    savedSettings = settings;
+    updateCustomViews();
+  }, (err) => console.warn('Could not read the custom views:', err));
+});
 
 /**
  * Shows a loaded week: totals, the selected-day card, the empty-week banner, and the days.
@@ -979,8 +1364,7 @@ function openLogWork({ issue, dateKey, returnFocusTo }) {
  * @param {string} worklogId - A worklog on the issue to log work against
  */
 function startLogWork(worklogId) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   const source = currentAggregatedData?.sourceWorklogs?.find((wl) => String(wl.id) === worklogId);
@@ -1000,13 +1384,12 @@ function startLogWork(worklogId) {
 }
 
 /**
- * Opens the Log work panel for an issue in My Active Issues (the row's + button). Like a worklog
+ * Opens the Log work panel for an issue in My Work (the row's + button). Like a worklog
  * card's + button, the date defaults to the selected day and the start time to now.
  * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }} issue
  */
 function startLogWorkOnIssue(issue) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
   openLogWork({
@@ -1028,8 +1411,7 @@ function startLogWorkOnIssue(issue) {
  * @param {string} dateKey - YYYY-MM-DD
  */
 function startLogWorkOnDay(dateKey) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
   if (!currentAggregatedData?.weekDays.some((d) => d.dateKey === dateKey)) return;
 
@@ -1064,8 +1446,7 @@ async function deleteWorklogAndRefresh(client, worklog) {
  * @param {string} worklogId
  */
 function confirmDeleteWorklog(worklogId) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (isDeleteDialogOpen) return;
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -1092,8 +1473,7 @@ function confirmDeleteWorklog(worklogId) {
  * @param {string} worklogId
  */
 function openEditor(worklogId) {
-  shortcutsDrawer?.close();
-  closeSettings();
+  closeDrawers();
   if (worklogEditor) {
     if (worklogEditor.worklogId === worklogId) {
       worklogEditor.focus();
@@ -1210,7 +1590,7 @@ function showSiteAccessNeeded(baseUrl) {
  * Fetches worklogs from Jira for the current week and updates all views.
  *
  * @param {object} [options]
- * @param {boolean} [options.force=false] - Also reload My Active Issues when the week is already shown (Sync, Retry, new settings)
+ * @param {boolean} [options.force=false] - Also reload My Work when the week is already shown (Sync, Retry, new settings)
  */
 async function loadAndRenderWorklogs(options = {}) {
   if (isBusyFetching) return;
@@ -1223,6 +1603,9 @@ async function loadAndRenderWorklogs(options = {}) {
   let settings;
   try {
     settings = await settingsStore.load();
+    // The page's saved settings follow what's stored, as this load reads it, so the later loads of My
+    // Work (Retry, custom views) ask for the same issues as the list this one shows.
+    savedSettings = settings;
   } catch (err) {
     console.error('Storage access error:', err);
     settings = normalizeSettings({});
@@ -1291,12 +1674,15 @@ async function loadAndRenderWorklogs(options = {}) {
       return;
     }
 
+    // Sync searches the custom views again too, as they're shown.
+    if (options.force) viewSearch.clear();
     // Not awaited: the worklogs don't wait for the issues, nor fail with them.
     workingIssues.refresh(client, {
       force: Boolean(options.force),
       assignmentFields: assignmentFieldsFor(client, settings),
       includeRecentlyLogged: settings.showRecentlyLoggedIssues
     });
+    checkViewFields(client, settings);
 
     const aggregated = await loadWeek(client, { monday, sunday });
 
@@ -1881,6 +2267,8 @@ appToast.addEventListener('click', (event) => {
  */
 function openShortcuts() {
   closeSettings();
+  changelogDrawer?.close();
+  customViewEditor?.close();
   const returnFocus = document.activeElement;
   const available = shortcuts.list();
   const coversEditor = coverWorklogEditor();
@@ -1916,6 +2304,149 @@ shortcuts.register({
 
 shortcutsHelpBtn.addEventListener('click', toggleShortcuts);
 
+// ============================================================================
+// What's New (the release notes from CHANGELOG.md)
+// ============================================================================
+
+// What the user has seen of the release notes (src/changelog/changelogState.js), in storage.local,
+// shared by every open tab.
+const changelogStore = createChangelogStateStore(platform.storage);
+// The released versions in the packaged release notes, once read (newest first); null until then,
+// or while they can't be. Only these count for the NEW badge and the announcement, never the preview
+// of unreleased changes that the development output also has.
+let changelogReleases = null;
+let changelogRequest = null;
+// What the user has seen (changelogStore.resolve()); null until known, and outside the extension,
+// where there's no installed version to go by.
+let changelogState = null;
+
+/**
+ * The release notes, read once per page: the releases, and the unreleased changes (development
+ * output only). A failed read is tried again the next time they're needed.
+ * @returns {Promise<{ releases: Array<object>, unreleased: object | null } | null>}
+ */
+function getChangelog() {
+  changelogRequest ??= loadChangelog().then((changelog) => {
+    if (changelog) changelogReleases = changelog.releases;
+    else changelogRequest = null;
+    return changelog;
+  });
+  return changelogRequest;
+}
+
+/** Shows the NEW badge on the What's New button while the latest release notes haven't been seen. */
+function updateChangelogBadge() {
+  const unread = hasUnreadRelease(changelogReleases ?? [], changelogState);
+  changelogNewBadge.classList.toggle('hidden', !unread);
+  changelogBtn.setAttribute('aria-label', unread ? "What's New, new release notes" : "What's New");
+  changelogBtn.setAttribute('data-tooltip', unread ? "What's New · New release notes" : "What's New");
+}
+
+/** Reads what the user has seen again (after a change here or in another tab), and updates the badge. */
+async function refreshChangelogState() {
+  try {
+    changelogState = await changelogStore.resolve(platform.getManifest()?.version);
+  } catch (err) {
+    console.warn('Could not read what was seen of the Changelog:', err);
+    return;
+  }
+  updateChangelogBadge();
+}
+
+/**
+ * Opens the What's New drawer. Its latest release counts as read once the drawer has shown it (not
+ * before, and not when the notes can't be loaded), which removes the NEW badge. An update
+ * announcement still showing goes away. An open worklog panel slides out of the way without closing,
+ * as for the other drawers.
+ */
+function openChangelog() {
+  if (changelogDrawer) return;
+  shortcutsDrawer?.close();
+  customViewEditor?.close();
+  closeSettings();
+  hideUpdateAnnouncement(updateAnnouncementRoot);
+  const returnFocus = document.activeElement;
+  const coversEditor = coverWorklogEditor();
+
+  changelogBtn.setAttribute('aria-expanded', 'true');
+  changelogDrawer = openChangelogDrawer(changelogDrawerRoot, {
+    loadChangelog: getChangelog,
+    onRead: (version) => {
+      changelogStore.markRead(version)
+        .then(refreshChangelogState)
+        .catch((err) => console.warn('Could not record that the release notes were read:', err));
+    },
+    onClose: () => {
+      changelogDrawer = null;
+      changelogBtn.setAttribute('aria-expanded', 'false');
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, if it's still there.
+      if (returnFocus?.isConnected && returnFocus !== document.body) returnFocus.focus();
+    }
+  });
+}
+
+/** The header's What's New button: opens the drawer, or closes it when it's open. */
+function toggleChangelog() {
+  if (changelogDrawer) changelogDrawer.close();
+  else openChangelog();
+}
+
+changelogBtn.addEventListener('click', toggleChangelog);
+
+/**
+ * Shows the update announcement for a release, on this tab once it's visible (a tab opened in the
+ * background waits). It's recorded as shown once it's on screen, at the next frame, which a hidden
+ * tab never draws. Not shown if, meanwhile, another tab showed it, its notes were read, or What's
+ * New is open.
+ * @param {object} release
+ */
+function announceWhenVisible(release) {
+  if (document.visibilityState !== 'visible') {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      document.removeEventListener('visibilitychange', onVisible);
+      announceWhenVisible(release);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return;
+  }
+  if (changelogDrawer || !announcementFor([release], changelogState, release.version)) return;
+
+  showUpdateAnnouncement(updateAnnouncementRoot, {
+    release,
+    highlights: releaseHighlights(release),
+    onExplore: openChangelog
+  });
+  requestAnimationFrame(() => {
+    changelogStore.markAnnounced(release.version)
+      .catch((err) => console.warn('Could not record that the update announcement was shown:', err));
+  });
+}
+
+/**
+ * Loads the release notes and what the user has seen of them when the page opens: the NEW badge,
+ * and the update announcement after an update (never after a fresh install).
+ */
+async function initChangelog() {
+  const version = platform.getManifest()?.version;
+  let changelog;
+  try {
+    [changelog, changelogState] = await Promise.all([getChangelog(), changelogStore.resolve(version)]);
+  } catch (err) {
+    console.warn('Could not read what was seen of the Changelog:', err);
+    return;
+  }
+  updateChangelogBadge();
+  const release = changelog && announcementFor(changelog.releases, changelogState, version);
+  if (release) announceWhenVisible(release);
+}
+
+// Another tab showed the announcement or the release notes: follow it.
+platform.watchStorage((changes) => {
+  if (LAST_ANNOUNCED_KEY in changes || LAST_READ_KEY in changes) refreshChangelogState();
+});
+
 // Esc closes the open panel wherever focus is: after clicking a worklog, focus is on the page, so
 // the panels' own Escape listeners (which handle Esc while typing in their fields) never see it.
 shortcuts.register({
@@ -1947,7 +2478,7 @@ shortcuts.register({
 // page, and not while typing in a field (where these keys move the caret or select text). On Windows
 // and Linux no browser binds them (Back and Forward are Alt + ← / →). On macOS, ⌘ + ← / → are Back
 // and Forward in Chrome, Edge, and Firefox: on this page the day shortcuts take those over.
-const weekNavigationAvailable = () => !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState;
+const weekNavigationAvailable = () => !isDeleteDialogOpen && !shortcutsDrawer && !changelogDrawer && !customViewEditor && !settingsDrawerState;
 
 // Previous or next day selects that weekday card by clicking it (so the selection, the day's
 // worklogs, and the totals update as on a click). Past Monday or Sunday, the previous or next week
@@ -2027,7 +2558,7 @@ shortcuts.register({
   keys: [['+']],
   description: 'Log work',
   category: 'Worklogs',
-  when: () => !settingsDrawerState && !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer &&
+  when: () => !settingsDrawerState && !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !changelogDrawer && !customViewEditor &&
     Boolean(daysContainer.querySelector('.day-add-btn')),
   handler: () => daysContainer.querySelector('.day-add-btn').click()
 });
@@ -2040,10 +2571,11 @@ shortcuts.register({
   shift: true,
   description: 'Sync Worklogs',
   category: 'Worklogs',
-  when: () => !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !settingsDrawerState,
+  when: () => !worklogEditor && !isDeleteDialogOpen && !shortcutsDrawer && !changelogDrawer && !customViewEditor && !settingsDrawerState,
   handler: () => refreshWorklogsBtn.click()
 });
 
+for (const shortcut of VIEW_TAB_SHORTCUTS) shortcuts.register(shortcut);
 for (const shortcut of WORKLOG_FORM_SHORTCUTS) {
   shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditor) });
 }
@@ -2080,6 +2612,7 @@ document.addEventListener('DOMContentLoaded', () => {
   timer.setActive(document.visibilityState === 'visible');
   timer.init();
   loadSavedSettings();
+  initChangelog();
   renderSettingsVersion(document.getElementById('settingsVersion'), platform.getManifest());
   loadAboutInfo().then((info) => renderAboutSection(document.getElementById('aboutSection'), { manifest: platform.getManifest(), info }));
 });

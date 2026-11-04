@@ -1,5 +1,7 @@
 # Release notes
 
+Store-submission text only. The release history, and what changed in each version, is in [CHANGELOG.md](../../../CHANGELOG.md), the single source for it; write release notes for a store submission from there.
+
 ## 1.0.0: first public release
 
 Release date: `[TO BE DECIDED]`

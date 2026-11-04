@@ -5,6 +5,7 @@ import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
 import { buildActiveIssuesJql, isInProgress, hasWorklogBetween } from './activeIssues.js';
 import { parseUserPickerFields } from './assignmentFields.js';
+import { parseSingleSelectFields, parseNamedValues, parseFieldSuggestions, CUSTOM_VIEW_RESULT_LIMIT } from './customViews.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -518,7 +519,7 @@ export class JiraClient {
       return this.#currentUser;
     }
 
-    // The week's worklogs and My Active Issues load at the same time: one request serves both.
+    // The week's worklogs and My Work load at the same time: one request serves both.
     this.#currentUserRequest ??= (async () => {
       const { response, path } = await this.#requestWithV2Fallback(this.#authProvider.getIdentityEndpoint());
 
@@ -1048,17 +1049,190 @@ export class JiraClient {
    */
   async getUserPickerFields({ signal } = {}) {
     try {
-      const { response, path } = await this.#requestWithV2Fallback(this.#apiPath('field'), { signal });
-      if (!response.ok) {
-        const err = await this.#handleHttpError(response, new Date().toISOString());
-        const error = new Error(err.error || `Jira fields request failed with status ${response.status}`);
-        error.status = response.status;
-        throw error;
-      }
-      return parseUserPickerFields(await this.#parseJson(response, path));
+      return parseUserPickerFields(await this.#getFields(signal));
     } catch (err) {
       throw this.#toUserFacingError(err);
     }
+  }
+
+  /**
+   * Lists the custom single-select and radio-button fields custom views can filter on (see
+   * src/jira/customViews.js), from the same `GET /field` request as getUserPickerFields().
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<Array<{ id: string, name: string, kind: 'option', type: 'select' | 'radio' }>>} Sorted
+   *   by name. Rejects with a user-facing Error (with `status` for HTTP errors) when the fields can't
+   *   be read; a failure is never reported as an empty list
+   */
+  async getSingleSelectFields({ signal } = {}) {
+    try {
+      return parseSingleSelectFields(await this.#getFields(signal));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Lists the custom fields custom views can use, from one `GET /field` request: the single-select
+   * and radio-button fields (getSingleSelectFields()), and the single-user fields that can be
+   * compared with Me (the same as getUserPickerFields(): user pickers JQL can search).
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<{ singleSelect: Array<{ id: string, name: string, kind: 'option', type: string }>,
+   *   userPickers: Array<{ id: string, name: string }> }>} Each sorted by name. Rejects with a
+   *   user-facing Error (with `status` for HTTP errors) when the fields can't be read
+   */
+  async getCustomViewFields({ signal } = {}) {
+    try {
+      const data = await this.#getFields(signal);
+      return { singleSelect: parseSingleSelectFields(data), userPickers: parseUserPickerFields(data) };
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Lists the statuses custom views can filter on: every status Jira lists for the user (`GET
+   * /status`; v3 on Cloud, with the v2 fallback; v2 on Data Center / Server), no administrator
+   * access needed.
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal]
+   * @returns {Promise<Array<{ id: string, label: string }>>} Sorted by name. Rejects with a user-facing
+   *   Error when they can't be read
+   */
+  async getStatuses({ signal } = {}) {
+    try {
+      return parseNamedValues(await this.#getJson(this.#apiPath('status'), signal));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Lists the priorities custom views can filter on, no administrator access needed. Jira Cloud's
+   * `GET /priority/search` (paged), or, where that doesn't exist (Data Center / Server), `GET /priority`.
+   *
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal]
+   * @returns {Promise<Array<{ id: string, label: string }>>} Sorted by name. Rejects with a user-facing
+   *   Error when they can't be read
+   */
+  async getPriorities({ signal } = {}) {
+    try {
+      if (this.deploymentType === 'cloud') {
+        try {
+          const values = [];
+          for (let startAt = 0, page = 0; page < 20; page++) {
+            const data = await this.#getJson(this.#apiPath(`priority/search?startAt=${startAt}&maxResults=100`), signal);
+            const list = Array.isArray(data?.values) ? data.values : [];
+            values.push(...list);
+            startAt += list.length;
+            if (data?.isLast !== false || list.length === 0) break;
+          }
+          return parseNamedValues(values);
+        } catch (err) {
+          if (err.status !== 404) throw err;
+        }
+      }
+      return parseNamedValues(await this.#getJson(this.#apiPath('priority'), signal));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Suggests values for a custom single-select or radio-button field, as Jira's JQL search box does
+   * (`GET /jql/autocompletedata/suggestions`; v3 on Cloud, with the v2 fallback; v2 on Data Center /
+   * Server). Every user can ask, with no administrator access: it covers all the field's options,
+   * those whose name starts with `query`, a few at a time (Jira decides how many).
+   *
+   * @param {string} fieldId - `customfield_<number>`
+   * @param {string} [query] - The start of the names wanted; all by default
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal]
+   * @returns {Promise<Array<{ id: string, label: string }>>} Each option's name, as both `id` and
+   *   `label` (see src/jira/customViews.js). Rejects with a user-facing Error when Jira can't be asked
+   */
+  async getFieldValueSuggestions(fieldId, query = '', { signal } = {}) {
+    const number = /^customfield_(\d+)$/.exec(String(fieldId))?.[1];
+    if (!number) throw new Error('Values can only be suggested for custom fields.');
+    const params = new URLSearchParams({ fieldName: `cf[${number}]`, fieldValue: String(query) });
+    try {
+      return parseFieldSuggestions(await this.#getJson(this.#apiPath(`jql/autocompletedata/suggestions?${params}`), signal));
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Runs a custom view's own Jira search (its JQL from buildCustomViewJql()): one request for the
+   * first CUSTOM_VIEW_RESULT_LIMIT issues in the JQL's order, and no other page. Each issue only has
+   * what a row shows (key, summary, and status): no person is ever read.
+   *
+   * @param {string} jql
+   * @param {object} [options]
+   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @returns {Promise<{ issues: Array<{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }>,
+   *   total: number | null, hasMore: boolean }>} The issues, each once, in Jira's order; `total`, how many
+   *   match, where Jira says (Data Center / Server; Cloud's search doesn't); `hasMore` when more match
+   *   than were returned. Rejects with a user-facing Error (with `status` for HTTP errors) when Jira
+   *   can't be searched
+   */
+  async searchCustomViewIssues(jql, { signal } = {}) {
+    try {
+      const result = await this.searchIssues(jql, { maxResults: CUSTOM_VIEW_RESULT_LIMIT, fields: ['summary', 'status'], signal });
+      const issues = [];
+      const seen = new Set();
+      for (const issue of Array.isArray(result?.issues) ? result.issues : []) {
+        const issueKey = String(issue?.key ?? '');
+        const id = String(issue?.id ?? issueKey);
+        if (!issueKey || seen.has(id)) continue;
+        seen.add(id);
+        issues.push({
+          issueId: String(issue.id ?? ''),
+          issueKey,
+          issueSummary: issue.fields?.summary || '',
+          issueStatus: toIssueStatus(issue.fields?.status)
+        });
+      }
+      const total = typeof result?.total === 'number' ? result.total : null;
+      // Data Center / Server counts the matches; Cloud only says whether there's another page.
+      const hasMore = total !== null ? total > issues.length : result?.isLast === false || Boolean(result?.nextPageToken);
+      return { issues, total, hasMore };
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * Every field the user can see: `GET /field` (v3 on Cloud, with the v2 fallback; v2 on Data
+   * Center / Server), in one response.
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<unknown>}
+   */
+  async #getFields(signal) {
+    return this.#getJson(this.#apiPath('field'), signal);
+  }
+
+  /**
+   * A GET request's JSON, retrying a v3 path on v2 when it's not found. HTTP errors reject with
+   * `status`.
+   * @param {string} path
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<unknown>}
+   */
+  async #getJson(path, signal) {
+    const { response, path: used } = await this.#requestWithV2Fallback(path, { signal });
+    if (!response.ok) {
+      const err = await this.#handleHttpError(response, new Date().toISOString());
+      const error = new Error(err.error || `Jira request failed with status ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return this.#parseJson(response, used);
   }
 
   /**

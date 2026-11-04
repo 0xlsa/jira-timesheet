@@ -91,6 +91,8 @@ describe('WeekView - public holidays', () => {
     assert.match(rule('.day-date-row'), /justify-content: space-between;/);
     assert.match(rule('.day-date-row'), /width: 100%;/);
     assert.match(rule('.badge-today'), /flex-shrink: 0;/);
+    assert.match(rule('.badge-today'), /font-size: 10px;/);
+    assert.match(rule('.badge-today'), /padding: 2px 6px;/);
   });
 
   it('shows no icons without holidays, and keeps the weekday name unchanged', () => {

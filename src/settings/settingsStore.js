@@ -18,16 +18,26 @@
  *   chose; it's kept when the feature is turned off.
  * - publicHolidaysShowNext: the Show Next Public Holiday switch (the dashboard banner). Missing
  *   (saved before the switch existed) reads as on; it's kept when the feature is turned off.
- * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Active Issues). Off unless
+ * - showRecentlyLoggedIssues: the Show Recently Logged Issues switch (My Work). Off unless
  *   turned on: missing reads as off. Saved on its own.
  * - assignmentFieldsBySite: Additional Assignment Fields, per Jira site, so one site's fields never
  *   apply to another: { [site]: [{ id, name }] }, `site` being `${deploymentType}|${baseUrl}`
  *   (siteId() in src/timer/timeTrackingStore.js), `id` the custom field ID, and `name` its name when
  *   it was chosen (for display). Saved on its own, by saveAssignmentFields(). Missing or empty: none.
+ * - customViewsBySite: the custom views of My Work, per Jira site (`site` as above):
+ *   { [site]: { version, views } } (src/jira/customViews.js). Saved on its own, by saveCustomViews(),
+ *   which never touches another site's entry, nor one saved by another version of the extension.
+ * - customViewOrderBySite: the order of each Jira site's custom view tabs (after Active, always
+ *   first): { [site]: [viewId, …] } (src/jira/customViews.js orderViews()). Saved on its own, by
+ *   saveCustomViewOrder(), apart from the views, so reordering never rewrites a view. Views it
+ *   doesn't name follow, as saved; IDs of views that are gone are skipped. Missing: as saved.
  */
 
 import { normalizeCountryCode } from '../holidays/nagerDateClient.js';
 import { normalizeAssignmentFields, normalizeAssignmentFieldsBySite } from '../jira/assignmentFields.js';
+import {
+  normalizeCustomViewsBySite, normalizeSiteViews, normalizeView, normalizeCustomViewOrderBySite, normalizeViewOrder, CUSTOM_VIEWS_VERSION, MAX_CUSTOM_VIEWS
+} from '../jira/customViews.js';
 
 const STORAGE_KEYS = [
   'jiraBaseUrl',
@@ -43,7 +53,9 @@ const STORAGE_KEYS = [
   'publicHolidaysCountry',
   'publicHolidaysShowNext',
   'showRecentlyLoggedIssues',
-  'assignmentFieldsBySite'
+  'assignmentFieldsBySite',
+  'customViewsBySite',
+  'customViewOrderBySite'
 ];
 
 /**
@@ -63,7 +75,9 @@ const STORAGE_KEYS = [
  *   lastTestResult: object | null,
  *   publicHolidays: { enabled: boolean, countryCode: string, showNext: boolean },
  *   showRecentlyLoggedIssues: boolean,
- *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>
+ *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>,
+ *   customViewsBySite: Record<string, { version: number, views: Array<object>, unsupported?: true }>,
+ *   customViewOrderBySite: Record<string, string[]>
  * }}
  */
 export function normalizeSettings(raw = {}) {
@@ -85,8 +99,31 @@ export function normalizeSettings(raw = {}) {
     lastTestResult: raw.lastTestResult || null,
     publicHolidays: normalizePublicHolidays(raw),
     showRecentlyLoggedIssues: raw.showRecentlyLoggedIssues === true,
-    assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite)
+    assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite),
+    customViewsBySite: normalizeCustomViewsBySite(raw.customViewsBySite),
+    customViewOrderBySite: normalizeCustomViewOrderBySite(raw.customViewOrderBySite)
   };
+}
+
+/**
+ * A Jira site's custom views.
+ * @param {{ customViewsBySite?: object } | null} settings - From normalizeSettings()
+ * @param {string} site - `${deploymentType}|${baseUrl}`
+ * @returns {{ version: number, views: Array<object>, unsupported?: true }} No views when none are set;
+ *   `unsupported` when they were saved by another version of the extension (and can't be changed)
+ */
+export function customViewsForSite(settings, site) {
+  return settings?.customViewsBySite?.[site] ?? { version: CUSTOM_VIEWS_VERSION, views: [] };
+}
+
+/**
+ * A Jira site's custom view tab order: view IDs, Active not among them.
+ * @param {{ customViewOrderBySite?: object } | null} settings - From normalizeSettings()
+ * @param {string} site - `${deploymentType}|${baseUrl}`
+ * @returns {string[]} Empty when none is saved (the views show as saved)
+ */
+export function customViewOrderForSite(settings, site) {
+  return settings?.customViewOrderBySite?.[site] ?? [];
 }
 
 /**
@@ -219,6 +256,57 @@ export function createSettingsStore(storageArea) {
       if (valid.length) bySite[site] = valid;
       else delete bySite[site];
       await storageArea.set({ assignmentFieldsBySite: bySite });
+    },
+
+    /**
+     * Replaces one Jira site's custom views; every other site's entry is kept exactly as stored. An
+     * empty list removes the site's entry.
+     *
+     * @param {string} site - `${deploymentType}|${baseUrl}`
+     * @param {Array<object>} views - Valid views (src/jira/customViews.js), at most MAX_CUSTOM_VIEWS
+     * @throws {Error} Without a site, for an invalid list, or when the site's views were saved by
+     *   another version of the extension, which are left as they are
+     */
+    async saveCustomViews(site, views) {
+      if (!site) throw new Error('A Jira site is required.');
+      const valid = views.map(normalizeView);
+      if (valid.some((view) => !view) || valid.length > MAX_CUSTOM_VIEWS) throw new Error('These custom views aren\'t valid.');
+      const { customViewsBySite } = await storageArea.get(['customViewsBySite']);
+      const bySite = customViewsBySite && typeof customViewsBySite === 'object' && !Array.isArray(customViewsBySite)
+        ? { ...customViewsBySite }
+        : {};
+      if (normalizeSiteViews(bySite[site]).unsupported) {
+        throw new Error('This Jira site\'s custom views were saved by another version of Timesheet for Jira, so they weren\'t changed. Update the extension to edit them.');
+      }
+      if (valid.length) bySite[site] = { version: CUSTOM_VIEWS_VERSION, views: valid };
+      else delete bySite[site];
+      await storageArea.set({ customViewsBySite: bySite });
+    },
+
+    /**
+     * Replaces one Jira site's custom view tab order; every other site's entry is kept exactly as
+     * stored, and the views themselves aren't touched.
+     *
+     * @param {string} site - `${deploymentType}|${baseUrl}`
+     * @param {string[]} ids - The custom views' IDs, in their tabs' order
+     * @throws {Error} Without a site, for a list that isn't valid IDs, each once, or when the site's
+     *   views or order were saved by another version of the extension, which are left as they are
+     */
+    async saveCustomViewOrder(site, ids) {
+      if (!site) throw new Error('A Jira site is required.');
+      if (!Array.isArray(ids) || normalizeViewOrder(ids).length !== ids.length || ids.length > MAX_CUSTOM_VIEWS) {
+        throw new Error('This order of custom views isn\'t valid.');
+      }
+      const { customViewsBySite, customViewOrderBySite } = await storageArea.get(['customViewsBySite', 'customViewOrderBySite']);
+      const bySite = customViewOrderBySite && typeof customViewOrderBySite === 'object' && !Array.isArray(customViewOrderBySite)
+        ? { ...customViewOrderBySite }
+        : {};
+      const viewsEntry = customViewsBySite && typeof customViewsBySite === 'object' ? customViewsBySite[site] : undefined;
+      if (normalizeSiteViews(viewsEntry).unsupported || (site in bySite && !Array.isArray(bySite[site]))) {
+        throw new Error('This Jira site\'s custom views were saved by another version of Timesheet for Jira, so their order wasn\'t changed. Update the extension to reorder them.');
+      }
+      bySite[site] = [...ids];
+      await storageArea.set({ customViewOrderBySite: bySite });
     }
   };
 }

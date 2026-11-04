@@ -1,5 +1,5 @@
 /**
- * My Active Issues: the issues assigned to the user that are in progress, and (unless turned off
+ * The Active view of My Issues: the issues assigned to the user that are in progress, and (unless turned off
  * with Show Recently Logged Issues) the issues the user logged work on recently, whoever they're
  * assigned to. Builds the JQL that finds both in one search, and classifies what Jira returns. No
  * DOM and no network access.
