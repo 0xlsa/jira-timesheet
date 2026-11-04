@@ -884,13 +884,13 @@ body {
 
 .badge-today {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--primary);
   background-color: var(--primary-light);
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: var(--radius-xs);
 }
 
