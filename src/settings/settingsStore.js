@@ -31,6 +31,10 @@
  *   first): { [site]: [viewId, …] } (src/jira/customViews.js orderViews()). Saved on its own, by
  *   saveCustomViewOrder(), apart from the views, so reordering never rewrites a view. Views it
  *   doesn't name follow, as saved; IDs of views that are gone are skipped. Missing: as saved.
+ * - workingIssuesGroupOrderBySite: the order of each Jira site's My Work groups (My Issues and
+ *   Pending Worklogs): { [site]: [groupId, …] } (WORKING_ISSUES_GROUP_IDS). Saved on its own, by
+ *   saveWorkingIssuesGroupOrder(). Groups it doesn't name follow in their default order. Missing:
+ *   the default order (My Issues, then Pending Worklogs).
  */
 
 import { normalizeCountryCode } from '../holidays/nagerDateClient.js';
@@ -55,8 +59,37 @@ const STORAGE_KEYS = [
   'showRecentlyLoggedIssues',
   'assignmentFieldsBySite',
   'customViewsBySite',
-  'customViewOrderBySite'
+  'customViewOrderBySite',
+  'workingIssuesGroupOrderBySite'
 ];
+
+// My Work's groups, in their default order: My Issues ('active'), then Pending Worklogs.
+export const WORKING_ISSUES_GROUP_IDS = Object.freeze(['active', 'pending']);
+
+/**
+ * A stored My Work group order, checked: every group once, those the order names first, as it has
+ * them, then the others in their default order. Anything else is ignored.
+ * @param {unknown} raw
+ * @returns {string[]}
+ */
+export function normalizeWorkingIssuesGroupOrder(raw) {
+  const named = Array.isArray(raw) ? raw.filter((id, index) => WORKING_ISSUES_GROUP_IDS.includes(id) && raw.indexOf(id) === index) : [];
+  return [...named, ...WORKING_ISSUES_GROUP_IDS.filter((id) => !named.includes(id))];
+}
+
+/**
+ * Checks every site's stored My Work group order: `{ [site]: normalizeWorkingIssuesGroupOrder() }`.
+ * @param {unknown} raw
+ * @returns {Record<string, string[]>}
+ */
+function normalizeWorkingIssuesGroupOrderBySite(raw) {
+  const bySite = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return bySite;
+  for (const [site, order] of Object.entries(raw)) {
+    if (site && Array.isArray(order)) bySite[site] = normalizeWorkingIssuesGroupOrder(order);
+  }
+  return bySite;
+}
 
 /**
  * Normalizes raw stored values into the settings shape used by the app.
@@ -77,7 +110,8 @@ const STORAGE_KEYS = [
  *   showRecentlyLoggedIssues: boolean,
  *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>,
  *   customViewsBySite: Record<string, { version: number, views: Array<object>, unsupported?: true }>,
- *   customViewOrderBySite: Record<string, string[]>
+ *   customViewOrderBySite: Record<string, string[]>,
+ *   workingIssuesGroupOrderBySite: Record<string, string[]>
  * }}
  */
 export function normalizeSettings(raw = {}) {
@@ -101,7 +135,8 @@ export function normalizeSettings(raw = {}) {
     showRecentlyLoggedIssues: raw.showRecentlyLoggedIssues === true,
     assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite),
     customViewsBySite: normalizeCustomViewsBySite(raw.customViewsBySite),
-    customViewOrderBySite: normalizeCustomViewOrderBySite(raw.customViewOrderBySite)
+    customViewOrderBySite: normalizeCustomViewOrderBySite(raw.customViewOrderBySite),
+    workingIssuesGroupOrderBySite: normalizeWorkingIssuesGroupOrderBySite(raw.workingIssuesGroupOrderBySite)
   };
 }
 
@@ -124,6 +159,16 @@ export function customViewsForSite(settings, site) {
  */
 export function customViewOrderForSite(settings, site) {
   return settings?.customViewOrderBySite?.[site] ?? [];
+}
+
+/**
+ * A Jira site's My Work group order.
+ * @param {{ workingIssuesGroupOrderBySite?: object } | null} settings - From normalizeSettings()
+ * @param {string} site - `${deploymentType}|${baseUrl}`
+ * @returns {string[]} Every group ID once; the default order when none is saved
+ */
+export function workingIssuesGroupOrderForSite(settings, site) {
+  return normalizeWorkingIssuesGroupOrder(settings?.workingIssuesGroupOrderBySite?.[site]);
 }
 
 /**
@@ -307,6 +352,28 @@ export function createSettingsStore(storageArea) {
       }
       bySite[site] = [...ids];
       await storageArea.set({ customViewOrderBySite: bySite });
+    },
+
+    /**
+     * Replaces one Jira site's My Work group order; every other site's entry is kept exactly as
+     * stored.
+     *
+     * @param {string} site - `${deploymentType}|${baseUrl}`
+     * @param {string[]} ids - Every group ID (WORKING_ISSUES_GROUP_IDS) once, in their new order
+     * @throws {Error} Without a site, or for a list that isn't every group once
+     */
+    async saveWorkingIssuesGroupOrder(site, ids) {
+      if (!site) throw new Error('A Jira site is required.');
+      if (!Array.isArray(ids) || ids.length !== WORKING_ISSUES_GROUP_IDS.length ||
+          normalizeWorkingIssuesGroupOrder(ids).join() !== ids.join()) {
+        throw new Error('This order of the My Work groups isn\'t valid.');
+      }
+      const { workingIssuesGroupOrderBySite } = await storageArea.get(['workingIssuesGroupOrderBySite']);
+      const bySite = workingIssuesGroupOrderBySite && typeof workingIssuesGroupOrderBySite === 'object' && !Array.isArray(workingIssuesGroupOrderBySite)
+        ? { ...workingIssuesGroupOrderBySite }
+        : {};
+      bySite[site] = [...ids];
+      await storageArea.set({ workingIssuesGroupOrderBySite: bySite });
     }
   };
 }

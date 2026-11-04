@@ -582,15 +582,6 @@ describe('My Work - across weeks', () => {
     issue('KAN-5', 'To Do', { worklogs: [worklog('2026-11-13')] })
   ];
 
-  /** The panel's rows and issue count (from the subtitle) for a ready state, as the user sees them. */
-  const panel = (state) => {
-    const section = document.createElement('section');
-    renderWorkingIssues(section, { state, expanded: true });
-    return {
-      keys: section.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent),
-      count: section.querySelector('.working-issues-subtitle').textContent.split(' ')[0]
-    };
-  };
   const weekOf = async (week, issues = sampleIssues()) =>
     keysOf(await cloudClient(fakeJira({ issues })).getActiveIssues(week.monday, week.sunday));
 
@@ -758,14 +749,9 @@ describe('My Work - recently logged issues', () => {
     assert.equal(state.status, 'error');
   });
 
-  it('says what the list holds, with or without recently logged issues', async () => {
-    const subtitle = (state) => {
-      const section = document.createElement('section');
-      renderWorkingIssues(section, { state, expanded: true });
-      return section.querySelector('.working-issues-subtitle').textContent;
-    };
-    assert.match(subtitle((await load(ISSUES())).state), /In progress and recently logged/);
-    assert.match(subtitle((await load(ISSUES(), { includeRecentlyLogged: false })).state), /In progress$/);
+  it('says whether the list holds recently logged issues', async () => {
+    assert.equal((await load(ISSUES())).state.includeRecentlyLogged, true);
+    assert.equal((await load(ISSUES(), { includeRecentlyLogged: false })).state.includeRecentlyLogged, false);
   });
 });
 
@@ -794,13 +780,14 @@ describe('WeekView - My Work section', () => {
       inProgress: false, loggedInRange: true
     }))
   ];
+  // The count is the My Issues header's ("My Issues (9)"): render with the groups (WITH_GROUPS).
   const shown = (section) => ({
-    subtitle: section.querySelector('.working-issues-subtitle').textContent,
-    count: section.querySelector('.working-issues-subtitle').textContent.split(' ')[0],
+    count: /\((\d+)\)$/.exec(section.querySelector('#workingIssuesGroupToggle-active').textContent)[1],
     rows: section.querySelectorAll('.working-issue').length,
     keys: new Set(section.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent)).size
   });
 
+  const WITH_GROUPS = { pending: { entries: [], site: 'cloud|https://jira.example.com', onEdit() {}, onDiscard() {} } };
   const renderSection = (state, options = {}) => {
     const section = document.createElement('section');
     renderWorkingIssues(section, { state, expanded: true, baseUrl: 'https://jira.example.com/', ...options });
@@ -837,16 +824,27 @@ describe('WeekView - My Work section', () => {
     assert.equal(container.querySelector('.working-issues'), null);
   });
 
-  it('shows a spinner and a loading message while retrieving', () => {
-    const section = renderSection({ status: 'loading' });
-    assert.equal(section.querySelector('.working-issues-subtitle').textContent, 'Retrieving issues from Jira…');
-    assert.ok(section.querySelector('.working-issues-spinner'));
-    assert.equal(section.querySelector('.working-issues-subtitle').textContent.includes('issue ·'), false);
+  it('shows a spinner in the header, and a loading message in My Issues, while retrieving', () => {
+    const section = renderSection({ status: 'loading' }, WITH_GROUPS);
+    assert.ok(section.querySelector('.working-issues-toggle').querySelector('.working-issues-spinner'));
+    assert.equal(section.querySelector('#workingIssuesGroup-active').querySelector('.working-issues-empty').textContent, 'Retrieving issues from Jira…');
   });
 
-  it('counts the issues, describes what is listed, and links them to Jira', () => {
+  it('heads the section with its title alone: no issue or pending worklog summary below it, in any state', () => {
+    for (const state of [{ status: 'loading' }, { status: 'ready', issues: readyIssues }, { status: 'error', message: 'x' }]) {
+      for (const options of [{}, WITH_GROUPS]) {
+        const section = renderSection(state, options);
+        assert.deepEqual(section.querySelector('.working-issues-titles').childNodes.map((n) => n.className), ['working-issues-title']);
+        assert.equal(section.querySelector('.working-issues-toggle').textContent, 'My Work');
+        assert.doesNotMatch(toHtml(section.querySelector('.working-issues-header')), /issues? ·|pending worklog/);
+      }
+    }
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    assert.doesNotMatch(css, /working-issues-subtitle|working-issues-pending-count/);
+  });
+
+  it('lists the issues and links them to Jira', () => {
     const section = renderSection({ status: 'ready', issues: readyIssues });
-    assert.equal(section.querySelector('.working-issues-subtitle').textContent, '2 issues · In progress and recently logged');
 
     const html = toHtml(section);
     assert.match(html, /<a href="https:\/\/jira.example.com\/browse\/KAN-12" target="_blank" rel="noopener noreferrer" class="issue-key-badge"/);
@@ -861,13 +859,13 @@ describe('WeekView - My Work section', () => {
 
   // The badge counts the issues listed, each once, whatever the reasons it's listed for.
   it('shows 9 for 6 in-progress issues and 3 others logged this week, with no overlap', () => {
-    assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList({ inProgress: 6, loggedOnly: 3 }) })),
-      { subtitle: '9 issues · In progress and recently logged', count: '9', rows: 9, keys: 9 });
+    assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList({ inProgress: 6, loggedOnly: 3 }) }, WITH_GROUPS)),
+      { count: '9', rows: 9, keys: 9 });
   });
 
   it('shows 7 for 6 in-progress issues and 3 logged this week, 2 of them in progress', () => {
-    assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList({ inProgress: 6, loggedOnly: 1, both: 2 }) })),
-      { subtitle: '7 issues · In progress and recently logged', count: '7', rows: 7, keys: 7 });
+    assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList({ inProgress: 6, loggedOnly: 1, both: 2 }) }, WITH_GROUPS)),
+      { count: '7', rows: 7, keys: 7 });
   });
 
   it('always shows as many in the badge as the issues listed', () => {
@@ -878,15 +876,15 @@ describe('WeekView - My Work section', () => {
       [{ inProgress: 0, loggedOnly: 0 }, 0]
     ];
     for (const [counts, total] of cases) {
-      assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList(counts) })),
-        { subtitle: `${total} ${total === 1 ? 'issue' : 'issues'} · In progress and recently logged`, count: String(total), rows: total, keys: total });
+      assert.deepEqual(shown(renderSection({ status: 'ready', issues: activeList(counts) }, WITH_GROUPS)),
+        { count: String(total), rows: total, keys: total });
     }
   });
 
   it('shows an issue it is given twice once, and counts it once', () => {
     const [inProgress, logged] = [activeList({ inProgress: 1, loggedOnly: 0, both: 1 })[0], doneIssue];
-    const section = renderSection({ status: 'ready', issues: [inProgress, logged, { ...inProgress }, { ...logged, issueId: '' }] });
-    assert.deepEqual(shown(section), { subtitle: '2 issues · In progress and recently logged', count: '2', rows: 2, keys: 2 });
+    const section = renderSection({ status: 'ready', issues: [inProgress, logged, { ...inProgress }, { ...logged, issueId: '' }] }, WITH_GROUPS);
+    assert.deepEqual(shown(section), { count: '2', rows: 2, keys: 2 });
   });
 
   it('counts what Jira returns: each issue once in the list and in each reason, however many worklogs it has', async () => {
@@ -901,20 +899,19 @@ describe('WeekView - My Work section', () => {
       ]
     });
     const issues = await activeIssues(cloudClient(jira));
-    assert.deepEqual(shown(renderSection({ status: 'ready', issues })),
-      { subtitle: '7 issues · In progress and recently logged', count: '7', rows: 7, keys: 7 });
+    assert.deepEqual(shown(renderSection({ status: 'ready', issues }, WITH_GROUPS)),
+      { count: '7', rows: 7, keys: 7 });
   });
 
-  it('leads the subtitle with the issue count, singular for one issue, and no tooltip', () => {
+  it('counts the issues in the My Issues header, and no tooltip', () => {
     for (const [issues, expected] of [
-      [activeList({ inProgress: 3, loggedOnly: 2, both: 1 }), '5 issues · In progress and recently logged'],
-      [[doneIssue], '1 issue · In progress and recently logged'],
-      [[], '0 issues · In progress and recently logged']
+      [activeList({ inProgress: 3, loggedOnly: 2, both: 1 }), 'My Issues (5)'],
+      [[doneIssue], 'My Issues (1)'],
+      [[], 'My Issues (0)']
     ]) {
-      const section = renderSection({ status: 'ready', issues });
-      const subtitle = section.querySelector('.working-issues-subtitle');
-      assert.equal(subtitle.textContent, expected);
-      assert.equal(subtitle.getAttribute('title'), null);
+      const toggle = renderSection({ status: 'ready', issues }, WITH_GROUPS).querySelector('#workingIssuesGroupToggle-active');
+      assert.equal(toggle.textContent, expected);
+      assert.equal(toggle.getAttribute('title'), null);
     }
   });
 
@@ -933,16 +930,17 @@ describe('WeekView - My Work section', () => {
   it('shows a request failure as an error with Retry, not as zero issues', () => {
     let retries = 0;
     const section = renderSection({ status: 'error', message: 'Jira returned a server error (500).' }, { onRetry: () => retries++ });
-    assert.equal(section.querySelector('.working-issues-subtitle').textContent, "Couldn't retrieve issues from Jira");
     assert.match(section.querySelector('.working-issues-message').textContent, /server error \(500\)/);
     assert.ok(section.classList.contains('is-error'));
 
     section.querySelector('.working-issues-retry').click();
     assert.equal(retries, 1);
+    // Without a message of Jira's, it says what failed.
+    assert.match(renderSection({ status: 'error' }).querySelector('.working-issues-message').textContent, /^Couldn't retrieve issues from Jira/);
     assert.equal(document.activeElement, section.querySelector('.working-issues-toggle'));
   });
 
-  it('has no count badge in the header, in any state; the subtitle gives the count', () => {
+  it('has no count badge in the header, in any state; the My Issues header gives the count', () => {
     for (const state of [{ status: 'loading' }, { status: 'ready', issues: readyIssues }, { status: 'error', message: 'x' }]) {
       const section = renderSection(state);
       assert.equal(section.querySelector('.working-issues-count'), null);
@@ -977,7 +975,7 @@ describe('WeekView - My Work section', () => {
     const toggle = section.querySelector('.working-issues-toggle');
     renderWorkingIssues(section, { state: { status: 'ready', issues: readyIssues }, expanded: true });
     assert.equal(section.querySelector('.working-issues-toggle'), toggle);
-    assert.equal(section.querySelector('.working-issues-subtitle').textContent, '2 issues · In progress and recently logged');
+    assert.equal(section.querySelectorAll('.working-issue').length, 2);
     assert.equal(section.querySelector('.working-issues-spinner'), null);
   });
 

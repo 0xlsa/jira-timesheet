@@ -21,14 +21,9 @@ const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
 // The add button's accessible label ("26 October").
 const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' });
 
-// Subtitle of the My Work section, by state.
-const WORKING_ISSUES_SUBTITLES = {
-  loading: 'Retrieving issues from Jira…',
-  ready: 'In progress and recently logged',
-  error: "Couldn't retrieve issues from Jira"
-};
-// Ready, with Show Recently Logged Issues turned off.
-const WORKING_ISSUES_ASSIGNED_ONLY = 'In progress';
+// What My Issues says while Active's issues load, and when Jira's answer has no message of its own.
+const WORKING_ISSUES_LOADING = 'Retrieving issues from Jira…';
+const WORKING_ISSUES_ERROR = "Couldn't retrieve issues from Jira";
 
 // A custom view's list while it's searched, when no issue matches it, or when its field is gone from Jira.
 export const VIEW_SEARCHING = 'Searching Jira…';
@@ -37,10 +32,6 @@ export const VIEW_FIELD_UNAVAILABLE = "This view's field is no longer available 
 // Beside a custom view's issues while it's searched again (after an edit of its order or
 // condition, or Retry); they stay shown meanwhile.
 export const VIEW_UPDATING = 'Updating this view…';
-
-/** The section's subtitle for a state. */
-const workingIssuesSubtitle = (state) =>
-  (state.status === 'ready' && state.includeRecentlyLogged === false ? WORKING_ISSUES_ASSIGNED_ONLY : WORKING_ISSUES_SUBTITLES[state.status]) || '';
 
 // Jira status category keys with a dedicated badge color; anything else (custom or `undefined`) is neutral.
 const STATUS_CATEGORY_CLASSES = {
@@ -400,9 +391,9 @@ function uniqueIssues(issues) {
 }
 
 /**
- * Renders the My Work section: a header button that expands and collapses it (count and
- * subtitle included), and below it the My Issues group (with its views) and the Pending Worklogs
- * group. The first call builds the header; later calls on the same section update it in place, so
+ * Renders the My Work section: a header button that expands and collapses it (its title on one
+ * line, with a spinner while Active's issues load), and below it the My Issues group (with its
+ * views) and the Pending Worklogs group, whose headers count what they list. The first call builds the header; later calls on the same section update it in place, so
  * the header button keeps focus when the issues arrive.
  *
  * @param {HTMLElement} section
@@ -440,6 +431,12 @@ function uniqueIssues(issues) {
  *   expanded; each is unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle] - Called
  *   after a group's header expands or collapses that group (never the other)
+ * @param {string[]} [options.groupOrder] - The groups' order, by ID ('active', 'pending'); groups it
+ *   doesn't name follow in their default order (My Issues, then Pending Worklogs)
+ * @param {(order: string[]) => void} [options.onGroupMove] - With it, and both groups shown, each
+ *   group can be moved: dragged by the handle at the start of its header, or with Alt+Shift+Up /
+ *   Down Arrow on its header button. The groups move in place (nothing is drawn again), then this is
+ *   called with every group's ID in their new order
  * @param {object} [options.recentlyLogged] - The Show Recently Logged Issues switch, Active's own:
  *   below the view tabs while Active is selected (so only with the groups); no switch without it
  * @param {boolean} options.recentlyLogged.checked - Whether it's on
@@ -466,16 +463,14 @@ function uniqueIssues(issues) {
  *   ID and its new position among the custom views (0: just after Active) when its tab is moved
  * @param {string} [options.views.announcement] - Said to assistive technology (a view was moved)
  */
-export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, recentlyLogged, views }) {
+export function renderWorkingIssues(section, { state, expanded, baseUrl = '', onToggle, onRetry, onLogWork, timer, pending, groupsExpanded = {}, onGroupToggle, groupOrder, onGroupMove, recentlyLogged, views }) {
   let toggle = section.querySelector('.working-issues-toggle');
   if (!toggle) {
     toggle = h('button', { type: 'button', class: 'working-issues-toggle', 'aria-controls': 'workingIssuesBody' },
       svg('svg', { class: 'working-issues-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
         svg('polyline', { points: '6 9 12 15 18 9' })),
       h('span', { class: 'working-issues-titles' },
-        h('span', { class: 'working-issues-title' }, 'My Work'),
-        h('span', { class: 'working-issues-subtitle' }),
-        h('span', { class: 'working-issues-pending-count hidden' })),
+        h('span', { class: 'working-issues-title' }, 'My Work')),
       h('span', { class: 'working-issues-indicator' }));
     toggle.addEventListener('click', () => {
       const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
@@ -502,27 +497,23 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   // focus key.
   const focusKey = section.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
+  // What a view move says, when it changes (a group move says its own, in place, between renders).
   const announcer = section.querySelector('#workingIssuesAnnouncer');
-  if (announcer && announcer.textContent !== (views?.announcement ?? '')) announcer.textContent = views?.announcement ?? '';
+  const viewAnnouncement = views?.announcement ?? '';
+  if (announcer && announcer.dataset.viewAnnouncement !== viewAnnouncement) {
+    announcer.dataset.viewAnnouncement = viewAnnouncement;
+    announcer.textContent = viewAnnouncement;
+  }
 
-  // One row per issue, and the badge counts the rows.
+  // One row per issue (the My Issues header counts the rows).
   const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
   section.className = `working-issues is-${state.status}`;
 
-  // When ready, the subtitle leads with how many issues are listed ("9 issues · In progress and …").
-  const subtitle = workingIssuesSubtitle(state);
-  toggle.querySelector('.working-issues-subtitle').textContent = state.status === 'ready'
-    ? `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'} · ${subtitle}`
-    : subtitle;
   toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
     state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' })));
   renderHeaderTimer(section.querySelector('.working-issues-timer'), timer);
   renderHeaderTimerSummary(section.querySelector('.working-issues-timer-summary'), timer);
   section.classList.toggle('has-timer', Boolean(timer?.running));
-  // The pending worklogs, on their own line under the subtitle, so they show while collapsed too.
-  const pendingCount = toggle.querySelector('.working-issues-pending-count');
-  pendingCount.classList.toggle('hidden', !pending);
-  pendingCount.textContent = pending ? formatPendingCount(pending.entries.length) : '';
 
   const retryButton = state.status === 'error' && onRetry
     ? h('button', { type: 'button', class: 'btn btn-secondary btn-sm working-issues-retry' }, 'Retry')
@@ -538,7 +529,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   const list = renderIssueList(rows, { baseUrl, onLogWork, timer });
 
   const errorMessage = state.status === 'error' && h('div', { class: 'working-issues-message', role: 'status' },
-    h('p', {}, state.message || workingIssuesSubtitle(state)),
+    h('p', {}, state.message || WORKING_ISSUES_ERROR),
     retryButton);
 
   // Active's contents: the Show recently logged switch (Active's alone), then its issues, or why
@@ -547,7 +538,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     recentlyLogged && renderRecentlyLoggedSwitch(recentlyLogged, state.refreshing === true),
     list,
     errorMessage,
-    state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_SUBTITLES.loading),
+    state.status === 'loading' && h('p', { class: 'working-issues-empty' }, WORKING_ISSUES_LOADING),
     state.status === 'ready' && !list && h('p', { class: 'working-issues-empty' },
       state.includeRecentlyLogged === false ? 'No issues in progress.' : 'No issues in progress or logged in the last 14 days.'));
 
@@ -567,7 +558,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
           id: 'workingIssuesViewPanel', class: 'working-issues-view-panel', role: 'tabpanel',
           'aria-labelledby': `workingIssuesViewTab-${selectedView?.id ?? ALL_VIEW_ID}`, 'aria-busy': searching ? 'true' : undefined
         }, selectedView ? renderViewResults(selectedView, views, { baseUrl, onLogWork, timer }) : activeContent)) : activeContent,
-      { groupsExpanded, onGroupToggle }));
+      { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer }));
   } else {
     body.replaceChildren(fragment(list, errorMessage));
   }
@@ -897,30 +888,89 @@ function renderViewResults(view, views, { baseUrl, onLogWork, timer }) {
     content);
 }
 
-/**
- * "1 pending worklog", "2 pending worklogs": sessions, not issues.
- * @param {number} count
- * @returns {string}
- */
-export function formatPendingCount(count) {
-  return `${count} pending ${count === 1 ? 'worklog' : 'worklogs'}`;
-}
-
+// Each group's icon, before its title (decorative): list-checks for My Issues, clock for Pending Worklogs.
 const GROUPS = [
-  { id: 'active', label: 'My Issues' },
-  { id: 'pending', label: 'Pending Worklogs' }
+  { id: 'active', label: 'My Issues', icon: () => [
+    svg('path', { d: 'm3 17 2 2 4-4' }), svg('path', { d: 'm3 7 2 2 4-4' }),
+    svg('path', { d: 'M13 6h8' }), svg('path', { d: 'M13 12h8' }), svg('path', { d: 'M13 18h8' })] },
+  { id: 'pending', label: 'Pending Worklogs', icon: () => [
+    svg('circle', { cx: '12', cy: '12', r: '10' }), svg('polyline', { points: '12 6 12 12 16 14' })] }
+];
+
+// Said to assistive technology about a group's header button, when the groups can be moved.
+export const GROUP_MOVE_HINT = 'Alt+Shift+Up or Down Arrow moves this group.';
+// The drag handle's tooltip.
+export const GROUP_HANDLE_TITLE = 'Drag to move';
+// Listed in the keyboard shortcuts drawer; the group headers handle the keys themselves.
+export const GROUP_SHORTCUTS = [
+  { id: 'groups.move-up', description: 'Move the focused My Work group up', category: 'Views', keys: [['Alt', 'Shift', '↑']] },
+  { id: 'groups.move-down', description: 'Move the focused My Work group down', category: 'Views', keys: [['Alt', 'Shift', '↓']] }
 ];
 
 /**
+ * The groups in `order` (by ID), those it doesn't name after them in their default order.
+ * @param {string[]} [order]
+ * @returns {Array<{ id: string, label: string }>}
+ */
+function orderedGroups(order = []) {
+  const rank = (id) => {
+    const index = Array.isArray(order) ? order.indexOf(id) : -1;
+    return index < 0 ? GROUPS.length + GROUPS.findIndex((group) => group.id === id) : index;
+  };
+  return [...GROUPS].sort((a, b) => rank(a.id) - rank(b.id));
+}
+
+/** The group elements in a container (the section's body), in their order on the page. */
+const groupElements = (container) => [...(container?.children ?? [])].filter((el) => el.classList.contains('working-issues-group'));
+
+/**
+ * Puts group elements in this order, in their container, moving the elements themselves: their
+ * contents, state, and listeners are kept. Focus inside a moved group stays where it was.
+ * @param {HTMLElement[]} groups
+ */
+function placeGroups(groups) {
+  const container = groups[0]?.parentNode;
+  if (!container) return;
+  const doc = container.ownerDocument;
+  const focused = doc?.activeElement;
+  container.append(...groups);
+  if (focused && doc.activeElement !== focused && groups.some((group) => group.contains?.(focused) ?? group === focused)) focused.focus();
+}
+
+/**
+ * Puts the My Work groups already on the page in a new order, in place: nothing is drawn again, so
+ * each group keeps its contents, its expanded or collapsed state, and focus. For an order changed in
+ * another tab; the next render draws them in that order too, from its `groupOrder`.
+ * @param {HTMLElement} section - As passed to renderWorkingIssues()
+ * @param {string[]} order - Group IDs
+ */
+export function orderWorkingIssuesGroups(section, order) {
+  const groups = groupElements(section.querySelector('.working-issues-body'));
+  const ids = orderedGroups(order).map((group) => group.id);
+  const sorted = [...groups].sort((a, b) => ids.indexOf(a.dataset.group) - ids.indexOf(b.dataset.group));
+  if (sorted.some((group, index) => group !== groups[index])) placeGroups(sorted);
+}
+
+/** The six-dot grip of a group's drag handle. */
+const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox: '0 0 10 16', fill: 'currentColor', 'aria-hidden': 'true' },
+  ...[3, 8, 13].flatMap((cy) => [svg('circle', { cx: '3', cy: String(cy), r: '1.5' }), svg('circle', { cx: '7', cy: String(cy), r: '1.5' })]));
+
+/**
  * Builds the My Issues and Pending Worklogs groups, one below the other (Pending Worklogs with the
- * pending worklogs). Each has a header button that expands and collapses that group only; both can
- * be open, or closed, at once. The headers, with their counts, show either way. Expanding or
- * collapsing never changes the timer or a pending worklog.
+ * pending worklogs), in `groupOrder`. Each has a header button that expands and collapses that group
+ * only; both can be open, or closed, at once. The headers, with their counts, show either way.
+ * Expanding or collapsing never changes the timer or a pending worklog.
  *
  * Each header counts what its group lists: "My Issues (5)" the selected view's issues (Active's
  * rows include the running timer's issue when Jira doesn't list it; a custom view's "20+" when more
  * match); "Pending Worklogs (2)" the pending worklogs, one per stopped session, so two sessions on
  * one issue count twice.
+ *
+ * With `onGroupMove` and both groups, each header starts with a drag handle, the only place a drag
+ * starts (a click on the rest of the header still expands and collapses the group). Dragged a few
+ * pixels, the group fades and a line shows where it would go; Escape cancels. Alt+Shift with the Up
+ * or Down Arrow on a header button moves its group one place. A move puts the groups in their new
+ * order in place, says so through `announcer`, and reports the order through `onGroupMove`.
  *
  * @param {object | undefined} pending - renderWorkingIssues()'s `pending` options
  * @param {string | null} activeCount - What the My Issues list shows; none while a custom view is searched
@@ -928,28 +978,135 @@ const GROUPS = [
  * @param {object} options
  * @param {{ active?: boolean, pending?: boolean }} options.groupsExpanded - Each group is expanded unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle]
+ * @param {string[]} [options.groupOrder]
+ * @param {(order: string[]) => void} [options.onGroupMove]
+ * @param {HTMLElement | null} [options.announcer] - The section's status region
  * @returns {DocumentFragment}
  */
-function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle }) {
-  return fragment(GROUPS.filter(({ id }) => id === 'active' || pending).map(({ id, label }) => {
+function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer }) {
+  const shown = orderedGroups(groupOrder).filter(({ id }) => id === 'active' || pending);
+  const movable = Boolean(onGroupMove) && shown.length > 1;
+  const labels = Object.fromEntries(GROUPS.map(({ id, label }) => [id, label]));
+
+  // A drag in progress: { group, handle, container, pointerId, x, y, dragging, drop }, `drop` the
+  // index (among the groups as they are) the group would go before. A drag that ends swallows the
+  // click the browser sends right after it.
+  let drag = null;
+  let swallowClick = false;
+
+  /** Moves a group to a position among the groups (as they are once it's taken out), in place. */
+  const move = (group, toIndex) => {
+    const groups = groupElements(group.parentNode);
+    const from = groups.indexOf(group);
+    const to = Math.max(0, Math.min(groups.length - 1, toIndex));
+    if (from < 0 || to === from) return;
+    const others = groups.filter((other) => other !== group);
+    const order = [...others.slice(0, to), group, ...others.slice(to)];
+    placeGroups(order);
+    if (announcer) announcer.textContent = `Moved ${labels[group.dataset.group]} to position ${to + 1} of ${order.length}.`;
+    onGroupMove(order.map((el) => el.dataset.group));
+  };
+
+  const onEscape = (event) => {
+    if (event.key !== 'Escape' || !drag?.dragging) return;
+    event.preventDefault();
+    event.stopPropagation();
+    endDrag();
+  };
+  function endDrag() {
+    if (!drag) return;
+    const { group, handle, container, pointerId } = drag;
+    drag = null;
+    // The container it started in: a render meanwhile replaces the groups, never the container.
+    for (const el of [group, ...groupElements(container)]) el.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
+    container?.classList.remove('is-reordering-groups');
+    group.ownerDocument?.removeEventListener('keydown', onEscape, true);
+    if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+  }
+
+  /** Lets a group be dragged by its handle, with a mouse, a pen, or touch. */
+  const makeDraggable = (group, handle) => {
+    handle.addEventListener('pointerdown', (event) => {
+      if ((event.button ?? 0) !== 0 || drag) return;
+      swallowClick = false;
+      // Pressing the handle starts nothing else (the CSS also keeps it from selecting text).
+      event.preventDefault();
+      drag = { group, handle, container: group.parentNode, pointerId: event.pointerId, x: event.clientX, y: event.clientY, dragging: false, drop: null };
+      // The pointer stays the handle's, even outside it, until it's released.
+      handle.setPointerCapture?.(event.pointerId);
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const groups = groupElements(group.parentNode);
+      if (!drag.dragging) {
+        if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < DRAG_THRESHOLD_PX) return;
+        drag.dragging = true;
+        group.classList.add('is-dragging');
+        drag.container?.classList.add('is-reordering-groups');
+        group.ownerDocument?.addEventListener('keydown', onEscape, true);
+      }
+      // No scrolling while dragging.
+      event.preventDefault();
+      // Before the first group whose middle is below the pointer; after the last otherwise.
+      const index = groups.findIndex((el) => {
+        const box = el.getBoundingClientRect();
+        return event.clientY < (box.top + box.bottom) / 2;
+      });
+      const drop = index < 0 ? groups.length : index;
+      const from = groups.indexOf(group);
+      // Just before or just after itself: nothing would move, so no line.
+      drag.drop = drop === from || drop === from + 1 ? null : drop;
+      groups.forEach((el, i) => {
+        el.classList.toggle('is-drop-before', drag.drop !== null && i === drag.drop);
+        el.classList.toggle('is-drop-after', drag.drop === groups.length && i === groups.length - 1);
+      });
+    });
+    handle.addEventListener('pointerup', (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const { dragging, drop } = drag;
+      const from = groupElements(group.parentNode).indexOf(group);
+      endDrag();
+      if (!dragging) return;
+      // The click that follows the release, if any, comes before any timer.
+      swallowClick = true;
+      setTimeout(() => { swallowClick = false; }, 0);
+      // The drop's index counts the dragged group where it was: one less once it's taken out before it.
+      if (drop !== null) move(group, drop > from ? drop - 1 : drop);
+    });
+    handle.addEventListener('pointercancel', endDrag);
+    handle.addEventListener('lostpointercapture', (event) => {
+      if (drag && event.pointerId === drag.pointerId) endDrag();
+    });
+  };
+
+  return fragment(shown.map(({ id, label, icon }) => {
     const count = id === 'active' ? activeCount : String(pending.entries.length);
     const toggle = h('button', {
       type: 'button',
       id: `workingIssuesGroupToggle-${id}`,
       class: 'working-issues-group-toggle',
       'aria-controls': `workingIssuesGroup-${id}`,
+      'aria-describedby': movable ? `workingIssuesGroupMoveHint-${id}` : undefined,
+      'aria-keyshortcuts': movable ? 'Alt+Shift+ArrowUp Alt+Shift+ArrowDown' : undefined,
       'data-group': id,
       'data-focus-key': `group:${id}`
     },
       svg('svg', { class: 'working-issues-group-chevron', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
         svg('polyline', { points: '6 9 12 15 18 9' })),
+      svg('svg', { class: `working-issues-group-icon is-${id}`, ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' },
+        ...icon()),
       h('span', { class: 'working-issues-group-title' }, count === null ? label : `${label} (${count})`));
     const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
       id === 'active' ? activeContent : renderPendingWorklogs({
         entries: pending.entries, site: pending.site, now: pending.now,
         onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit
       }));
-    const header = h('div', { class: 'working-issues-group-header' }, h('h4', { class: 'working-issues-group-heading' }, toggle));
+    // Pointer-only: keyboard users move the group from its header button.
+    const handle = movable ? h('span', { class: 'working-issues-group-handle', title: GROUP_HANDLE_TITLE, 'aria-hidden': 'true' }, gripIcon()) : null;
+    const header = h('div', { class: 'working-issues-group-header' },
+      handle,
+      h('h4', { class: 'working-issues-group-heading' }, toggle),
+      movable && h('span', { id: `workingIssuesGroupMoveHint-${id}`, class: 'sr-only' }, GROUP_MOVE_HINT));
     const group = h('div', { class: `working-issues-group is-${id}`, 'data-group': id }, header, groupBody);
 
     const setExpanded = (isExpanded) => {
@@ -962,10 +1119,26 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     header.addEventListener('click', (event) => {
       // The click is this group's alone, not the section's.
       event.stopPropagation();
+      // The handle drags; it never expands or collapses the group, nor does the click a drag ends with.
+      if (swallowClick) {
+        swallowClick = false;
+        return;
+      }
+      if (handle && event.target.closest?.('.working-issues-group-handle')) return;
       const isExpanded = toggle.getAttribute('aria-expanded') !== 'true';
       setExpanded(isExpanded);
       onGroupToggle?.(id, isExpanded);
     });
+
+    if (movable) {
+      makeDraggable(group, handle);
+      header.addEventListener('keydown', (event) => {
+        if (!event.altKey || !event.shiftKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        move(group, groupElements(group.parentNode).indexOf(group) + (event.key === 'ArrowDown' ? 1 : -1));
+      });
+    }
     return group;
   }));
 }

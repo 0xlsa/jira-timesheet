@@ -470,8 +470,6 @@ describe('Timer - running issue missing from the list', () => {
     assert.ok(row.querySelector('.working-issue-timer-btn[data-timer-action="stop"]'));
     assert.equal(row.querySelector('.working-issue-elapsed').textContent, '00:03:23');
     assert.ok(row.querySelector('.working-issue-log-btn'), 'work can be logged on it, on the same site');
-    // Jira's own count is unchanged: the added row isn't one of its issues.
-    assert.equal(section.querySelector('.working-issues-subtitle').textContent, '2 issues · In progress and recently logged');
 
     updateWorkingIssuesTimer(section, NOW + 10_000);
     assert.equal(row.querySelector('.working-issue-elapsed').textContent, '00:03:33');

@@ -19,6 +19,14 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 ## [Unreleased]
 
+### Added
+
+- In My Work, drag My Issues or Pending Worklogs by the handle at the start of its header to put it above or below the other, or press Alt+Shift+Up or Down Arrow on its header. The order is saved for each Jira site.
+
+### Changed
+
+- The My Work heading is a single line. My Issues and Pending Worklogs each sit in their own bordered container, with a roomier header showing an icon and the count, and more compact rows.
+
 ## [1.2.0] - 2026-11-04
 
 ### Added

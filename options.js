@@ -29,13 +29,16 @@ import {
   replaceWorklogInWeek,
   removeWorklogFromWeek
 } from './src/worklog/weeklyWorklogService.js';
-import { createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite, customViewOrderForSite } from './src/settings/settingsStore.js';
+import {
+  createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite, customViewOrderForSite,
+  workingIssuesGroupOrderForSite, WORKING_ISSUES_GROUP_IDS
+} from './src/settings/settingsStore.js';
 import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays, VIEW_TAB_SHORTCUTS } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays, orderWorkingIssuesGroups, VIEW_TAB_SHORTCUTS, GROUP_SHORTCUTS } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -626,10 +629,59 @@ function workingIssuesOptions() {
       localStorage.setItem(`jts-working-issues-${group}-expanded`, String(expanded));
       if (group === 'active' && expanded) setWorkingIssuesState(workingIssuesState);
     },
+    // Their order, per Jira site (apart from whether each is expanded); movable once a site is connected.
+    groupOrder: workingIssuesGroupOrder(),
+    onGroupMove: currentClient ? (order) => moveWorkingIssuesGroups(currentClient, order) : undefined,
     recentlyLogged: { checked: savedSettings?.showRecentlyLoggedIssues === true, onChange: setShowRecentlyLoggedIssues },
     views: customViewsOptions()
   };
 }
+
+/**
+ * The connected Jira site's My Work group order (My Issues, then Pending Worklogs, unless moved).
+ * @returns {string[]}
+ */
+function workingIssuesGroupOrder() {
+  if (!currentClient) return [...WORKING_ISSUES_GROUP_IDS];
+  return workingIssuesGroupOrderForSite(savedSettings, siteId(currentClient.deploymentType, currentClient.baseUrl));
+}
+
+/**
+ * Saves the My Work groups' new order for a client's Jira site, which other tabs follow. The section
+ * has already moved them in place, so nothing is drawn again, and nothing is loaded. If it can't be
+ * saved, the order goes back to what's stored, and a toast says why.
+ * @param {object} client
+ * @param {string[]} order - Every group ID, in their new order
+ */
+function moveWorkingIssuesGroups(client, order) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  savedSettings = { ...savedSettings, workingIssuesGroupOrderBySite: { ...savedSettings?.workingIssuesGroupOrderBySite, [site]: order } };
+  settingsStore.saveWorkingIssuesGroupOrder(site, order).catch(async (err) => {
+    console.warn('Could not save the order of the My Work groups:', err);
+    showToast(err.message || "Couldn't save the order of the groups.", { durationMs: 8000 });
+    try {
+      savedSettings = await settingsStore.load();
+    } catch {
+      // Keep what's shown.
+    }
+    showWorkingIssuesGroupOrder();
+  });
+}
+
+/** Puts the My Work groups on the page in the saved order, in place (nothing is drawn again). */
+function showWorkingIssuesGroupOrder() {
+  const section = daysContainer.querySelector('#workingIssues');
+  if (section) orderWorkingIssuesGroups(section, workingIssuesGroupOrder());
+}
+
+// The My Work groups moved in another tab or window: put them in the same order here.
+platform.watchStorage((changes) => {
+  if (!('workingIssuesGroupOrderBySite' in changes)) return;
+  settingsStore.load().then((settings) => {
+    savedSettings = settings;
+    showWorkingIssuesGroupOrder();
+  }, (err) => console.warn('Could not read the order of the My Work groups:', err));
+});
 
 /**
  * Shows a new My Work state, updating the section in place when it's on the page.
@@ -2575,7 +2627,7 @@ shortcuts.register({
   handler: () => refreshWorklogsBtn.click()
 });
 
-for (const shortcut of VIEW_TAB_SHORTCUTS) shortcuts.register(shortcut);
+for (const shortcut of [...VIEW_TAB_SHORTCUTS, ...GROUP_SHORTCUTS]) shortcuts.register(shortcut);
 for (const shortcut of WORKLOG_FORM_SHORTCUTS) {
   shortcuts.register({ ...shortcut, when: () => Boolean(worklogEditor) });
 }

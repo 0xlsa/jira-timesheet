@@ -1173,6 +1173,32 @@ body {
   text-decoration: underline;
 }
 
+/* Issue keys in My Work (My Issues and Pending Worklogs): a soft blue label, the same for every
+   issue, quieter than the summary beside it. Same shape, size, weight, and padding as elsewhere.
+   Light: blue-50 background, blue-200 border, blue-600 text (4.75:1); dark: a faint blue tint with
+   light blue text (8:1), below the summaries' near-white. Hover keeps the contrast: it underlines
+   and deepens the border (light) or the tint (dark). */
+.working-issues .issue-key-badge {
+  background-color: rgba(96, 165, 250, 0.1);
+  border-color: rgba(96, 165, 250, 0.3);
+  color: #93c5fd;
+}
+
+.working-issues .issue-key-badge:hover {
+  background-color: rgba(96, 165, 250, 0.18);
+}
+
+[data-theme="light"] .working-issues .issue-key-badge {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+[data-theme="light"] .working-issues .issue-key-badge:hover {
+  background-color: #eff6ff;
+  border-color: #93c5fd;
+}
+
 /* Issue key with the Jira issue status underneath. The fixed minimum width keeps
    summaries aligned across cards; only a longer issue key widens the column. */
 .worklog-issue {
@@ -1483,24 +1509,9 @@ body {
 }
 
 .working-issues-title {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-main);
-}
-
-.working-issues-subtitle {
-  font-size: 12px;
-  color: var(--text-subtle);
-}
-
-/* The pending worklogs, on their own line under the subtitle */
-.working-issues-pending-count {
-  font-size: 12px;
-  color: var(--text-subtle);
-}
-
-.working-issues.is-error .working-issues-subtitle {
-  color: var(--danger);
 }
 
 .working-issues-indicator {
@@ -1585,13 +1596,13 @@ body {
   border-top: 1px solid var(--border-subtle);
 }
 
-/* Columns: issue key | summary | status | log work button */
+/* Columns: issue key | summary | status | log work button. Compact: the buttons set the height. */
 .working-issue {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 132px auto;
   align-items: center;
   column-gap: 12px;
-  padding: 8px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -1620,16 +1631,37 @@ body {
   white-space: nowrap;
 }
 
-/* My Issues and Pending Worklogs groups, one below the other in the section's body. Each header
-   expands and collapses its own group; a click anywhere on it toggles. */
+/* My Issues and Pending Worklogs groups, one below the other in the section's body, each in its
+   own container: a bordered card like the worklog cards in the day's panel (border, radius,
+   background, 14px sides), holding its header and, when expanded, its contents. Collapsed, the
+   container keeps its border around the header alone. */
+.working-issues-group {
+  position: relative;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+/* Each header expands and collapses its own group; a click anywhere on it toggles. */
 .working-issues-group-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   column-gap: 12px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 0 14px;
   cursor: pointer;
+}
+
+/* The contents, below a line across the container that sets them apart from the header. Their
+   first part's own top line would double it. */
+.working-issues-group-body {
+  padding: 0 14px 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.working-issues-group-body > :first-child {
+  border-top: 0;
 }
 
 .working-issues-group-heading {
@@ -1645,12 +1677,14 @@ body {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 8px 0;
+  /* A little taller than the rows below (about 45px with the separator), so the groups read as
+     sections above their entries */
+  padding: 11px 0;
   background: none;
   border: 0;
   color: var(--text-main);
   font: inherit;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -1663,8 +1697,8 @@ body {
 
 .working-issues-group-chevron {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--text-subtle);
   transition: transform var(--transition);
 }
@@ -1673,9 +1707,93 @@ body {
   transform: rotate(-90deg);
 }
 
-/* Space between a group's contents and the next group's header */
+/* Each group's icon, before its title: decorative, in a subtle accent (blue for My Issues, green
+   for Pending Worklogs); the handle and chevron stay neutral. */
+.working-issues-group-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.working-issues-group-icon.is-active {
+  color: var(--primary);
+}
+
+.working-issues-group-icon.is-pending {
+  color: var(--success);
+}
+
+/* Space between the two containers, and above the first (room for the drop line, and apart from
+   the timed issue under the My Work title) */
 .working-issues-group + .working-issues-group {
-  margin-top: 4px;
+  margin-top: 10px;
+}
+
+.working-issues-body > .working-issues-group:first-child {
+  margin-top: 6px;
+}
+
+/* Moving a group: the six-dot handle at the start of its header is the only place a drag starts
+   (with touch too: it never scrolls the page). While a group is dragged, it fades, and a line in the
+   space between the containers (drawn over it, so nothing moves) shows where it would go. */
+.working-issues-group-handle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 24px;
+  /* The header's column gap is for its controls; the handle sits closer to the title. */
+  margin: 0 -6px 0 -4px;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: color var(--transition), background-color var(--transition);
+}
+
+.working-issues-group-handle:hover {
+  color: var(--text-subtle);
+  background: var(--bg-hover);
+}
+
+.working-issues-group-grip {
+  width: 9px;
+  height: 15px;
+}
+
+.working-issues-body.is-reordering-groups,
+.working-issues-body.is-reordering-groups .working-issues-group-header,
+.working-issues-body.is-reordering-groups .working-issues-group-handle {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.working-issues-group.is-dragging {
+  opacity: 0.45;
+}
+
+.working-issues-group.is-drop-before::before,
+.working-issues-group.is-drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--primary);
+  pointer-events: none;
+}
+
+.working-issues-group.is-drop-before::before {
+  top: -7px;
+}
+
+.working-issues-group.is-drop-after::after {
+  bottom: -7px;
 }
 
 /* Show Recently Logged Issues, Active's own, below the view tabs: its label, then the Settings
@@ -1733,7 +1851,7 @@ body {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: 12px;
-  padding: 8px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 
