@@ -19,11 +19,13 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-04
+
 ### Added
 
 - What's New, in the header, shows what the latest version brings, with a NEW badge until you've seen it. After an update, a short announcement lists the new version's highlights. <!-- highlight -->
 - The bottom of Settings shows the extension's name and version.
-- Custom views in My Work: create your own Jira issue views to organize and find the issues that matter to you.
+- Custom views in My Work: create your own Jira issue views to organize and find the issues that matter to you. <!-- highlight -->
   - Create up to five custom views, displayed as tabs beside Active in My Issues.
   - Reorder tabs by dragging.
   - Define multiple conditions using status, priority, assignee, reporter, or custom fields from your Jira site.

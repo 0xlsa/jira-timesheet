@@ -283,20 +283,20 @@ The checks differ for development and release:
 | Highlights in the latest release | Not checked | 1 to 3 |
 | Packaged release notes | — | Must be the release output (`channel` is `release`, and there's no `unreleased`) |
 
-Between releases, the manifest and `package.json` keep the last version number (currently 1.1.2) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
+Between releases, the manifest and `package.json` keep the last version number (currently 1.2.0) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
 
-To release a version (1.2.0 next):
+To release a version (1.3.0 next):
 
-1. Move the `[Unreleased]` changes into a new `## [1.2.0] - YYYY-MM-DD` section, with the actual release date, and leave an empty `## [Unreleased]` above it.
+1. Move the `[Unreleased]` changes into a new `## [1.3.0] - YYYY-MM-DD` section, with the actual release date, and leave an empty `## [Unreleased]` above it.
 2. Mark 1 to 3 of its changes with `<!-- highlight -->`.
 3. Set the same version in `manifest.json` and `package.json`.
 4. Run `npm test`, then `task package:chrome` and `task package:firefox`. Both stop if anything above doesn't hold.
-5. Commit, then tag the release commit with an annotated tag and push it: `git tag -a v1.2.0 -m "Timesheet for Jira 1.2.0"` and `git push origin v1.2.0`.
+5. Commit, then tag the release commit with an annotated tag and push it: `git tag -a v1.3.0 -m "Timesheet for Jira 1.3.0"` and `git push origin v1.3.0`.
 
 ```bash
 npm run changelog                                   # check CHANGELOG.md and write the development output into src/
 node scripts/changelog.mjs                          # only check CHANGELOG.md
-node scripts/changelog.mjs --check-release 1.2.0    # check it's ready to release 1.2.0
+node scripts/changelog.mjs --check-release 1.3.0    # check it's ready to release 1.3.0
 ```
 
 ### Packaging for the browser stores
