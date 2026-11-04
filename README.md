@@ -301,7 +301,7 @@ node scripts/changelog.mjs --check-release 1.3.0    # check it's ready to releas
 
 ### Packaging for the browser stores
 
-Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, `unzip`, and Node.js (to generate the release notes). To use another Node.js command than `node`, such as a wrapper script that runs it in a container, set `NODE` to its path. From the repository root:
+Packaging uses [Task](https://taskfile.dev/) and needs `jq`, `zip`, `unzip`, and Node.js or Docker (to generate the release notes). `scripts/node.sh` runs Node.js: `NODE` when it's set (another Node.js command, one executable path), then `node` when it's installed, and otherwise the `node:22-alpine` image in Docker, with no network, as the current user, and at most half the machine's memory. Without Node.js, Docker needs no setup. From the repository root:
 
 ```bash
 task package:chrome    # release/timesheet-for-jira-chrome.zip, for the Chrome Web Store

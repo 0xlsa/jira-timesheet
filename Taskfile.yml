@@ -14,8 +14,9 @@
 # the manifest's version: nothing left under [Unreleased], and its latest release is that version,
 # with 1 to 3 highlights.
 #
-# Requires Task 3, jq, zip, unzip, and Node.js. Set NODE to run another Node.js command than
-# `node` (one executable path, which gets the script's arguments).
+# Requires Task 3, jq, zip, unzip, and Node.js or Docker. scripts/node.sh runs Node.js: NODE, when set
+# (another Node.js command, one executable path, which gets the script's arguments), then `node`,
+# then the node:22-alpine image in Docker.
 
 version: '3'
 
@@ -43,8 +44,7 @@ tasks:
         for tool in jq zip unzip; do
           command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
         done
-        node_cmd="${NODE:-node}"
-        command -v "$node_cmd" >/dev/null || { echo "Missing required tool: $node_cmd (Node.js; set NODE to use another command)" >&2; exit 1; }
+        sh scripts/node.sh --which >/dev/null
 
   # ---------------------------------------------------------------------------
   # Chrome
@@ -83,7 +83,9 @@ tasks:
     desc: Build, verify, and zip the Chrome extension for the Chrome Web Store
     silent: true
     cmds:
-      # Removed first, so a failed build never leaves an older package behind.
+      # The tools are checked before the old package is removed, so a missing tool keeps it.
+      - task: check:tools
+      # Removed before building, so a failed build never leaves an older package behind.
       - rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-chrome.zip'
       - task: build:chrome
         vars: { CHANGELOG_MODE: release }
@@ -178,7 +180,9 @@ tasks:
     desc: Build, verify, and zip the Firefox extension for addons.mozilla.org
     silent: true
     cmds:
-      # Removed first, so a failed build never leaves an older package behind.
+      # The tools are checked before the old package is removed, so a missing tool keeps it.
+      - task: check:tools
+      # Removed before building, so a failed build never leaves an older package behind.
       - rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-firefox.zip'
       - task: build:firefox
         vars: { CHANGELOG_MODE: release }
@@ -219,7 +223,7 @@ tasks:
         # The release notes, generated from CHANGELOG.md: the development output (with [Unreleased]),
         # or the release output for packaging. Either replaces a development copy copied from src/.
         # Only an invalid CHANGELOG.md fails the build; whether it's ready to release is checked by verify.
-        "${NODE:-node}" scripts/changelog.mjs --mode '{{.CHANGELOG_MODE}}' --out '{{.DIR}}/src/changelog/changelog.json'
+        sh scripts/node.sh scripts/changelog.mjs --mode '{{.CHANGELOG_MODE}}' --out '{{.DIR}}/src/changelog/changelog.json'
       - jq '{{.MANIFEST_FILTER}}' manifest.json > '{{.DIR}}/manifest.json'
       - echo "Built {{.LABEL}} extension in {{.DIR}}/ with the {{.CHANGELOG_MODE}} changelog"
 
@@ -260,7 +264,7 @@ tasks:
       - |
         # CHANGELOG.md is ready to release the manifest's version: nothing under [Unreleased], and its
         # latest release is that version, with 1 to 3 highlights.
-        "${NODE:-node}" scripts/changelog.mjs --check-release "$(jq -r '.version' manifest.json)"
+        sh scripts/node.sh scripts/changelog.mjs --check-release "$(jq -r '.version' manifest.json)"
       - |
         # The release notes are in the build, are the release output (never the development one, which
         # can hold unreleased changes), and their latest release is the version being packaged.

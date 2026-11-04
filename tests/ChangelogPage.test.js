@@ -129,7 +129,7 @@ describe('Changelog build and packaging', () => {
   it('generates the release notes into every build, from CHANGELOG.md, in the output the build asks for', () => {
     const build = taskBody('build:browser');
     assert.match(build, /vars: \[BROWSER, LABEL, MANIFEST_FILTER, CHANGELOG_MODE\]/);
-    assert.match(build, /"\$\{NODE:-node\}" scripts\/changelog\.mjs --mode '\{\{\.CHANGELOG_MODE\}\}' --out '\{\{\.DIR\}\}\/src\/changelog\/changelog\.json'/);
+    assert.match(build, /sh scripts\/node\.sh scripts\/changelog\.mjs --mode '\{\{\.CHANGELOG_MODE\}\}' --out '\{\{\.DIR\}\}\/src\/changelog\/changelog\.json'/);
     assert.doesNotMatch(build, /--check-release/, 'development builds work before a release is ready');
   });
 
@@ -145,15 +145,21 @@ describe('Changelog build and packaging', () => {
     assert.match(verify, /\[ -f "\$json" \] \|\| fail "missing from the build/);
     assert.match(verify, /jq -e '\.channel == "release" and \(has\("unreleased"\) \| not\)' "\$json"/);
     assert.match(verify, /\[ "\$latest" = "\$version" \] \|\| fail/);
-    assert.match(verify, /"\$\{NODE:-node\}" scripts\/changelog\.mjs --check-release "\$\(jq -r '\.version' manifest\.json\)"/);
+    assert.match(verify, /sh scripts\/node\.sh scripts\/changelog\.mjs --check-release "\$\(jq -r '\.version' manifest\.json\)"/);
     for (const browser of ['chrome', 'firefox']) {
       const pkg = taskBody(`package:${browser}`);
       assert.match(pkg.slice(0, pkg.indexOf('zip:browser')), new RegExp(`task: verify:${browser}`));
     }
   });
 
-  it('checks for Node.js, which a different command can stand in for', () => {
-    assert.match(taskfile, /node_cmd="\$\{NODE:-node\}"\n\s*command -v "\$node_cmd"/);
+  it('runs Node.js only through scripts/node.sh, and checks for it before removing the old package', () => {
+    assert.doesNotMatch(taskfile, /NODE:-node|^\s*node /m);
+    assert.match(taskBody('check:tools'), /sh scripts\/node\.sh --which >\/dev\/null/);
+    for (const browser of ['chrome', 'firefox']) {
+      const pkg = taskBody(`package:${browser}`);
+      const check = pkg.indexOf('task: check:tools');
+      assert.ok(check >= 0 && check < pkg.indexOf(`rm -f '{{.RELEASE_DIR}}/timesheet-for-jira-${browser}.zip'`), browser);
+    }
   });
 
   it('writes the development output for an unpacked copy, kept out of Git, and keeps the generator out of the package', () => {
