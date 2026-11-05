@@ -21,7 +21,7 @@ const LONG_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
 // The add button's accessible label ("26 October").
 const DAY_LABEL_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long' });
 
-// What My Issues says while Active's issues load, and when Jira's answer has no message of its own.
+// What Issues says while Active's issues load, and when Jira's answer has no message of its own.
 const WORKING_ISSUES_LOADING = 'Retrieving issues from Jira…';
 const WORKING_ISSUES_ERROR = "Couldn't retrieve issues from Jira";
 
@@ -392,7 +392,7 @@ function uniqueIssues(issues) {
 
 /**
  * Renders the My Work section: a header button that expands and collapses it (its title on one
- * line, with a spinner while Active's issues load), and below it the My Issues group (with its
+ * line, with a spinner while Active's issues load), and below it the Issues group (with its
  * views) and the Pending Worklogs group, whose headers count what they list. The first call builds the header; later calls on the same section update it in place, so
  * the header button keeps focus when the issues arrive.
  *
@@ -432,7 +432,7 @@ function uniqueIssues(issues) {
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle] - Called
  *   after a group's header expands or collapses that group (never the other)
  * @param {string[]} [options.groupOrder] - The groups' order, by ID ('active', 'pending'); groups it
- *   doesn't name follow in their default order (My Issues, then Pending Worklogs)
+ *   doesn't name follow in their default order (Issues, then Pending Worklogs)
  * @param {(order: string[]) => void} [options.onGroupMove] - With it, and both groups shown, each
  *   group can be moved: dragged by the handle at the start of its header, or with Alt+Shift+Up /
  *   Down Arrow on its header button. The groups move in place (nothing is drawn again), then this is
@@ -441,7 +441,7 @@ function uniqueIssues(issues) {
  *   below the view tabs while Active is selected (so only with the groups); no switch without it
  * @param {boolean} options.recentlyLogged.checked - Whether it's on
  * @param {(checked: boolean) => void} options.recentlyLogged.onChange - Called when the user flips it
- * @param {object} [options.views] - Custom views (src/jira/customViews.js): tabs at the top of My Issues,
+ * @param {object} [options.views] - Custom views (src/jira/customViews.js): tabs at the top of Issues,
  *   Active (the built-in view) first, then the custom views, with the selected custom view's edit
  *   button and + for a new view; no tabs without it. The one list below shows the selected view:
  *   Active's issues (with the running timer's issue when Jira doesn't list it), or a custom view's
@@ -505,7 +505,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
     announcer.textContent = viewAnnouncement;
   }
 
-  // One row per issue (the My Issues header counts the rows).
+  // One row per issue (the Issues header counts the rows).
   const issues = state.status === 'ready' ? uniqueIssues(state.issues || []) : [];
   section.className = `working-issues is-${state.status}`;
 
@@ -689,7 +689,7 @@ function renderViewTabs(views, selectedView, activeCount) {
   });
   const customButtons = buttons.slice(1);
 
-  const tablist = h('div', { class: 'working-issues-view-tabs', role: 'tablist', 'aria-label': 'Views of My Issues' }, buttons);
+  const tablist = h('div', { class: 'working-issues-view-tabs', role: 'tablist', 'aria-label': 'Views of Issues' }, buttons);
   const select = (id) => {
     if (id !== selectedId) views.onSelect(id);
   };
@@ -888,9 +888,9 @@ function renderViewResults(view, views, { baseUrl, onLogWork, timer }) {
     content);
 }
 
-// Each group's icon, before its title (decorative): list-checks for My Issues, clock for Pending Worklogs.
+// Each group's icon, before its title (decorative): list-checks for Issues, clock for Pending Worklogs.
 const GROUPS = [
-  { id: 'active', label: 'My Issues', icon: () => [
+  { id: 'active', label: 'Issues', icon: () => [
     svg('path', { d: 'm3 17 2 2 4-4' }), svg('path', { d: 'm3 7 2 2 4-4' }),
     svg('path', { d: 'M13 6h8' }), svg('path', { d: 'M13 12h8' }), svg('path', { d: 'M13 18h8' })] },
   { id: 'pending', label: 'Pending Worklogs', icon: () => [
@@ -956,12 +956,12 @@ const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox:
   ...[3, 8, 13].flatMap((cy) => [svg('circle', { cx: '3', cy: String(cy), r: '1.5' }), svg('circle', { cx: '7', cy: String(cy), r: '1.5' })]));
 
 /**
- * Builds the My Issues and Pending Worklogs groups, one below the other (Pending Worklogs with the
+ * Builds the Issues and Pending Worklogs groups, one below the other (Pending Worklogs with the
  * pending worklogs), in `groupOrder`. Each has a header button that expands and collapses that group
  * only; both can be open, or closed, at once. The headers, with their counts, show either way.
  * Expanding or collapsing never changes the timer or a pending worklog.
  *
- * Each header counts what its group lists: "My Issues (5)" the selected view's issues (Active's
+ * Each header counts what its group lists: "Issues (5)" the selected view's issues (Active's
  * rows include the running timer's issue when Jira doesn't list it; a custom view's "20+" when more
  * match); "Pending Worklogs (2)" the pending worklogs, one per stopped session, so two sessions on
  * one issue count twice.
@@ -973,8 +973,8 @@ const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox:
  * order in place, says so through `announcer`, and reports the order through `onGroupMove`.
  *
  * @param {object | undefined} pending - renderWorkingIssues()'s `pending` options
- * @param {string | null} activeCount - What the My Issues list shows; none while a custom view is searched
- * @param {DocumentFragment} activeContent - The My Issues group's contents
+ * @param {string | null} activeCount - What the Issues list shows; none while a custom view is searched
+ * @param {DocumentFragment} activeContent - The Issues group's contents
  * @param {object} options
  * @param {{ active?: boolean, pending?: boolean }} options.groupsExpanded - Each group is expanded unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle]

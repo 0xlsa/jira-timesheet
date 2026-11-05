@@ -26,7 +26,7 @@ describe('Custom views page wiring', () => {
     assert.match(functionSource('customViewsOptions'), /const selectedId = views\.some\(\(view\) => view\.id === selectedViewId\) \? selectedViewId : ALL_VIEW_ID;/);
   });
 
-  it('has no Views group: My Issues and Pending Worklogs only', () => {
+  it('has no Views group: Issues and Pending Worklogs only', () => {
     assert.doesNotMatch(js, /jts-working-issues-views-expanded|workingIssuesGroupsExpanded\.views/);
     assert.match(js, /const workingIssuesGroupsExpanded = \{\s*active: [^\n]*\n\s*pending: [^\n]*\n\};/);
   });
@@ -44,7 +44,7 @@ describe('Custom views page wiring', () => {
     assert.match(search, /if \(!isViewAvailable\(view, context\)\) return null;/);
   });
 
-  it('searches a custom view only once it shows: My Work and My Issues expanded, the view selected', () => {
+  it('searches a custom view only once it shows: My Work and Issues expanded, the view selected', () => {
     const options = functionSource('customViewsOptions');
     assert.match(options, /if \(selectedSearch && isWorkingIssuesExpanded && workingIssuesGroupsExpanded\.active\) \{\s*viewSearch\.load\(selectedSearch\.key, selectedSearch\.run, \{ from: viewSearchKeys\.get\(selectedId\) \}\);\s*\}/);
     // Active has no search of its own here: searches holds custom views only.

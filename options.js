@@ -230,7 +230,7 @@ let currentBaseUrl = '';
 // left it. The loader (src/worklog/workingIssuesLoader.js) is created with the section's renderer below.
 let workingIssuesState = null;
 let isWorkingIssuesExpanded = localStorage.getItem('jts-working-issues-expanded') === 'true';
-// Its My Issues and Pending Worklogs groups, each expanded until the user collapses it, then as
+// Its Issues and Pending Worklogs groups, each expanded until the user collapses it, then as
 // they last left it, independently of each other.
 const workingIssuesGroupsExpanded = {
   active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
@@ -358,7 +358,7 @@ const assignmentFieldsSettings = createAssignmentFieldsSettings({
 let recentlyLoggedFlips = 0;
 
 /**
- * Show Recently Logged Issues (the switch below Active's tab, in My Issues): saved as it changes, then
+ * Show Recently Logged Issues (the switch below Active's tab, in Issues): saved as it changes, then
  * Active loads again with or without the issues only logged recently, keeping the issues shown
  * until the new ones are in. Flipped again before that, only the last flip loads (and the loader
  * cancels a load a newer one replaces).
@@ -638,7 +638,7 @@ function workingIssuesOptions() {
 }
 
 /**
- * The connected Jira site's My Work group order (My Issues, then Pending Worklogs, unless moved).
+ * The connected Jira site's My Work group order (Issues, then Pending Worklogs, unless moved).
  * @returns {string[]}
  */
 function workingIssuesGroupOrder() {
@@ -745,7 +745,7 @@ function timerOptions() {
 
 /**
  * The timer's issue for a Jira issue on the connected site: the same site ID and identifiers
- * wherever a timer starts (a My Issues row or the Log work panel).
+ * wherever a timer starts (an Issues row or the Log work panel).
  * @param {{ issueId?: string, issueKey: string, issueSummary?: string }} issue
  */
 function timedIssue(issue) {
@@ -758,7 +758,7 @@ function timedIssue(issue) {
 }
 
 /**
- * Pending worklog options for My Work (which then shows its My Issues and Pending Worklogs groups),
+ * Pending worklog options for My Work (which then shows its Issues and Pending Worklogs groups),
  * or undefined while the timer's state isn't known.
  * @returns {object | undefined}
  */
@@ -824,7 +824,7 @@ async function submitPending(id) {
 
 /**
  * The Log work panel's timer button (beside the issue's key): its state for an issue, and Start and
- * Stop through the timer, as a My Issues row's buttons. Neither logs work in Jira.
+ * Stop through the timer, as an Issues row's buttons. Neither logs work in Jira.
  * @returns {object}
  */
 function logWorkTimerOptions() {
@@ -981,13 +981,13 @@ function refreshActiveIssues({ keepShown = false } = {}) {
 // Custom Views of My Work
 // ============================================================================
 
-// Custom views (src/jira/customViews.js) are tabs beside Active in My Issues, and Jira searches of
+// Custom views (src/jira/customViews.js) are tabs beside Active in Issues, and Jira searches of
 // their own: each runs its JQL (buildCustomViewJql()) through JiraClient.searchCustomViewIssues(),
 // apart from Active's search (workingIssues, above), which they never change. Their results are kept
 // for this page only (src/jira/customViewSearch.js) and searched when a view shows: My Work and My
 // Issues expanded, with the view selected. Sync searches again, as does Retry after a failure.
 
-// The view shown in My Issues: Active, or a custom view's ID, remembered across sessions. One that
+// The view shown in Issues: Active, or a custom view's ID, remembered across sessions. One that
 // no longer exists shows Active.
 let selectedViewId = localStorage.getItem('jts-working-issues-view') || ALL_VIEW_ID;
 // The site's custom fields views can use (GET /field): its single-select fields and its single-user

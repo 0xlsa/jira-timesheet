@@ -1,5 +1,5 @@
 /**
- * Loads My Issues' Active view and reports each state it goes through. A newer
+ * Loads Issues' Active view and reports each state it goes through. A newer
  * load cancels an older one, so a slow answer never replaces a newer one (after a Sync or a change
  * of settings). The list doesn't depend on the week displayed: loading what's already shown (same
  * Jira site, Additional Assignment Fields, and Show Recently Logged Issues), or already loading,

@@ -48,7 +48,7 @@ describe('Show Recently Logged Issues - setting', () => {
   });
 });
 
-describe('Show Recently Logged Issues - Active\'s switch in My Issues', () => {
+describe('Show Recently Logged Issues - Active\'s switch in Issues', () => {
   let restoreDocument;
   beforeEach(() => { restoreDocument = installFakeDocument(); });
   afterEach(() => restoreDocument());
@@ -85,7 +85,7 @@ describe('Show Recently Logged Issues - Active\'s switch in My Issues', () => {
     selectedId, canCreate: true, onSelect() {}, onCreate() {}, onEdit() {}, onRefresh() {}
   });
 
-  it('is out of the My Issues header: on its own line above the issues, outside every button', () => {
+  it('is out of the Issues header: on its own line above the issues, outside every button', () => {
     const { section, input } = render();
     assert.deepEqual(headerOf(section, 'active').children.map((child) => child.className), ['working-issues-group-heading']);
     const body = section.querySelector('#workingIssuesGroup-active');
@@ -111,14 +111,14 @@ describe('Show Recently Logged Issues - Active\'s switch in My Issues', () => {
     assert.equal(render({ views: viewsWith('all'), checked: true }).input.checked, true);
   });
 
-  it('is in My Issues only, never Pending Worklogs', () => {
+  it('is in Issues only, never Pending Worklogs', () => {
     const { section } = render();
     assert.deepEqual(headerOf(section, 'pending').children.map((child) => child.className), ['working-issues-group-heading']);
     assert.equal(section.querySelector('.working-issues-group.is-pending').querySelector('.working-issues-recent'), null);
     assert.equal(section.querySelectorAll('.working-issues-recent').length, 1);
   });
 
-  it('is hidden with the issues while My Issues is collapsed', () => {
+  it('is hidden with the issues while Issues is collapsed', () => {
     const { section, input } = render({ groupsExpanded: { active: false, pending: false } });
     assert.ok(section.querySelector('.working-issues-group.is-active').classList.contains('is-collapsed'));
     assert.ok(input.closest('.working-issues-group-body').classList.contains('hidden'));
@@ -153,7 +153,7 @@ describe('Show Recently Logged Issues - Active\'s switch in My Issues', () => {
     assert.deepEqual(view.groups, []);
   });
 
-  it('doesn\'t toggle the My Issues group when its label is clicked', () => {
+  it('doesn\'t toggle the Issues group when its label is clicked', () => {
     const view = render();
     view.section.querySelector('.working-issues-recent').querySelector('span').click();
     view.input.click();

@@ -1,5 +1,5 @@
 /**
- * Custom views of My Issues: up to five (MAX_CUSTOM_VIEWS) named views per Jira site, as tabs beside Active (the
+ * Custom views of Issues: up to five (MAX_CUSTOM_VIEWS) named views per Jira site, as tabs beside Active (the
  * built-in view: My Work's existing search), each with one or more conditions (a field, an operator,
  * and values), all of which an issue must meet (AND). A view is its own Jira search:
  * buildCustomViewJql() turns its conditions into JQL, and the

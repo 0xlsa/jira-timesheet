@@ -31,10 +31,10 @@
  *   first): { [site]: [viewId, …] } (src/jira/customViews.js orderViews()). Saved on its own, by
  *   saveCustomViewOrder(), apart from the views, so reordering never rewrites a view. Views it
  *   doesn't name follow, as saved; IDs of views that are gone are skipped. Missing: as saved.
- * - workingIssuesGroupOrderBySite: the order of each Jira site's My Work groups (My Issues and
+ * - workingIssuesGroupOrderBySite: the order of each Jira site's My Work groups (Issues and
  *   Pending Worklogs): { [site]: [groupId, …] } (WORKING_ISSUES_GROUP_IDS). Saved on its own, by
  *   saveWorkingIssuesGroupOrder(). Groups it doesn't name follow in their default order. Missing:
- *   the default order (My Issues, then Pending Worklogs).
+ *   the default order (Issues, then Pending Worklogs).
  */
 
 import { normalizeCountryCode } from '../holidays/nagerDateClient.js';
@@ -63,7 +63,7 @@ const STORAGE_KEYS = [
   'workingIssuesGroupOrderBySite'
 ];
 
-// My Work's groups, in their default order: My Issues ('active'), then Pending Worklogs.
+// My Work's groups, in their default order: Issues ('active'), then Pending Worklogs.
 export const WORKING_ISSUES_GROUP_IDS = Object.freeze(['active', 'pending']);
 
 /**

@@ -23,7 +23,7 @@ export async function loadWeek(client, { monday, sunday, now = new Date() }) {
 }
 
 /**
- * Fetches the issues for My Issues' Active view: those assigned to the current user that are in
+ * Fetches the issues for Issues' Active view: those assigned to the current user that are in
  * progress, and, with Show Recently Logged Issues on, those the user logged work on in the last
  * 14 days (recentlyLoggedWindow(), ending now). Doesn't depend on the week displayed, and is
  * independent of loadWeek(): one failing doesn't affect the other.

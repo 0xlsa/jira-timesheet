@@ -66,12 +66,12 @@ function render(opts) {
   return { section, calls, options };
 }
 
-// A group's header button ("My Issues (1)"), and the group's contents below it.
+// A group's header button ("Issues (1)"), and the group's contents below it.
 const header = (section, id) => section.querySelector(`#workingIssuesGroupToggle-${id}`);
 const group = (section, id) => section.querySelector(`#workingIssuesGroup-${id}`);
 const isOpen = (section, id) => header(section, id).getAttribute('aria-expanded') === 'true' && !group(section, id).classList.contains('hidden');
 
-describe('My Work - My Issues and Pending Worklogs groups', () => {
+describe('My Work - Issues and Pending Worklogs groups', () => {
   let restoreDocument;
   before(() => { restoreDocument = installFakeDocument(); });
   after(() => restoreDocument());
@@ -84,7 +84,7 @@ describe('My Work - My Issues and Pending Worklogs groups', () => {
     assert.equal(section.querySelector('[role="tablist"]'), null);
     assert.equal(section.querySelector('[role="tab"]'), null);
     assert.equal(section.querySelector('[role="tabpanel"]'), null);
-    assert.equal(header(section, 'active').textContent, 'My Issues (1)');
+    assert.equal(header(section, 'active').textContent, 'Issues (1)');
     assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
     assert.ok(isOpen(section, 'active') && isOpen(section, 'pending'), 'both show their contents at once');
     assert.ok(group(section, 'active').querySelector('.working-issues-list'));
@@ -114,7 +114,7 @@ describe('My Work - My Issues and Pending Worklogs groups', () => {
       assert.ok(section.querySelector('.working-issues-group.is-active').classList.contains('is-collapsed') === !active);
       assert.ok(section.querySelector('.working-issues-group.is-pending').classList.contains('is-collapsed') === !pending);
       // Collapsed or not, the headers and counts show.
-      assert.equal(header(section, 'active').textContent, 'My Issues (1)');
+      assert.equal(header(section, 'active').textContent, 'Issues (1)');
       assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
     }
   });
@@ -213,22 +213,22 @@ describe('My Work - My Issues and Pending Worklogs groups', () => {
     assert.equal(group(section, 'pending').querySelectorAll('.pending-worklog').length, 2);
   });
 
-  it('counts the My Issues rows, including the running issue Jira doesn\'t list, starting at 0', () => {
+  it('counts the Issues rows, including the running issue Jira doesn\'t list, starting at 0', () => {
     const elsewhere = { ...RUNNING, issueId: '10099', issueKey: 'KAN-99' };
-    assert.equal(header(render({ running: elsewhere }).section, 'active').textContent, 'My Issues (2)');
-    assert.equal(header(render({ running: RUNNING }).section, 'active').textContent, 'My Issues (1)');
+    assert.equal(header(render({ running: elsewhere }).section, 'active').textContent, 'Issues (2)');
+    assert.equal(header(render({ running: RUNNING }).section, 'active').textContent, 'Issues (1)');
 
     // Both groups start at (0): while Jira's issues load, after a failure, and with nothing pending.
     const { options } = sectionOptions({ entries: [] });
     const section = h('section');
     for (const state of [{ status: 'loading' }, { status: 'error', message: 'Server error' }, { status: 'ready', issues: [] }]) {
       renderWorkingIssues(section, { ...options, state });
-      assert.equal(header(section, 'active').textContent, 'My Issues (0)', state.status);
+      assert.equal(header(section, 'active').textContent, 'Issues (0)', state.status);
       assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (0)', state.status);
     }
     // The running issue is listed (and counted) while Jira's issues load.
     renderWorkingIssues(section, { ...options, state: { status: 'loading' }, timer: { ...options.timer, running: elsewhere } });
-    assert.equal(header(section, 'active').textContent, 'My Issues (1)');
+    assert.equal(header(section, 'active').textContent, 'Issues (1)');
   });
 
   it('styles the group headers compactly, with a focus ring, and no tab styles left', () => {
@@ -282,7 +282,7 @@ describe('My Work - My Issues and Pending Worklogs groups', () => {
     assert.equal(document.activeElement, header(section, 'pending'));
   });
 
-  it('shows a note in the My Issues group while loading, after an error, or when there are no issues', () => {
+  it('shows a note in the Issues group while loading, after an error, or when there are no issues', () => {
     const { options } = sectionOptions();
     const section = h('section');
     renderWorkingIssues(section, { ...options, state: { status: 'loading' } });
@@ -483,12 +483,12 @@ describe('My Work - counts follow the stored state', () => {
   it('updates on stop, switch, and discard, and lists then drops a running issue Jira doesn\'t list', async () => {
     const page = await createTimerPage();
     const section = renderFrom(page);
-    assert.deepEqual(counts(section), { active: 'My Issues (1)', pending: 'Pending Worklogs (0)', timer: null });
+    assert.deepEqual(counts(section), { active: 'Issues (1)', pending: 'Pending Worklogs (0)', timer: null });
 
     // KAN-10 isn't in Jira's list (started from the Log work panel): it's listed while it runs.
     await page.controller.start({ site: SITE, issueId: '10010', issueKey: 'KAN-10', issueSummary: 'Onboarding guide' });
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'My Issues (2)', pending: 'Pending Worklogs (0)', timer: 'KAN-10' });
+    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Pending Worklogs (0)', timer: 'KAN-10' });
     assert.ok(section.querySelector('.is-timer-only').querySelector('.working-issue-timer-btn[data-timer-action="stop"]'));
 
     // Stop from its row: its session is pending, and the row and header timer go.
@@ -496,7 +496,7 @@ describe('My Work - counts follow the stored state', () => {
     section.querySelector('.is-timer-only').querySelector('.working-issue-timer-btn[data-timer-action="stop"]').click();
     await new Promise((resolve) => setImmediate(resolve));
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'My Issues (1)', pending: 'Pending Worklogs (1)', timer: null });
+    assert.deepEqual(counts(section), { active: 'Issues (1)', pending: 'Pending Worklogs (1)', timer: null });
     assert.deepEqual(page.controller.getState().tracking.pending.map((p) => [p.issueKey, p.timeSpentSeconds]), [['KAN-10', 90]]);
     assert.equal(section.querySelector('.is-timer-only'), null);
 
@@ -505,11 +505,11 @@ describe('My Work - counts follow the stored state', () => {
     page.advance(60_000);
     await page.controller.start({ site: SITE, issueId: '10013', issueKey: 'KAN-13' });
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'My Issues (2)', pending: 'Pending Worklogs (2)', timer: 'KAN-13' });
+    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Pending Worklogs (2)', timer: 'KAN-13' });
 
     await page.controller.discardPending(page.controller.getState().tracking.pending[0].id);
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'My Issues (2)', pending: 'Pending Worklogs (1)', timer: 'KAN-13' });
+    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Pending Worklogs (1)', timer: 'KAN-13' });
     assert.deepEqual(page.jiraCalls, []);
   });
 
@@ -1027,7 +1027,7 @@ describe('Log work panel - timer button', () => {
     assert.deepEqual(timer.calls, [], 'logging work never touches the timer');
   });
 
-  it('is styled as the My Issues timer buttons, and leaves the issue\'s layout alone', () => {
+  it('is styled as the Issues timer buttons, and leaves the issue\'s layout alone', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
     assert.match(css, /\.working-issue-timer-btn:focus-visible,/);
     assert.doesNotMatch(css, /\.editor-issue\.has-timer/);

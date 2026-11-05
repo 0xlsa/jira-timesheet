@@ -79,7 +79,7 @@ const group = (section, id) => section.querySelectorAll('.working-issues-group')
 const rowKeys = (el) => el.querySelectorAll('.working-issue').map((row) => row.querySelector('.issue-key-badge').textContent);
 const groupIds = (section) => section.querySelectorAll('.working-issues-group').map((el) => el.getAttribute('data-group'));
 
-describe('Custom views - tabs in My Issues', () => {
+describe('Custom views - tabs in Issues', () => {
   let restoreDocument;
   beforeEach(() => { restoreDocument = installFakeDocument(); });
   afterEach(() => restoreDocument());
@@ -91,14 +91,14 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render();
     assert.deepEqual(groupIds(section), ['active', 'pending']);
     assert.equal(tabs(section).length, 0);
-    assert.equal(header(section), 'My Issues (3)');
+    assert.equal(header(section), 'Issues (3)');
   });
 
-  it('keeps one My Issues group, with no Views group: Active and the custom views side by side in it', () => {
+  it('keeps one Issues group, with no Views group: Active and the custom views side by side in it', () => {
     const { views } = viewsOptions([REPORTED, QUEUE]);
     const section = render({ views });
     assert.deepEqual(groupIds(section), ['active', 'pending']);
-    assert.deepEqual(section.querySelectorAll('.working-issues-group-toggle').map((el) => el.textContent), ['My Issues (3)', 'Pending Worklogs (1)']);
+    assert.deepEqual(section.querySelectorAll('.working-issues-group-toggle').map((el) => el.textContent), ['Issues (3)', 'Pending Worklogs (1)']);
     assert.equal(section.querySelectorAll('[role="tablist"]').length, 1);
     assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported', 'Development Queue']);
     assert.equal(myIssues(section).querySelector('.working-issues-viewbar').querySelectorAll('[role="tab"]').length, 3);
@@ -126,7 +126,7 @@ describe('Custom views - tabs in My Issues', () => {
     assert.equal(section.querySelectorAll('.working-issues-list').length, 1);
     assert.equal(section.querySelector('.working-issues-view-query').textContent, 'Jira search: Reporter in Me · Updated, descending');
     assert.equal(section.querySelector('#recentlyLoggedSwitch'), null);
-    assert.equal(header(section), 'My Issues (2)');
+    assert.equal(header(section), 'Issues (2)');
     assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-reported');
   });
 
@@ -138,7 +138,7 @@ describe('Custom views - tabs in My Issues', () => {
     const { views: six } = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many(6)) } });
     const section = render({ views: six });
     assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported (6)']);
-    assert.equal(header(section), 'My Issues (6)');
+    assert.equal(header(section), 'Issues (6)');
   });
 
   it('says when more issues match than it lists, with Jira\'s count where it gives one', () => {
@@ -147,7 +147,7 @@ describe('Custom views - tabs in My Issues', () => {
     const section = render({ views: withTotal.views });
     assert.equal(section.querySelector('.working-issues-view-more').textContent, 'Showing the first 20 of 147 matching issues.');
     assert.equal(rowKeys(section).length, 20);
-    assert.equal(header(section), 'My Issues (20+)');
+    assert.equal(header(section), 'Issues (20+)');
     const cloudMore = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many, { total: null, hasMore: true }) } });
     assert.equal(render({ views: cloudMore.views }).querySelector('.working-issues-view-more').textContent, 'Showing the first 20 matching issues.');
     const exactly = viewsOptions([REPORTED], { selectedId: 'reported', results: { reported: ready(many, { total: 20 }) } });
@@ -167,7 +167,7 @@ describe('Custom views - tabs in My Issues', () => {
       assert.equal(panel.querySelector('.working-issues-empty').textContent, VIEW_SEARCHING);
       assert.equal(panel.getAttribute('aria-busy'), 'true');
       assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported']);
-      assert.equal(header(section), 'My Issues');
+      assert.equal(header(section), 'Issues');
     }
   });
 
@@ -254,7 +254,7 @@ describe('Custom views - tabs in My Issues', () => {
   it('is a WAI-ARIA tablist: one tab in the tab order, a labelled panel', () => {
     const { views } = viewsOptions([REPORTED, QUEUE], { selectedId: ALL_VIEW_ID });
     const section = render({ views });
-    assert.equal(section.querySelector('[role="tablist"]').getAttribute('aria-label'), 'Views of My Issues');
+    assert.equal(section.querySelector('[role="tablist"]').getAttribute('aria-label'), 'Views of Issues');
     assert.deepEqual(tabs(section).map((tab) => [tab.getAttribute('aria-selected'), tab.getAttribute('tabindex')]), [['true', '0'], ['false', '-1'], ['false', '-1']]);
     assert.equal(tabs(section)[1].getAttribute('title'), 'Reporter in Me · Updated, descending');
     assert.equal(section.querySelector('[role="tabpanel"]').getAttribute('aria-labelledby'), 'workingIssuesViewTab-all');

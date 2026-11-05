@@ -780,7 +780,7 @@ describe('WeekView - My Work section', () => {
       inProgress: false, loggedInRange: true
     }))
   ];
-  // The count is the My Issues header's ("My Issues (9)"): render with the groups (WITH_GROUPS).
+  // The count is the Issues header's ("Issues (9)"): render with the groups (WITH_GROUPS).
   const shown = (section) => ({
     count: /\((\d+)\)$/.exec(section.querySelector('#workingIssuesGroupToggle-active').textContent)[1],
     rows: section.querySelectorAll('.working-issue').length,
@@ -824,7 +824,7 @@ describe('WeekView - My Work section', () => {
     assert.equal(container.querySelector('.working-issues'), null);
   });
 
-  it('shows a spinner in the header, and a loading message in My Issues, while retrieving', () => {
+  it('shows a spinner in the header, and a loading message in Issues, while retrieving', () => {
     const section = renderSection({ status: 'loading' }, WITH_GROUPS);
     assert.ok(section.querySelector('.working-issues-toggle').querySelector('.working-issues-spinner'));
     assert.equal(section.querySelector('#workingIssuesGroup-active').querySelector('.working-issues-empty').textContent, 'Retrieving issues from Jira…');
@@ -903,11 +903,11 @@ describe('WeekView - My Work section', () => {
       { count: '7', rows: 7, keys: 7 });
   });
 
-  it('counts the issues in the My Issues header, and no tooltip', () => {
+  it('counts the issues in the Issues header, and no tooltip', () => {
     for (const [issues, expected] of [
-      [activeList({ inProgress: 3, loggedOnly: 2, both: 1 }), 'My Issues (5)'],
-      [[doneIssue], 'My Issues (1)'],
-      [[], 'My Issues (0)']
+      [activeList({ inProgress: 3, loggedOnly: 2, both: 1 }), 'Issues (5)'],
+      [[doneIssue], 'Issues (1)'],
+      [[], 'Issues (0)']
     ]) {
       const toggle = renderSection({ status: 'ready', issues }, WITH_GROUPS).querySelector('#workingIssuesGroupToggle-active');
       assert.equal(toggle.textContent, expected);
@@ -940,7 +940,7 @@ describe('WeekView - My Work section', () => {
     assert.equal(document.activeElement, section.querySelector('.working-issues-toggle'));
   });
 
-  it('has no count badge in the header, in any state; the My Issues header gives the count', () => {
+  it('has no count badge in the header, in any state; the Issues header gives the count', () => {
     for (const state of [{ status: 'loading' }, { status: 'ready', issues: readyIssues }, { status: 'error', message: 'x' }]) {
       const section = renderSection(state);
       assert.equal(section.querySelector('.working-issues-count'), null);

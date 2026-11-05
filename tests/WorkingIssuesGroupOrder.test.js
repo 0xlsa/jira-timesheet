@@ -86,7 +86,7 @@ describe('My Work - group order', () => {
   beforeEach(() => { restoreDocument = installFakeDocument(); });
   afterEach(() => restoreDocument());
 
-  it('keeps the default order, My Issues then Pending Worklogs, without a saved one', () => {
+  it('keeps the default order, Issues then Pending Worklogs, without a saved one', () => {
     assert.deepEqual(groupIds(render().section), ['active', 'pending']);
     assert.deepEqual(groupIds(render({ groupOrder: [] }).section), ['active', 'pending']);
     assert.deepEqual(groupIds(render({ groupOrder: ['unknown'] }).section), ['active', 'pending']);
@@ -119,7 +119,7 @@ describe('My Work - group order', () => {
     assert.equal(toggle(render({ movable: false }).section, 'active').getAttribute('aria-keyshortcuts'), null);
   });
 
-  it('drags My Issues below Pending Worklogs, moving the groups themselves', () => {
+  it('drags Issues below Pending Worklogs, moving the groups themselves', () => {
     const { section, calls } = render();
     const active = groupEl(section, 'active');
     const pending = groupEl(section, 'pending');
@@ -130,7 +130,7 @@ describe('My Work - group order', () => {
     assert.deepEqual(calls.groups, [], 'neither group expanded nor collapsed');
   });
 
-  it('drags Pending Worklogs above My Issues', () => {
+  it('drags Pending Worklogs above Issues', () => {
     const { section, calls } = render();
     layout(section).drag('pending', 20);
     assert.deepEqual(groupIds(section), ['pending', 'active']);
@@ -271,9 +271,9 @@ describe('My Work - group order', () => {
     const { section, options } = render();
     const announcer = section.querySelector('#workingIssuesAnnouncer');
     layout(section).drag('active', 180);
-    assert.equal(announcer.textContent, 'Moved My Issues to position 2 of 2.');
+    assert.equal(announcer.textContent, 'Moved Issues to position 2 of 2.');
     renderWorkingIssues(section, { ...options, groupOrder: ['pending', 'active'] });
-    assert.equal(announcer.textContent, 'Moved My Issues to position 2 of 2.');
+    assert.equal(announcer.textContent, 'Moved Issues to position 2 of 2.');
   });
 
   it('puts the groups already drawn in another order in place, for a change made in another tab', () => {
