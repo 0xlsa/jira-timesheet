@@ -30,6 +30,8 @@
 
   --duration-highlight: #38bdf8;
   --duration-today: #3fb950;
+  /* The Pending Worklogs header's total: a muted slate grey, the same in both themes */
+  --pending-total: #64748b;
 
   /* Feedback Colors */
   --success: #3fb950;
@@ -1723,6 +1725,23 @@ body {
 
 .working-issues-group-icon.is-pending {
   color: var(--success);
+}
+
+/* Pending Worklogs' total time, at the far right of its header and centered with it: the title's
+   size, in a muted slate grey (never an accent), so it stays secondary to the title. Tabular
+   numerals keep its width steady as it changes; with nothing pending, "0h 00m" is fainter. */
+.working-issues-group-total {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--pending-total);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.working-issues-group-total.is-empty {
+  opacity: 0.6;
 }
 
 /* Space between the two containers, and above the first (room for the drop line, and apart from

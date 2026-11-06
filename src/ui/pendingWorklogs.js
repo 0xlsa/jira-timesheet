@@ -25,6 +25,26 @@ export function formatPendingDuration(seconds) {
 }
 
 /**
+ * Every pending worklog's time, in seconds: each stored session counts, on any Jira site, so the
+ * total is the sum of the rows' durations.
+ * @param {Array<{ timeSpentSeconds?: number }>} entries - `timeTracking.pending`
+ * @returns {number}
+ */
+export function pendingTotalSeconds(entries) {
+  return (entries ?? []).reduce((total, entry) => total + Math.max(0, Number(entry?.timeSpentSeconds) || 0), 0);
+}
+
+/**
+ * The Pending Worklogs header's total, in the rows' format (formatPendingDuration()): "1h 05m",
+ * "45s" under a minute, and "0h 00m" when nothing is pending.
+ * @param {number} seconds - pendingTotalSeconds()
+ * @returns {string}
+ */
+export function formatPendingTotal(seconds) {
+  return seconds > 0 ? formatPendingDuration(seconds) : formatDuration(0, { padZeroMinutes: true, alwaysShowHours: true });
+}
+
+/**
  * The start time in the worklog cards' format (local "HH:MM").
  * @param {Date} date
  * @returns {string}

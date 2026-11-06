@@ -113,7 +113,8 @@ describe('Show Recently Logged Issues - Active\'s switch in Issues', () => {
 
   it('is in Issues only, never Pending Worklogs', () => {
     const { section } = render();
-    assert.deepEqual(headerOf(section, 'pending').children.map((child) => child.className), ['working-issues-group-heading']);
+    // Its title and count, then its total time: no switch.
+    assert.deepEqual(headerOf(section, 'pending').children.map((child) => child.className), ['working-issues-group-heading', 'working-issues-group-total is-empty']);
     assert.equal(section.querySelector('.working-issues-group.is-pending').querySelector('.working-issues-recent'), null);
     assert.equal(section.querySelectorAll('.working-issues-recent').length, 1);
   });

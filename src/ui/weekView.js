@@ -6,7 +6,7 @@
 import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
-import { renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
+import { formatPendingTotal, pendingTotalSeconds, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
@@ -1103,9 +1103,13 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
       }));
     // Pointer-only: keyboard users move the group from its header button.
     const handle = movable ? h('span', { class: 'working-issues-group-handle', title: GROUP_HANDLE_TITLE, 'aria-hidden': 'true' }, gripIcon()) : null;
+    // Pending Worklogs' total time, at the far right of its header (beside the button, so its name
+    // stays the title and count); a click on it toggles the group like the rest of the header.
+    const total = id === 'pending' && renderPendingTotal(pending.entries);
     const header = h('div', { class: 'working-issues-group-header' },
       handle,
       h('h4', { class: 'working-issues-group-heading' }, toggle),
+      total,
       movable && h('span', { id: `workingIssuesGroupMoveHint-${id}`, class: 'sr-only' }, GROUP_MOVE_HINT));
     const group = h('div', { class: `working-issues-group is-${id}`, 'data-group': id }, header, groupBody);
 
@@ -1141,6 +1145,20 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     }
     return group;
   }));
+}
+
+/**
+ * The Pending Worklogs header's total: every pending worklog's time, summed from the same entries
+ * the group lists, so it changes with them. "0h 00m", fainter, when nothing is pending.
+ * @param {Array<object>} entries - `timeTracking.pending`
+ * @returns {HTMLElement}
+ */
+function renderPendingTotal(entries) {
+  const text = formatPendingTotal(pendingTotalSeconds(entries));
+  return h('span', {
+    class: `working-issues-group-total${entries.length === 0 ? ' is-empty' : ''}`,
+    title: `Total pending time: ${text}`
+  }, text);
 }
 
 // Said beside the switch while Active's issues load again, the ones shown staying meanwhile.

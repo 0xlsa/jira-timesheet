@@ -22,6 +22,7 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 ### Added
 
 - In My Work, drag Issues or Pending Worklogs by the handle at the start of its header to put it above or below the other, or press Alt+Shift+Up or Down Arrow on its header. The order is saved for each Jira site.
+- The Pending Worklogs header shows the total time of all pending worklogs on its right.
 
 ### Changed
 
