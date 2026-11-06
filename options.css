@@ -356,8 +356,8 @@ body {
   white-space: nowrap;
 }
 
-/* The date range is the week picker's button (src/ui/weekPicker.js): the heading's text, with a small
-   calendar icon, and a subtle background on hover and while the calendar is open. */
+/* The date range is the week picker's button (src/ui/weekPicker.js): a small calendar icon, then the
+   heading's text, centred together, with a subtle background on hover and while the calendar is open. */
 .week-range-btn {
   display: inline-flex;
   align-items: center;
@@ -387,10 +387,11 @@ body {
   cursor: default;
 }
 
+/* Same 16px, stroke and neutral grey as the other toolbar icons (the nav and group chevrons). */
 .week-range-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--text-subtle);
 }
 

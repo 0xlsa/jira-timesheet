@@ -342,6 +342,14 @@ describe('Week picker - page wiring', () => {
     assert.match(nav, /class="week-range-icon"[^>]*aria-hidden="true"/);
   });
 
+  it('puts the calendar icon before the date range, inside the button', () => {
+    const button = nav.slice(nav.indexOf('id="weekPickerBtn"'), nav.indexOf('</button>', nav.indexOf('id="weekPickerBtn"')));
+    const icon = button.indexOf('class="week-range-icon"');
+    assert.ok(icon > 0, 'the icon is in the button, so it opens the calendar too');
+    assert.ok(icon < button.indexOf('id="weekDateRangeText"'), 'the icon comes first');
+    assert.ok(button.indexOf('id="weekDateRangeText"') < button.indexOf('class="sr-only"'), 'the date, then what the button does');
+  });
+
   it('keeps Today and Sync as they were', () => {
     assert.match(nav, /<button type="button" id="thisWeekBtn" class="btn btn-secondary btn-today" title="Jump to Today">\s*Today\s*<\/button>/);
     assert.match(nav, /<button type="button" id="refreshWorklogsBtn" class="btn btn-secondary btn-refresh"/);
