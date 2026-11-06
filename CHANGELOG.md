@@ -28,6 +28,7 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 - In My Work, My Issues is now called Issues.
 - The My Work heading is a single line. Issues and Pending Worklogs each sit in their own bordered container, with a roomier header showing an icon and the count, and more compact rows.
+- The selected day's worklogs sit together in one bordered container, divided by subtle lines like Pending Worklogs, instead of each in its own card. Each shows its start time and author below the summary, then its comment.
 
 ## [1.2.0] - 2026-11-04
 

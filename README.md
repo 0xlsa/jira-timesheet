@@ -59,10 +59,10 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - Below the cards, the selected day's panel lists its worklogs. Click its header (or the day's total) to collapse or expand them; the date, count, and total stay in view. The panel starts collapsed, and your choice applies to every day and is remembered.
 - Totals are calculated in whole seconds, so the week total always equals the sum of the daily totals, and each daily total equals the sum of that day's worklogs.
 
-**Worklog cards** (for the selected day, in start-time order)
+**Worklogs** (for the selected day, in start-time order, together in one container with a line between each)
 - The issue key, linked to the issue in Jira.
 - The issue's current Jira status, with a colored dot for its status category (gray for To Do, blue for In Progress, green for Done, and gray for custom or unknown categories). No status is shown when Jira doesn't return one.
-- The issue summary, the worklog comment (as plain text), the start time, and the author.
+- The issue summary, with the start time and author below it, then the worklog comment (as plain text, keeping its paragraphs and line breaks).
 - The duration, always in hours and two-digit minutes (for example, `1h 00m` or `0h 45m`).
 - **+** (log work), **✎** (edit), and trash (delete) buttons, directly beneath the duration. They stay in the same place whatever the length of the title or comment.
 
@@ -73,11 +73,11 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - Closing, cancelling, switching worklogs or tabs, or leaving the page with unsaved changes asks first.
 
 **Deleting worklogs**
-- The trash button on a card, or **Delete worklog** in the edit panel, asks for confirmation first. The card's confirmation shows the issue, date and start time, and duration, and says the deletion can't be undone.
+- The trash button on a worklog, or **Delete worklog** in the edit panel, asks for confirmation first. The worklog's confirmation shows the issue, date and start time, and duration, and says the deletion can't be undone.
 - The worklog disappears and the totals change only after Jira confirms the deletion. If Jira refuses (for example, without permission), the reason is shown and the worklog stays.
 
 **Logging work**
-- **+** on a worklog card opens a **Log work** form for that card's issue.
+- **+** on a worklog opens a **Log work** form for that worklog's issue.
 - The circular **+** beside the selected day's total opens the same form on that day, where you find the issue by its key (such as `ABC-123`); matching issues are suggested as you type.
 - The date defaults to the selected day and the start time to the current time. While the form is open, selecting another day in the calendar moves the date to that day, and entering a date in the displayed week selects that day.
 - 15m, 30m, and 1h buttons fill in the duration; **Custom** moves to the hours field. The work description is optional.

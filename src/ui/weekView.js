@@ -76,6 +76,17 @@ export function renderIssueStatusBadge(status) {
 }
 
 /**
+ * A worklog comment's paragraphs: its text split at blank lines (one or more), each paragraph
+ * kept as written, with its own line breaks, list lines, and indentation. They're shown with a
+ * smaller gap between them than a whole blank line; nothing of the text is left out.
+ * @param {string} comment - Plain text
+ * @returns {string[]}
+ */
+export function commentParagraphs(comment) {
+  return String(comment ?? '').replace(/\r\n?/g, '\n').split(/\n(?:[ \t]*\n)+/).filter((paragraph) => paragraph.trim() !== '');
+}
+
+/**
  * Builds the contents of a single worklog entry in the selected-day panel.
  * @param {object} wl
  * @param {string} baseUrl
@@ -97,7 +108,6 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
       renderIssueStatusBadge(wl.issueStatus)),
     h('div', { class: 'worklog-body' },
       h('span', { class: 'issue-summary', title: wl.issueSummary || '' }, wl.issueSummary),
-      wl.comment && h('div', { class: 'worklog-comment' }, wl.comment),
       h('div', { class: 'worklog-meta-row' },
         h('span', { class: 'worklog-time' },
           metaIcon(
@@ -108,7 +118,10 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
           metaIcon(
             svg('path', { d: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' }),
             svg('circle', { cx: '12', cy: '7', r: '4' })),
-          wl.author.displayName))),
+          wl.author.displayName)),
+      // Below the start time and author, in reading order as on screen.
+      wl.comment && h('div', { class: 'worklog-comment' },
+        commentParagraphs(wl.comment).map((paragraph) => h('p', { class: 'worklog-comment-paragraph' }, paragraph)))),
     h('div', { class: 'worklog-side' },
       h('span', { class: 'worklog-duration-badge' }, wl.formattedDuration),
       (canLogWork || editable || deletable) && h('div', { class: 'worklog-actions' },

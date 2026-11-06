@@ -115,8 +115,7 @@
   color: #1d5fc4;
 }
 
-[data-theme="light"] .day-card:hover,
-[data-theme="light"] .worklog-item:hover {
+[data-theme="light"] .day-card:hover {
   border-color: #c9d2de;
 }
 
@@ -1129,31 +1128,37 @@ body {
   cursor: not-allowed;
 }
 
+/* The selected day's worklogs, in one shared container like a My Work group (Pending Worklogs):
+   its border, radius, background, and 14px sides, the worklogs inside it divided by subtle lines. */
 .worklog-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  padding: 0 14px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
-/* Individual Worklog Item */
+/* Individual Worklog Item: a row of the shared container, no border or background of its own.
+   Each is as tall as its contents, so a long comment grows its own row only. */
 .worklog-item {
   /* Columns: issue key + status | summary, comment, metadata | duration + actions.
-     Rows: summary | comment | metadata | spare (absorbs a taller issue or side column).
+     Rows: summary | metadata (start time, author) | comment | spare (absorbs a taller issue or
+     side column).
      The body wrapper uses `display: contents`, so its parts sit in those rows. */
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto auto auto 1fr;
   align-items: start;
-  column-gap: 14px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  transition: border-color var(--transition);
+  column-gap: 12px;
+  position: relative;
+  isolation: isolate;
+  padding: 8px 0;
 }
 
-.worklog-item:hover {
-  border-color: #484f58;
+/* The line between two worklogs, as between pending worklogs */
+.worklog-item + .worklog-item {
+  border-top: 1px solid var(--border-subtle);
 }
 
 .issue-key-badge {
@@ -1201,15 +1206,16 @@ body {
   border-color: #93c5fd;
 }
 
-/* Issue key with the Jira issue status underneath. The fixed minimum width keeps
-   summaries aligned across cards; only a longer issue key widens the column. */
+/* Issue key with the Jira issue status underneath. The minimum width keeps summaries aligned
+   across rows: room for a typical key (such as ABC-12345) and status (such as In Progress), with
+   the rest left to the summary and comment; only a longer issue key widens the column. */
 .worklog-issue {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 5px;
   flex-shrink: 0;
-  min-width: 124px;
+  min-width: 100px;
 }
 
 /* Unboxed status label: colored dot + status name. `width: 0` with `min-width: 100%`
@@ -1270,17 +1276,19 @@ body {
   padding-top: 4px;
 }
 
-.worklog-comment {
+/* The start time and author directly below the summary, then the comment, if any, below them:
+   6px apart each, and nothing more without a comment. */
+.worklog-meta-row {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
-  margin-top: 4px;
 }
 
-.worklog-meta-row {
+.worklog-comment {
   grid-column: 2;
   grid-row: 3;
   min-width: 0;
+  margin-top: 6px;
 }
 
 /* One line, cut with an ellipsis; the full title is the tooltip (the span's title). */
@@ -1391,11 +1399,17 @@ body {
   cursor: not-allowed;
 }
 
-/* Worklog open in the editor */
-.worklog-item.is-editing,
-.worklog-item.is-editing:hover {
-  border-color: var(--primary-border);
-  box-shadow: 0 0 0 1px var(--primary-border);
+/* Worklog open in the editor: a soft blue band behind its row, a little wider than its contents
+   (within the container's sides) and below the dividers, which stay in place. */
+.worklog-item.is-editing::before {
+  content: '';
+  position: absolute;
+  inset: 3px -8px;
+  z-index: -1;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-light);
+  box-shadow: inset 0 0 0 1px var(--primary-border);
+  pointer-events: none;
 }
 
 .worklog-meta-row {
@@ -1427,6 +1441,16 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.45;
+}
+
+/* A comment's paragraphs (its text between blank lines), each with its own lines kept as
+   written: a smaller gap between them than a whole blank line. */
+.worklog-comment-paragraph {
+  margin: 0;
+}
+
+.worklog-comment-paragraph + .worklog-comment-paragraph {
+  margin-top: 6px;
 }
 
 /* My Work: collapsible list of the user's issues in progress or with work logged this week,
@@ -2026,12 +2050,12 @@ body {
     padding-top: 0;
   }
 
-  .worklog-comment {
+  .worklog-meta-row {
     grid-column: 1 / -1;
     grid-row: 3;
   }
 
-  .worklog-meta-row {
+  .worklog-comment {
     grid-column: 1 / -1;
     grid-row: 4;
   }
