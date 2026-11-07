@@ -6,7 +6,7 @@
 import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
-import { renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
+import { formatPendingTotal, pendingTotalSeconds, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
@@ -76,6 +76,17 @@ export function renderIssueStatusBadge(status) {
 }
 
 /**
+ * A worklog comment's paragraphs: its text split at blank lines (one or more), each paragraph
+ * kept as written, with its own line breaks, list lines, and indentation. They're shown with a
+ * smaller gap between them than a whole blank line; nothing of the text is left out.
+ * @param {string} comment - Plain text
+ * @returns {string[]}
+ */
+export function commentParagraphs(comment) {
+  return String(comment ?? '').replace(/\r\n?/g, '\n').split(/\n(?:[ \t]*\n)+/).filter((paragraph) => paragraph.trim() !== '');
+}
+
+/**
  * Builds the contents of a single worklog entry in the selected-day panel.
  * @param {object} wl
  * @param {string} baseUrl
@@ -97,7 +108,6 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
       renderIssueStatusBadge(wl.issueStatus)),
     h('div', { class: 'worklog-body' },
       h('span', { class: 'issue-summary', title: wl.issueSummary || '' }, wl.issueSummary),
-      wl.comment && h('div', { class: 'worklog-comment' }, wl.comment),
       h('div', { class: 'worklog-meta-row' },
         h('span', { class: 'worklog-time' },
           metaIcon(
@@ -108,7 +118,10 @@ export function renderWorklogItem(wl, baseUrl, { editable = false, canLogWork = 
           metaIcon(
             svg('path', { d: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' }),
             svg('circle', { cx: '12', cy: '7', r: '4' })),
-          wl.author.displayName))),
+          wl.author.displayName)),
+      // Below the start time and author, in reading order as on screen.
+      wl.comment && h('div', { class: 'worklog-comment' },
+        commentParagraphs(wl.comment).map((paragraph) => h('p', { class: 'worklog-comment-paragraph' }, paragraph)))),
     h('div', { class: 'worklog-side' },
       h('span', { class: 'worklog-duration-badge' }, wl.formattedDuration),
       (canLogWork || editable || deletable) && h('div', { class: 'worklog-actions' },
@@ -1103,9 +1116,13 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
       }));
     // Pointer-only: keyboard users move the group from its header button.
     const handle = movable ? h('span', { class: 'working-issues-group-handle', title: GROUP_HANDLE_TITLE, 'aria-hidden': 'true' }, gripIcon()) : null;
+    // Pending Worklogs' total time, at the far right of its header (beside the button, so its name
+    // stays the title and count); a click on it toggles the group like the rest of the header.
+    const total = id === 'pending' && renderPendingTotal(pending.entries);
     const header = h('div', { class: 'working-issues-group-header' },
       handle,
       h('h4', { class: 'working-issues-group-heading' }, toggle),
+      total,
       movable && h('span', { id: `workingIssuesGroupMoveHint-${id}`, class: 'sr-only' }, GROUP_MOVE_HINT));
     const group = h('div', { class: `working-issues-group is-${id}`, 'data-group': id }, header, groupBody);
 
@@ -1141,6 +1158,20 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     }
     return group;
   }));
+}
+
+/**
+ * The Pending Worklogs header's total: every pending worklog's time, summed from the same entries
+ * the group lists, so it changes with them. "0h 00m", fainter, when nothing is pending.
+ * @param {Array<object>} entries - `timeTracking.pending`
+ * @returns {HTMLElement}
+ */
+function renderPendingTotal(entries) {
+  const text = formatPendingTotal(pendingTotalSeconds(entries));
+  return h('span', {
+    class: `working-issues-group-total${entries.length === 0 ? ' is-empty' : ''}`,
+    title: `Total pending time: ${text}`
+  }, text);
 }
 
 // Said beside the switch while Active's issues load again, the ones shown staying meanwhile.

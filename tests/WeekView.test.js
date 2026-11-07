@@ -4,7 +4,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument, toHtml } from './support/fakeDom.js';
-import { renderIssueStatusBadge, renderWorklogItem, renderWeek } from '../src/ui/weekView.js';
+import { commentParagraphs, renderIssueStatusBadge, renderWorklogItem, renderWeek } from '../src/ui/weekView.js';
 import { h } from '../src/ui/dom.js';
 import { buildEmptyWeek, getWeekDays, aggregateWorklogsByWeek } from '../src/worklog/worklogUtils.js';
 import { logWork, replaceWorklogInWeek } from '../src/worklog/weeklyWorklogService.js';
@@ -169,6 +169,190 @@ describe('WeekView - weekday cards, selected-day panel, and add button', () => {
     assert.equal(container.querySelector('.day-panel-total').textContent, '7h 30m');
     assert.deepEqual(container.querySelectorAll('.issue-key-badge').map((el) => el.textContent), ['EKB-301', 'EKB-305']);
     assert.equal(week.formattedWeekTotal, '8h 30m');
+  });
+});
+
+describe('WeekView - the selected day\'s worklogs in one container', () => {
+  let restoreDocument;
+  before(() => {
+    restoreDocument = installFakeDocument();
+  });
+  after(() => restoreDocument());
+
+  // Monday 2 November 2026; Wednesday the 4th has several short worklogs, Thursday the 5th one
+  // with a long multiline comment, Friday the 6th a single one.
+  const monday = new Date(2026, 10, 2);
+  const LONG_COMMENT = [
+    'Investigated the failing sync job with the customer.',
+    '',
+    'Paragraph two: the dial plan import stops at the first duplicate, so the remaining rows are never read. '.repeat(4).trim(),
+    '- Checked the logs',
+    '- Reproduced it locally'
+  ].join('\n');
+  const IN_PROGRESS = { name: 'In Progress', categoryKey: 'indeterminate' };
+  const RAW = [
+    { id: '11', issueId: '1', issueKey: 'EKB-1', issueSummary: 'Stand-up', issueStatus: IN_PROGRESS, started: '2026-11-04T09:00:00.000+0000', timeSpentSeconds: 900, comment: 'Daily', author: { displayName: 'Dev One' } },
+    { id: '12', issueId: '2', issueKey: 'EKB-2', issueSummary: 'Code review', issueStatus: { name: 'Done', categoryKey: 'done' }, started: '2026-11-04T10:00:00.000+0000', timeSpentSeconds: 2700, author: { displayName: 'Dev One' } },
+    { id: '13', issueId: '3', issueKey: 'KAN-3', issueSummary: 'Release notes', issueStatus: null, started: '2026-11-04T14:30:00.000+0000', timeSpentSeconds: 1800, author: { displayName: 'Dev One' } },
+    { id: '21', issueId: '4', issueKey: 'EKB-4', issueSummary: 'Sync job', issueStatus: IN_PROGRESS, started: '2026-11-05T09:00:00.000+0000', timeSpentSeconds: 9000, comment: LONG_COMMENT, author: { displayName: 'Dev Two' } },
+    { id: '22', issueId: '5', issueKey: 'EKB-5', issueSummary: 'Short follow-up', issueStatus: IN_PROGRESS, started: '2026-11-05T13:00:00.000+0000', timeSpentSeconds: 600, author: { displayName: 'Dev Two' } },
+    { id: '31', issueId: '6', issueKey: 'EKB-6', issueSummary: 'Planning', issueStatus: IN_PROGRESS, started: '2026-11-06T09:00:00.000+0000', timeSpentSeconds: 3600, author: { displayName: 'Dev One' } }
+  ];
+  const week = { user: { displayName: 'Dev One' }, sourceWorklogs: RAW, ...aggregateWorklogsByWeek(RAW, getWeekDays(monday)) };
+
+  function show(selectedDateKey, options = {}) {
+    const container = h('div', {});
+    const calls = { edited: [], logged: [], deleted: [], added: [] };
+    renderWeek(container, week, {
+      selectedDateKey, dayExpanded: true, onSelectDay: () => {},
+      onAddWorklog: (key) => calls.added.push(key),
+      onEditWorklog: (id) => calls.edited.push(id),
+      onLogWork: (id) => calls.logged.push(id),
+      onDeleteWorklog: (id) => calls.deleted.push(id),
+      ...options
+    });
+    const panel = container.querySelector('.day-panel');
+    return { container, panel, calls, items: panel.querySelectorAll('.worklog-item') };
+  }
+
+  it('lists several short worklogs in one shared container, each with all its details', () => {
+    const { panel, items } = show('2026-11-04');
+    const lists = panel.querySelectorAll('.worklog-list');
+    assert.equal(lists.length, 1);
+    assert.ok(lists[0].parentNode === panel.querySelector('.day-panel-body'), 'the container is the panel body\'s');
+    assert.equal(items.length, 3);
+    assert.ok(items.every((item) => item.parentNode === lists[0]), 'every worklog is a row of the one container');
+
+    assert.deepEqual(items.map((i) => i.querySelector('.issue-key-badge').textContent), ['EKB-1', 'EKB-2', 'KAN-3']);
+    assert.deepEqual(items.map((i) => i.querySelector('.issue-status-name')?.textContent ?? null), ['In Progress', 'Done', null]);
+    assert.deepEqual(items.map((i) => i.querySelector('.issue-summary').textContent), ['Stand-up', 'Code review', 'Release notes']);
+    assert.deepEqual(items.map((i) => i.querySelector('.worklog-duration-badge').textContent), ['0h 15m', '0h 45m', '0h 30m']);
+    const day = week.weekDays.find((d) => d.dateKey === '2026-11-04');
+    assert.deepEqual(items.map((i) => i.querySelector('.worklog-time').textContent), day.worklogs.map((wl) => `Started ${wl.formattedStartTime}`));
+    assert.ok(items.every((i) => i.querySelector('.worklog-author').textContent === 'Dev One'));
+    assert.equal(items[0].querySelector('.worklog-comment').textContent, 'Daily');
+
+    // The heading, count, and total are unchanged.
+    assert.equal(panel.querySelector('.day-panel-title').textContent, 'Wednesday, 4 November 2026');
+    assert.equal(panel.querySelector('.day-panel-meta').textContent, '3 worklogs • 1h 30m total');
+    assert.equal(panel.querySelector('.day-panel-total').textContent, '1h 30m');
+    assert.ok(panel.querySelector('.day-panel-side').querySelector('.day-add-btn'));
+  });
+
+  it('keeps a long multiline comment whole, beside a short worklog', () => {
+    const { panel, items } = show('2026-11-05');
+    assert.equal(items.length, 2);
+    // Its paragraphs (split at the blank line), each with its own lines and list lines as written.
+    const paragraphs = items[0].querySelector('.worklog-comment').querySelectorAll('.worklog-comment-paragraph');
+    assert.deepEqual(paragraphs.map((p) => p.localName), ['p', 'p']);
+    assert.deepEqual(paragraphs.map((p) => p.textContent), LONG_COMMENT.split('\n\n'));
+    assert.equal(paragraphs.map((p) => p.textContent).join('\n\n'), LONG_COMMENT, 'nothing left out');
+    assert.equal(items[1].querySelector('.worklog-comment'), null);
+    assert.equal(panel.querySelector('.day-panel-meta').textContent, '2 worklogs • 2h 40m total');
+  });
+
+  it('puts the start time and author below the summary, then the comment, in reading order too', () => {
+    const { items } = show('2026-11-05');
+    const parts = (item) => item.querySelector('.worklog-body').children.map((el) => el.className);
+    assert.deepEqual(parts(items[0]), ['issue-summary', 'worklog-meta-row', 'worklog-comment']);
+    assert.deepEqual(parts(items[1]), ['issue-summary', 'worklog-meta-row'], 'nothing below the metadata without a comment');
+    assert.match(items[0].querySelector('.worklog-meta-row').textContent, /^Started .+Dev Two$/);
+    // The short comment too.
+    assert.deepEqual(parts(show('2026-11-04').items[0]), ['issue-summary', 'worklog-meta-row', 'worklog-comment']);
+  });
+
+  it('shows a single worklog in the same container', () => {
+    const { panel, items } = show('2026-11-06');
+    assert.equal(panel.querySelectorAll('.worklog-list').length, 1);
+    assert.equal(items.length, 1);
+    assert.equal(panel.querySelector('.day-panel-meta').textContent, '1 worklog • 1h 00m total');
+  });
+
+  it('keeps the add, log work, edit, and delete actions, and marks the worklog being edited', () => {
+    const { panel, items, calls } = show('2026-11-04', { editingWorklogId: '12' });
+    assert.ok(items.every((i) => i.querySelector('.worklog-side').querySelector('.worklog-actions')), 'the actions stay in the side column');
+    items[1].querySelector('.worklog-log-btn').click();
+    items[1].querySelector('.worklog-edit-btn').click();
+    items[2].querySelector('.worklog-delete-btn').click();
+    panel.querySelector('.day-add-btn').click();
+    assert.deepEqual(calls, { edited: ['12'], logged: ['12'], deleted: ['13'], added: ['2026-11-04'] });
+    assert.deepEqual(items.map((i) => i.classList.contains('is-editing')), [false, true, false]);
+  });
+});
+
+describe('WeekView - day worklog container styles', () => {
+  const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+  // Every top-level rule for exactly this selector (not in a media query), joined.
+  const block = (selector) => {
+    const matches = [...css.matchAll(new RegExp(`\\n${selector.replace(/[.+*?^$()[\]{}|\\]/g, '\\$&')} \\{([^}]*)\\}`, 'g'))];
+    assert.ok(matches.length > 0, `${selector} is styled`);
+    return matches.map((m) => m[1]).join('\n');
+  };
+  const value = (rules, property) => rules.match(new RegExp(`(?:^|\\n)\\s*${property}:\\s*([^;]+);`))?.[1];
+
+  it('draws one container like a Pending Worklogs group: its border, radius, background, and sides', () => {
+    const list = block('.worklog-list');
+    const group = block('.working-issues-group');
+    for (const property of ['border', 'border-radius', 'background-color']) {
+      assert.equal(value(list, property), value(group, property), property);
+    }
+    assert.equal(value(list, 'padding'), '0 14px');
+    assert.equal(value(block('.working-issues-group-body'), 'padding'), '0 14px 4px', 'the groups\' 14px sides');
+    assert.equal(value(list, 'gap'), undefined, 'no space between the rows');
+  });
+
+  it('gives each worklog no border or background of its own, and a subtle line between two, as pending worklogs', () => {
+    const item = block('.worklog-item');
+    for (const property of ['border', 'border-radius', 'background-color', 'background', 'box-shadow', 'height', 'max-height', 'overflow']) {
+      assert.equal(value(item, property), undefined, property);
+    }
+    assert.equal(value(block('.worklog-item + .worklog-item'), 'border-top'), value(block('.pending-worklog'), 'border-bottom'));
+    assert.equal(value(block('.pending-worklog'), 'border-bottom'), '1px solid var(--border-subtle)');
+    assert.doesNotMatch(css, /\.worklog-item:hover/, 'no card hover left');
+  });
+
+  it('lets a comment grow its row: whole, with its line breaks', () => {
+    const comment = block('.worklog-comment');
+    assert.equal(value(comment, 'white-space'), 'pre-wrap');
+    assert.equal(value(comment, 'line-height'), '1.45');
+    assert.equal(value(comment, 'font-size'), '13px');
+    for (const property of ['overflow', 'max-height', '-webkit-line-clamp', 'line-clamp', 'text-overflow']) {
+      assert.equal(value(comment, property), undefined, property);
+    }
+    for (const property of ['overflow', 'max-height', 'display']) {
+      assert.equal(value(block('.worklog-comment-paragraph'), property), undefined, property);
+    }
+  });
+
+  it('keeps rows compact: 8px above and below, a smaller gap between paragraphs, and a narrower issue column', () => {
+    assert.equal(value(block('.worklog-item'), 'padding'), '8px 0');
+    assert.equal(value(block('.worklog-item'), 'column-gap'), '12px');
+    assert.equal(value(block('.worklog-comment-paragraph'), 'margin'), '0');
+    assert.equal(value(block('.worklog-comment-paragraph + .worklog-comment-paragraph'), 'margin-top'), '6px');
+    assert.equal(value(block('.worklog-issue'), 'min-width'), '100px');
+  });
+
+  it('places the metadata on the second row and the comment on the third, 6px below it', () => {
+    assert.equal(value(block('.issue-summary'), 'grid-row'), '1');
+    assert.equal(value(block('.worklog-meta-row'), 'grid-row'), '2');
+    assert.equal(value(block('.worklog-comment'), 'grid-row'), '3');
+    assert.equal(value(block('.worklog-comment'), 'margin-top'), '6px');
+    // Narrow windows: the summary below the key and duration, then the metadata, then the comment.
+    assert.match(css, /\n  \.worklog-meta-row \{\s*grid-column: 1 \/ -1;\s*grid-row: 3;\s*\}\s*\n  \.worklog-comment \{\s*grid-column: 1 \/ -1;\s*grid-row: 4;/);
+  });
+});
+
+describe('WeekView - comment paragraphs', () => {
+  it('splits at blank lines, keeping each paragraph\'s lines, list lines, and indentation', () => {
+    assert.deepEqual(commentParagraphs('One line'), ['One line']);
+    assert.deepEqual(commentParagraphs('First\nstill first\n\nSecond'), ['First\nstill first', 'Second']);
+    assert.deepEqual(commentParagraphs('Steps:\n\n- one\n- two\n\n\n  Indented after'), ['Steps:', '- one\n- two', '  Indented after']);
+  });
+
+  it('treats whitespace-only lines and Windows line breaks as breaks, and drops nothing else', () => {
+    assert.deepEqual(commentParagraphs('A\r\n\r\nB\r\nb'), ['A', 'B\nb']);
+    assert.deepEqual(commentParagraphs('A\n   \t\nB'), ['A', 'B']);
+    assert.deepEqual(commentParagraphs(''), []);
   });
 });
 

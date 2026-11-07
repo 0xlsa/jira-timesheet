@@ -231,6 +231,47 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
     assert.equal(header(section, 'active').textContent, 'Issues (1)');
   });
 
+  it('shows every pending worklog\'s total time at the far right of the Pending Worklogs header only', () => {
+    const { section } = render();
+    const pendingHeader = header(section, 'pending').closest('.working-issues-group-header');
+    const total = pendingHeader.querySelector('.working-issues-group-total');
+
+    // 25m 30s + 45s + 25m 30s (the other site's too) = 51m 45s.
+    assert.equal(total.textContent, '0h 51m');
+    assert.equal(total.classList.contains('is-empty'), false);
+    assert.match(total.getAttribute('title'), /^Total pending time: 0h 51m$/);
+    // After the title and count, outside the button, whose name stays the same.
+    assert.ok(pendingHeader.childNodes.at(-1) === total, 'last in the header');
+    assert.equal(header(section, 'pending').querySelector('.working-issues-group-total'), null);
+    assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
+    assert.equal(header(section, 'active').closest('.working-issues-group-header').querySelector('.working-issues-group-total'), null);
+    // Collapsed, it still shows; a click on it toggles the group like the rest of the header.
+    total.click();
+    assert.equal(isOpen(section, 'pending'), false);
+    assert.equal(section.querySelector('.working-issues-group-total').textContent, '0h 51m');
+  });
+
+  it('shows 0h 00m, fainter, when nothing is pending, and seconds for a total under a minute', () => {
+    const empty = render({ entries: [] }).section.querySelector('.working-issues-group-total');
+    assert.equal(empty.textContent, '0h 00m');
+    assert.ok(empty.classList.contains('is-empty'));
+
+    const short = render({ entries: [ENTRIES[1]] }).section.querySelector('.working-issues-group-total');
+    assert.equal(short.textContent, '45s');
+    assert.equal(short.classList.contains('is-empty'), false);
+  });
+
+  it('styles the total in a muted slate grey, semibold, with tabular numerals', () => {
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    assert.match(css, /--pending-total: #64748b;/);
+    const rule = css.match(/\.working-issues-group-total \{([^}]*)\}/)?.[1] ?? '';
+    assert.match(rule, /font-size: 15px;/);
+    assert.match(rule, /font-weight: 600;/);
+    assert.match(rule, /color: var\(--pending-total\);/);
+    assert.match(rule, /font-variant-numeric: tabular-nums;/);
+    assert.match(css, /\.working-issues-group-total\.is-empty \{\s*opacity: 0\.6;/);
+  });
+
   it('styles the group headers compactly, with a focus ring, and no tab styles left', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
     assert.doesNotMatch(css, /working-issues-tab/);
@@ -1384,6 +1425,45 @@ describe('Pending tab - several sessions for one issue', () => {
     await page.controller.discardPending(b.id);
     drawSection(page, section);
     assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (1)');
+  });
+
+  it('keeps the header total equal to the rows\' durations as sessions are edited, submitted, and discarded', async () => {
+    const page = await threeSessions();
+    const [a, b, c] = page.controller.getState().tracking.pending;
+    const section = drawSection(page);
+    const total = () => section.querySelector('.working-issues-group-total').textContent;
+    // The rows' durations ("1h 10m"), added up in minutes.
+    const rowMinutes = () => section.querySelectorAll('.pending-worklog-duration').reduce((sum, el) => {
+      const [, hours, minutes] = el.textContent.match(/^(\d+)h (\d{2})m$/);
+      return sum + Number(hours) * 60 + Number(minutes);
+    }, 0);
+    const asText = (minutes) => `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+
+    // 10m + 5m + 2m
+    assert.equal(total(), '0h 17m');
+    assert.equal(total(), asText(rowMinutes()));
+
+    await page.controller.updatePending(a.id, { timeSpentSeconds: 70 * 60 });
+    drawSection(page, section);
+    assert.equal(total(), '1h 17m', 'edited from 10m to 1h 10m');
+    assert.equal(total(), asText(rowMinutes()));
+
+    const { submitPendingWorklog } = await import('../src/worklog/pendingSubmission.js');
+    const client = { createWorklog: async (issue, worklog) => ({ id: '9', started: worklog.started.toISOString(), timeSpentSeconds: worklog.timeSpentSeconds }) };
+    assert.equal((await submitPendingWorklog({ timer: page.controller, client, id: c.id, site: SITE })).status, 'submitted');
+    drawSection(page, section);
+    assert.equal(total(), '1h 15m', 'the submitted 2m left');
+    assert.equal(total(), asText(rowMinutes()));
+
+    await page.controller.discardPending(b.id);
+    drawSection(page, section);
+    assert.equal(total(), '1h 10m', 'the discarded 5m left');
+    assert.equal(total(), asText(rowMinutes()));
+
+    await page.controller.discardPending(a.id);
+    drawSection(page, section);
+    assert.equal(total(), '0h 00m');
+    assert.ok(section.querySelector('.working-issues-group-total').classList.contains('is-empty'));
   });
 
   it('keeps every session when another tab adds and changes them', async () => {

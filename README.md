@@ -59,10 +59,10 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - Below the cards, the selected day's panel lists its worklogs. Click its header (or the day's total) to collapse or expand them; the date, count, and total stay in view. The panel starts collapsed, and your choice applies to every day and is remembered.
 - Totals are calculated in whole seconds, so the week total always equals the sum of the daily totals, and each daily total equals the sum of that day's worklogs.
 
-**Worklog cards** (for the selected day, in start-time order)
+**Worklogs** (for the selected day, in start-time order, together in one container with a line between each)
 - The issue key, linked to the issue in Jira.
 - The issue's current Jira status, with a colored dot for its status category (gray for To Do, blue for In Progress, green for Done, and gray for custom or unknown categories). No status is shown when Jira doesn't return one.
-- The issue summary, the worklog comment (as plain text), the start time, and the author.
+- The issue summary, with the start time and author below it, then the worklog comment (as plain text, keeping its paragraphs and line breaks).
 - The duration, always in hours and two-digit minutes (for example, `1h 00m` or `0h 45m`).
 - **+** (log work), **✎** (edit), and trash (delete) buttons, directly beneath the duration. They stay in the same place whatever the length of the title or comment.
 
@@ -73,11 +73,11 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - Closing, cancelling, switching worklogs or tabs, or leaving the page with unsaved changes asks first.
 
 **Deleting worklogs**
-- The trash button on a card, or **Delete worklog** in the edit panel, asks for confirmation first. The card's confirmation shows the issue, date and start time, and duration, and says the deletion can't be undone.
+- The trash button on a worklog, or **Delete worklog** in the edit panel, asks for confirmation first. The worklog's confirmation shows the issue, date and start time, and duration, and says the deletion can't be undone.
 - The worklog disappears and the totals change only after Jira confirms the deletion. If Jira refuses (for example, without permission), the reason is shown and the worklog stays.
 
 **Logging work**
-- **+** on a worklog card opens a **Log work** form for that card's issue.
+- **+** on a worklog opens a **Log work** form for that worklog's issue.
 - The circular **+** beside the selected day's total opens the same form on that day, where you find the issue by its key (such as `ABC-123`); matching issues are suggested as you type.
 - The date defaults to the selected day and the start time to the current time. While the form is open, selecting another day in the calendar moves the date to that day, and entering a date in the displayed week selects that day.
 - 15m, 30m, and 1h buttons fill in the duration; **Custom** moves to the hours field. The work description is optional.
@@ -91,7 +91,7 @@ After you save, edit, or delete a worklog, the affected days, the week total, an
 - Instance URLs can include a context path, such as `https://jira.example.com/jira`.
 
 **Custom views of My Work**
-- My Work has two groups, each expanding and collapsing on its own: **Issues** and **Pending Worklogs**. Each header shows the group's icon and count. The My Work heading itself is a single line. Drag a group by the six-dot handle at the start of its header to put it above or below the other (a line shows where it goes; Escape cancels), or press **Alt+Shift+↑** or **↓** on its header. The rest of the header still expands and collapses the group. The order is saved per Jira site, apart from whether each group is expanded, and other open tabs follow it at once; without a saved order, Issues comes first.
+- My Work has two groups, each expanding and collapsing on its own: **Issues** and **Pending Worklogs**. Each header shows the group's icon and count, and Pending Worklogs also shows the total time of all its worklogs on the right. The My Work heading itself is a single line. Drag a group by the six-dot handle at the start of its header to put it above or below the other (a line shows where it goes; Escape cancels), or press **Alt+Shift+↑** or **↓** on its header. The rest of the header still expands and collapses the group. The order is saved per Jira site, apart from whether each group is expanded, and other open tabs follow it at once; without a saved order, Issues comes first.
 - At the top of Issues, its views side by side as tabs, each with its count: **Active** (the built-in view: your issues, exactly as before) and up to five custom views of your own per Jira site (**20+** when more match). **+** creates a view, until there are five; the selected custom view's ✎ renames, changes, or deletes it. Drag a custom view's tab left or right to reorder the tabs (a line shows where it goes; Escape cancels), or press **Alt+Shift+←** or **→** on it; Active always stays first. The order is saved per Jira site, apart from the views, so moving a tab never searches Jira again; a new view goes last. The one list below shows the selected view. The selected tab is remembered, and views changed in another tab show at once.
 - **Show recently logged** belongs to Active: it's just below the tabs while Active is selected, and hidden while a custom view is. It never changes a custom view's results. Flipping it keeps the issues listed, with a small spinner beside it, until Jira's new list replaces them in one go; if that load fails, they stay and a message says why. Flipped quickly several times, only the last flip's list is shown.
 - A custom view is a Jira search of its own, apart from Active: it lists the first 20 issues you can see in Jira that match its condition, whether Active lists them or not, in the view's order. It makes one request and never asks for more pages; when more issues match, it says so ("Showing the first 20 of 147 matching issues."; Jira Cloud's search doesn't give the count, so there it says "Showing the first 20 matching issues."). A view is searched when it's shown (selected, with Issues expanded), then kept for as long as the page is open; **Sync** searches again, as does **Retry** after a failure.
@@ -283,7 +283,7 @@ The checks differ for development and release:
 | Highlights in the latest release | Not checked | 1 to 3 |
 | Packaged release notes | — | Must be the release output (`channel` is `release`, and there's no `unreleased`) |
 
-Between releases, the manifest and `package.json` keep the last version number (currently 1.2.0) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
+Between releases, the manifest and `package.json` keep the last version number (currently 1.2.1) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
 
 To release a version (1.3.0 next):
 
