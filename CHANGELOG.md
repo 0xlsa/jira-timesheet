@@ -19,16 +19,19 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-07
+
 ### Added
 
-- In My Work, drag Issues or Pending Worklogs by the handle at the start of its header to put it above or below the other, or press Alt+Shift+Up or Down Arrow on its header. The order is saved for each Jira site.
-- The Pending Worklogs header shows the total time of all pending worklogs on its right.
+- In My Work, drag Issues or Pending Worklogs by the handle at the start of its header to put it above or below the other, or press Alt+Shift+Up or Down Arrow on its header. The order is saved for each Jira site. <!-- highlight -->
+- The Pending Worklogs header shows the total time of all pending worklogs on its right. <!-- highlight -->
 
 ### Changed
 
 - In My Work, My Issues is now called Issues.
 - The My Work heading is a single line. Issues and Pending Worklogs each sit in their own bordered container, with a roomier header showing an icon and the count, and more compact rows.
-- The selected day's worklogs sit together in one bordered container, divided by subtle lines like Pending Worklogs, instead of each in its own card. Each shows its start time and author below the summary, then its comment.
+- The selected day's worklogs sit together in one bordered container, divided by subtle lines like Pending Worklogs, instead of each in its own card. Each shows its start time and author below the summary, then its comment. <!-- highlight -->
+- The calendar icon is now before the week's date range.
 
 ## [1.2.0] - 2026-11-04
 

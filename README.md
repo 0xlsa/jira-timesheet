@@ -283,7 +283,7 @@ The checks differ for development and release:
 | Highlights in the latest release | Not checked | 1 to 3 |
 | Packaged release notes | — | Must be the release output (`channel` is `release`, and there's no `unreleased`) |
 
-Between releases, the manifest and `package.json` keep the last version number (currently 1.2.0) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
+Between releases, the manifest and `package.json` keep the last version number (currently 1.2.1) and the changes stay under `[Unreleased]`, so development builds work and packaging fails.
 
 To release a version (1.3.0 next):
 
