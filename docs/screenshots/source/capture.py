@@ -79,8 +79,9 @@ CONFIGURED = {
 LIGHT = {'jts-theme': 'light', 'jts-day-panel-expanded': 'true'}
 DARK = {'jts-day-panel-expanded': 'true'}
 EXPANDED = {'jts-working-issues-expanded': 'true'}
-# My Active Issues stays collapsed (its default) in the overviews; its header still shows the
-# running timer and the pending worklog. timer-and-pending-worklogs shows it expanded.
+# My Work, below the selected day's worklogs, stays collapsed (its default) in the overviews; its
+# header still shows the running timer. timer-and-pending-worklogs shows it expanded, with its
+# Issues and Pending Worklogs groups, and the day panel collapsed (its default).
 TUESDAY = [
     {'do': 'wait', 'selector': '.worklog-duration-badge'},
     {'do': 'wait', 'selector': '.working-issues-timer:not(.hidden)'},
@@ -100,10 +101,13 @@ SCENARIOS = [
         {'do': 'click', 'selector': '.day-add-btn'},
         {'do': 'type', 'selector': '#worklogIssueSearch', 'text': 'KAN-1'},
         {'do': 'wait', 'selector': '.issue-picker-option-key'}]),
-    screenshot('timer-and-pending-worklogs', storage=CONFIGURED,
-               localStorage={**LIGHT, **EXPANDED}, steps=[
+    # A taller window, cropped to 1280x800 from just above the weekday cards: My Work is below the
+    # day panel, and headless Chrome's --screenshot doesn't capture a scrolled page.
+    screenshot('timer-and-pending-worklogs', storage=CONFIGURED, size=(1280, 1250), crop=(0, 309, 1280, 800),
+               localStorage={'jts-theme': 'light', **EXPANDED}, steps=[
         {'do': 'wait', 'selector': '.worklog-duration-badge'},
-        {'do': 'wait', 'selector': '.working-issues-timer:not(.hidden)'}]),
+        {'do': 'wait', 'selector': '.working-issues-timer:not(.hidden)'},
+        {'do': 'wait', 'selector': '.pending-worklog'}]),
     screenshot('public-holidays-settings', storage=CONFIGURED, localStorage=LIGHT, steps=[
         {'do': 'wait', 'selector': '.worklog-duration-badge'},
         {'do': 'wait', 'selector': '#nextHolidayBanner:not(.hidden)'},
