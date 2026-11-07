@@ -1,6 +1,6 @@
 # Timesheet for Jira: shared description
 
-Source text for both store listings. The store-specific files in `../chrome/listing.md` and `../firefox/listing.md` adapt it to each store's fields. Every feature below is implemented in version 1.0.0 (see the repository README and tests).
+Source text for both store listings. The store-specific files in `../chrome/listing.md` and `../firefox/listing.md` adapt it to each store's fields. Every feature below is implemented in version 1.2.1 (see the repository README and tests).
 
 ## One-line summary
 
@@ -8,33 +8,40 @@ See your Jira worklogs as a weekly timesheet, and log, edit, or delete work righ
 
 ## Description
 
-Timesheet for Jira shows the time you've logged in Jira as a weekly timesheet, so you can check your week at a glance and fix it without opening each issue.
+Timesheet for Jira — Your Weekly Timesheet, at a Glance
 
-Pick a week and see each day's total, the week's total, and every worklog you logged: the issue key, the issue's current status, its summary, your work description, the start time, and the duration. From the same view you can log more work on an issue, edit a worklog's date, start time, duration, or description, or delete a worklog. Changes are saved to Jira, and the day and week totals update as soon as Jira confirms them.
+See all your Jira worklogs for the week at a glance. Review your daily and weekly totals, check which issues you've worked on, time your work as you go, and add, edit, or delete worklogs without opening each Jira issue.
+
+Whether you're tracking your hours, reviewing your week before submitting a timesheet, or correcting a worklog, Timesheet for Jira makes it easier to keep your Jira time entries accurate.
 
 **Features**
 
-- Weekly timesheet, Monday through Sunday, with daily and weekly totals and a card for each day.
-- Every worklog you logged that week, grouped by day in your local time zone, with the issue's status.
-- Log work on an issue from any of its worklogs, with 15-minute, 30-minute, and 1-hour shortcuts.
-- Edit a worklog's date, start time, duration, and work description. Only the fields you change are sent to Jira.
-- Delete a worklog after a confirmation that shows exactly what will be removed.
-- Clear messages when Jira refuses a change, for example because of missing permissions or an expired token.
-- Jira Cloud (account email and API token) and Jira Data Center or Server 8.14 or later (personal access token).
-- Light and dark themes.
+- **Weekly overview:** View Monday through Sunday, with daily totals and a weekly total. Click the week's dates to open a calendar and jump to any week, or go back to today in one click.
+- **All your worklogs in one place:** See each day's worklogs together, with the issue key, status, summary, start time, duration, and your full work description.
+- **Built-in timer:** Start a timer on any issue, pause it for a break, and stop it when you're done. Each session becomes a pending worklog that you can review, edit, add a comment to, and submit to Jira when you're ready. The timer keeps running even if you close the tab or restart the browser.
+- **My Work:** Your issues and your pending worklogs, in two groups you can expand, collapse, and put in the order you prefer. Issues lists the issues assigned to you that are in progress and, unless you turn it off, the ones you've logged work on in the last 14 days, so you can log time on any of them in one click. Optionally include issues assigned to you through other Jira user fields, such as a QA assignee. Pending Worklogs shows how much time is waiting to be submitted.
+- **Custom views:** Create up to five views of your Jira issues, shown as tabs beside Active in Issues. Combine conditions on status, priority, assignee, reporter, or your Jira site's own fields, choose how the issues are sorted, and reorder the tabs by dragging. Each view shows the first 20 matching issues.
+- **Log work quickly:** Add time to an issue on any day, by its key, from one of its worklogs, or from My Work, with 15-minute, 30-minute, and 1-hour shortcuts.
+- **Edit worklogs:** Correct the date, start time, duration, or work description. Only the fields you change are sent to Jira.
+- **Delete worklogs safely:** Review the details of a worklog before confirming its deletion.
+- **Public holidays (optional):** Choose a country to see its official public holidays on your timesheet, plus the next upcoming one.
+- **What's New:** See what each update brings, with a short summary of the highlights after the extension updates.
+- **Keyboard shortcuts:** Move around and act without the mouse. Press ? to see them all.
+- **Clear feedback:** See success and error messages when Jira processes your changes, including permission issues and expired tokens.
+- **Light and dark themes:** Choose the appearance that suits you.
+
+**Jira compatibility**
+
+- **Jira Cloud:** Authenticate using your account email and API token.
+- **Jira Data Center and Jira Server 8.14 or later:** Authenticate using a personal access token (PAT).
 
 **Privacy**
 
-Your Jira address and token are stored only in your browser. The extension talks only to the Jira site you configure, over HTTPS. It has no analytics, ads, or other servers.
+Your Jira address, authentication token, settings, custom views, timer, and pending worklogs are stored locally in your browser. The extension communicates with the Jira instance you configure over HTTPS. If you turn on public holidays, it also requests holiday dates from the public Nager.Date service, sending only the country you chose and the year. It does not use analytics or display ads, and it never sends your Jira data or token anywhere other than your Jira instance.
 
-**Who it's for**
+**Please note**
 
-Anyone who logs time in Jira and wants to review and correct a week of worklogs quickly, for example before submitting a timesheet.
+- The extension displays worklogs you authored, subject to your Jira permissions.
+- Custom views show only issues you have permission to see in Jira.
 
-**Good to know**
-
-- You see only worklogs you authored, and only what your Jira permissions allow.
-- New work is logged from an existing worklog in the displayed week. There's no issue search yet.
-- Jira Server and Data Center versions earlier than 8.14 aren't supported, because they don't offer personal access tokens.
-
-Timesheet for Jira is an independent project. It isn't affiliated with, endorsed by, or sponsored by Atlassian. Jira is a trademark of Atlassian.
+Timesheet for Jira is an independent project and is not affiliated with, endorsed by, or sponsored by Atlassian. Jira is a trademark of Atlassian.
