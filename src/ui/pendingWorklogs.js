@@ -1,7 +1,7 @@
 /**
  * The Pending Worklogs group of My Work: the stopped timer sessions kept in this browser
  * (`timeTracking.pending`, see src/timer/timeTrackingStore.js), one row each, with Submit, Edit,
- * and Discard, and a ⋯ menu to file it under Ready, On Hold, or Archived. Tabs above the rows show
+ * and Discard, and a ⋯ menu to file it under Pending or On Hold. Tabs above the rows show
  * one classification at a time (src/worklog/pendingClassification.js), and Select turns on
  * selection mode: a checkbox on each row, Select all and Deselect all, and a bar that moves the
  * selected worklogs at once. Pure DOM rendering; the page controller keeps the selection, and
@@ -204,13 +204,12 @@ function renderPendingWorklog(entry, currentSite, now, { menu, selected, notMove
 const EMPTY_NOTES = {
   none: 'No pending worklogs. When you stop a timer, its time waits here until you submit or discard it.',
   ready: 'Nothing is pending.',
-  'on-hold': 'Nothing is on hold.',
-  archived: 'Nothing is archived.'
+  'on-hold': 'Nothing is on hold.'
 };
 
 /**
  * The classification tabs, side by side, each with its count, in the view tabs' shape and each in
- * its own color (blue Pending, amber On Hold, grey Archived; see options.css). A tablist
+ * its own color (blue Pending, amber On Hold; see options.css). A tablist
  * (WAI-ARIA tabs): the selected tab is the one in the tab order, and the arrow keys, Home, and End
  * choose another. Each tab's tooltip gives its total time.
  * @param {string} tab - The selected classification
@@ -311,7 +310,7 @@ function renderSelectionBar(tabEntries, chosen, selection) {
 }
 
 /**
- * Builds the Pending Worklogs group's contents: the classification tabs (Ready, On Hold, Archived,
+ * Builds the Worklogs group's contents: the classification tabs (Pending and On Hold,
  * each with its count) and, beside them, Select worklogs; selection mode's bar; then the selected tab's
  * pending worklogs, each on its own row (sessions are never merged), most recently stopped first,
  * or a short note when it has none.
@@ -419,7 +418,7 @@ export function renderPendingWorklogs({ entries, site, now = Date.now(), onEdit,
  * tab and counts what the group lists, like Issues counts its selected view. An unknown tab is Ready.
  * @param {Array<object>} entries - `timeTracking.pending`
  * @param {string} [tab='ready']
- * @returns {{ id: 'ready' | 'on-hold' | 'archived', label: string, count: number, seconds: number }}
+ * @returns {{ id: 'ready' | 'on-hold', label: string, count: number, seconds: number }}
  */
 export function pendingTabTotals(entries, tab = DEFAULT_CLASSIFICATION) {
   const id = isClassification(tab) ? tab : DEFAULT_CLASSIFICATION;

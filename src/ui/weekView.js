@@ -1105,11 +1105,27 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     });
   };
 
+  /**
+   * The selected tab's name and count after a group's title, in the tab's color (blue Pending, amber
+   * On Hold, the selected view tab's blue): a grey dot, then "Pending (2)". The dot is only seen; the
+   * name and count are read. On a narrow window the name gives way (an ellipsis), never the count.
+   */
+  const renderGroupClassification = ({ tone, name }, count) => {
+    const text = count === null ? name : `${name} (${count})`;
+    // The spaces aren't drawn (the button's gap spaces the parts) but make the text "Worklogs · Pending (2)".
+    return h('span', { class: `working-issues-group-classification is-${tone}`, title: text }, ' ',
+      h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), ' ',
+      h('span', { class: 'working-issues-group-classification-name' }, name),
+      count !== null && [' ', h('span', { class: 'working-issues-group-count' }, `(${count})`)]);
+  };
+
   // What the Pending Worklogs header counts and totals: the selected classification tab.
   const pendingTab = pending ? pendingTabTotals(pending.entries, pending.tab) : null;
 
   return fragment(shown.map(({ id, label, icon }) => {
     const count = id === 'active' ? activeCount : String(pendingTab.count);
+    const named = id === 'pending' ? { tone: pendingTab.id, name: pendingTab.label }
+      : viewName ? { tone: 'view', name: viewName } : null;
     const toggle = h('button', {
       type: 'button',
       id: `workingIssuesGroupToggle-${id}`,
@@ -1124,15 +1140,10 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
         svg('polyline', { points: '6 9 12 15 18 9' })),
       svg('svg', { class: `working-issues-group-icon is-${id}`, ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' },
         ...icon()),
-      h('span', { class: 'working-issues-group-title' }, count === null ? label : `${label} (${count})`),
-      // Pending Worklogs names its selected tab after the count, in the tab's color, so the count
-      // and the total on the right read as that tab's. The dot is only seen; the name is read.
-      // Both are one span, so on a narrow window they give way together.
-      id === 'pending' && h('span', { class: `working-issues-group-classification is-${pendingTab.id}`, title: pendingTab.label },
-        h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), pendingTab.label),
-      // Issues names its selected view the same way, in the selected view tab's blue.
-      id === 'active' && viewName && h('span', { class: 'working-issues-group-classification is-view', title: viewName },
-        h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), viewName));
+      // A header that names a selected tab (Worklogs' classification, Issues' view) gives its count
+      // to that name, in the tab's color: "Worklogs · Pending (2)"; without one, the title has it.
+      h('span', { class: 'working-issues-group-title' }, named || count === null ? label : `${label} (${count})`),
+      named && renderGroupClassification(named, count));
     const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
       id === 'active' ? activeContent : renderPendingWorklogs({
         entries: pending.entries, site: pending.site, now: pending.now,

@@ -220,7 +220,7 @@ const weekPicker = createWeekPicker({
   }
 });
 
-// A pending worklog's ⋯ menu (Mark as Ready, Put On Hold, Archive): one for every row, which stays
+// A pending worklog's ⋯ menu (Mark as Pending or Put On Hold): one for every row, which stays
 // open while My Work is drawn again, on the row's new ⋯ button.
 const pendingActionsMenu = createPendingActionsMenu({
   container: document.body,
@@ -245,7 +245,7 @@ const workingIssuesGroupsExpanded = {
   active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
   pending: localStorage.getItem('jts-working-issues-pending-expanded') !== 'false'
 };
-// Pending Worklogs' classification tab (Ready, On Hold, or Archived; remembered in this browser),
+// The Worklogs group's classification tab (Pending or On Hold; remembered in this browser),
 // selection mode, and the selected worklogs, which always belong to the selected tab (see
 // src/worklog/pendingClassification.js). The selection itself is never saved.
 const pendingSelection = createPendingSelection(localStorage.getItem('jts-pending-classification'));
@@ -881,7 +881,7 @@ function togglePendingActions(id) {
 }
 
 /**
- * Files pending worklogs under Ready, On Hold, or Archived: from a row's menu, or the selected ones
+ * Files pending worklogs under Pending or On Hold: from a row's menu, or the selected ones
  * from the bulk bar. Only this browser's metadata changes, in one write; nothing is sent to Jira.
  * Each tab's count and total follow from the stored state, here and in other tabs.
  *
@@ -892,7 +892,7 @@ function togglePendingActions(id) {
  * nothing saved at all) stay selected, each flagged on its row, and the selection bar and a toast
  * name them: never success for a change that wasn't made.
  * @param {string[]} ids
- * @param {'ready' | 'on-hold' | 'archived'} classification
+ * @param {'ready' | 'on-hold'} classification
  * @param {{ bulk?: boolean }} [options]
  */
 async function classifyPending(ids, classification, { bulk = false } = {}) {

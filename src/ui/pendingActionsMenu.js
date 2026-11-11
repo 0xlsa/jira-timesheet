@@ -1,5 +1,5 @@
 /**
- * The menu a pending worklog's ⋯ button opens: Mark as Ready, Put On Hold, or Archive, whichever
+ * The menu a pending worklog's ⋯ button opens: Mark as Pending or Put On Hold, whichever
  * the row isn't filed under already. One menu serves every row, added to the page once; My Work
  * draws its rows again whenever the timer's state changes (in this tab or another), and the menu
  * stays open across that, following the row's new button.
@@ -15,11 +15,10 @@ import { h, svg } from './dom.js';
 
 const ICON_STROKE = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' };
 
-// Each action's icon (decorative): a check for Ready, a pause for On Hold, a box for Archive.
+// Each action's icon (decorative): a check for Pending, a pause for On Hold.
 const ACTION_ICONS = {
   ready: () => [svg('path', { d: 'M22 11.08V12a10 10 0 1 1-5.93-9.14' }), svg('polyline', { points: '22 4 12 14.01 9 11.01' })],
-  'on-hold': () => [svg('circle', { cx: '12', cy: '12', r: '10' }), svg('line', { x1: '10', y1: '15', x2: '10', y2: '9' }), svg('line', { x1: '14', y1: '15', x2: '14', y2: '9' })],
-  archived: () => [svg('polyline', { points: '21 8 21 21 3 21 3 8' }), svg('rect', { x: '1', y: '3', width: '22', height: '5' }), svg('line', { x1: '10', y1: '12', x2: '14', y2: '12' })]
+  'on-hold': () => [svg('circle', { cx: '12', cy: '12', r: '10' }), svg('line', { x1: '10', y1: '15', x2: '10', y2: '9' }), svg('line', { x1: '14', y1: '15', x2: '14', y2: '9' })]
 };
 
 /**

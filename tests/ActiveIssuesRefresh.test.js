@@ -178,7 +178,7 @@ describe('Active issues - the list while they load again', () => {
   it('keeps listing the issues shown, with their count, and a spinner beside the switch', () => {
     const section = render({ status: 'ready', issues: SHOWN, includeRecentlyLogged: false, refreshing: true });
     assert.deepEqual(rowKeys(section), ['KAN-1', 'KAN-2']);
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-active').textContent, 'Issues (2)·Active');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-active').textContent, 'Issues · Active (2)');
     assert.equal(section.querySelector('[role="tab"]').textContent, 'Active (2)');
     assert.ok(status(section).querySelector('.working-issues-spinner'));
     assert.equal(status(section).getAttribute('role'), 'status');

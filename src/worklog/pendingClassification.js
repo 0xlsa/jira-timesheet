@@ -1,5 +1,5 @@
 /**
- * The Worklogs group's classifications: Pending, On Hold, and Archived, one tab each. Pending's
+ * The Worklogs group's classifications: Pending and On Hold, one tab each. Pending's
  * internal ID is 'ready' (its name before 1.2.2): it's never stored, so renaming it changed no data,
  * and every worklog stored without a classification still reads as Pending. A pending
  * worklog's classification is this browser's own metadata (src/timer/timeTrackingStore.js,
@@ -15,16 +15,15 @@ import { DEFAULT_CLASSIFICATION, PENDING_CLASSIFICATIONS, classificationOf } fro
 
 /**
  * The classifications, in tab order: the tab's name, a row menu's action, and the bulk bar's.
- * @type {ReadonlyArray<{ id: 'ready' | 'on-hold' | 'archived', label: string, action: string, bulkAction: string }>}
+ * @type {ReadonlyArray<{ id: 'ready' | 'on-hold', label: string, action: string, bulkAction: string }>}
  */
 export const CLASSIFICATIONS = Object.freeze([
   { id: 'ready', label: 'Pending', action: 'Mark as Pending', bulkAction: 'Pending' },
-  { id: 'on-hold', label: 'On Hold', action: 'Put On Hold', bulkAction: 'On Hold' },
-  { id: 'archived', label: 'Archived', action: 'Archive', bulkAction: 'Archive' }
+  { id: 'on-hold', label: 'On Hold', action: 'Put On Hold', bulkAction: 'On Hold' }
 ].map(Object.freeze));
 
 /**
- * True for 'ready', 'on-hold', and 'archived'.
+ * True for 'ready' and 'on-hold'.
  * @param {unknown} value
  * @returns {boolean}
  */
@@ -56,7 +55,7 @@ export function entriesIn(entries, classification) {
  * Each classification's count and total time (whole seconds), from the same entries the tabs list,
  * so they always add up to every pending worklog.
  * @param {Array<object>} entries - `timeTracking.pending`
- * @returns {Record<'ready' | 'on-hold' | 'archived', { count: number, seconds: number }>}
+ * @returns {Record<'ready' | 'on-hold', { count: number, seconds: number }>}
  */
 export function summarizeClassifications(entries) {
   const summary = Object.fromEntries(PENDING_CLASSIFICATIONS.map((id) => [id, { count: 0, seconds: 0 }]));
@@ -256,7 +255,7 @@ function refusalReasons(refused, single, keyOf) {
  *   controller's classifyPending()
  * @param {Array<object>} options.entries - `timeTracking.pending`, as shown, for the issue keys
  * @param {string[]} options.ids
- * @param {'ready' | 'on-hold' | 'archived'} options.to
+ * @param {'ready' | 'on-hold'} options.to
  * @returns {Promise<{ status: 'done' | 'partial' | 'failed', moved: object[], refused: object[],
  *   keep: string[], failures: Array<{ id: string, issueKey: string, reason: string }>, message: string, detail: string }>}
  */

@@ -260,12 +260,12 @@ export function createTimerController({
     discardPending: async (id) => Boolean(await mutate(() => store.discardPending(id), { rethrow: true })),
 
     /**
-     * Files pending worklogs under Ready, On Hold, or Archived, in this browser only (see
+     * Files pending worklogs under Pending or On Hold, in this browser only (see
      * timeTrackingStore's classifyPending()): one write for all of them. Rejects with a user-facing
      * Error when nothing could be stored (the caller keeps what the user chose); IDs refused one
      * by one come back in `refused`.
      * @param {string[]} ids
-     * @param {'ready' | 'on-hold' | 'archived'} classification
+     * @param {'ready' | 'on-hold'} classification
      * @returns {Promise<{ classified: object[], unchanged: object[], refused: Array<{ id: string, code: string, issueKey?: string }> }>}
      */
     classifyPending: async (ids, classification) => {

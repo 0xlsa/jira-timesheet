@@ -1774,9 +1774,10 @@ body {
   opacity: 0.6;
 }
 
-/* Pending Worklogs' header: its title and count, a small grey dot (shared with Issues), then the selected tab's name in the
-   tab's color (blue Pending, amber On Hold, grey Archived). On one line whatever the width, the total
-   staying at the far right: the tab's name gives way first (an ellipsis), then the title. */
+/* Worklogs' header: its title, a small grey dot (shared with Issues), then the selected tab's name
+   and count in the tab's color (blue Pending, amber On Hold): "Worklogs · Pending (2)". On one
+   line whatever the width, the total staying at the far right: the tab's name gives way first (an
+   ellipsis, its count staying whole), then the title. */
 .working-issues-group.is-pending .working-issues-group-header {
   flex-wrap: nowrap;
 }
@@ -1790,7 +1791,7 @@ body {
 }
 
 .working-issues-group.is-pending .working-issues-group-title,
-.working-issues-group-classification {
+.working-issues-group-classification-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1802,13 +1803,30 @@ body {
 }
 
 .working-issues-group-separator {
-  margin-right: 8px;
   font-weight: 400;
   color: var(--text-muted);
 }
 
+/* The tab's name and count are spaced by the button's gap like its other parts, so the wrapper only
+   gives them its color: the name gives way before the title, down to a hint of itself ("On…"),
+   and the dot and count stay whole. */
 .working-issues-group-classification {
+  display: contents;
+}
+
+.working-issues-group-classification .working-issues-group-classification-name {
   flex: 0 1000 auto;
+  min-width: 2.5em;
+}
+
+.working-issues-group-separator,
+.working-issues-group-count {
+  flex: none;
+}
+
+/* The count is the name's: its color and weight, a space apart (closer than the button's gap). */
+.working-issues-group-count {
+  margin-left: -3px;
 }
 
 .working-issues-group-classification.is-ready {
@@ -1823,11 +1841,8 @@ body {
   color: var(--warning);
 }
 
-.working-issues-group-classification.is-archived {
-  color: var(--text-subtle);
-}
-
-/* Issues' header names its selected view the same way, in the selected view tab's blue. Its header
+/* Issues' header names its selected view and count the same way, in the selected view tab's blue:
+   "Issues · Selected For Dev (20+)". Its header
    has nothing on the right, so only the button's own parts give way: the view's name first (an
    ellipsis), then the title. */
 .working-issues-group-classification.is-view {
@@ -2058,7 +2073,7 @@ body {
   background-color: var(--bg-hover);
 }
 
-/* Pending Worklogs' classification tabs (Ready, On Hold, Archived), in the view tabs' look, with
+/* The Worklogs group's classification tabs (Pending, On Hold), in the view tabs' look, with
    Select at the far right */
 .pending-toolbar {
   display: flex;
@@ -3415,7 +3430,7 @@ body {
 }
 
 /* Pending Worklogs' classification tabs (src/ui/pendingWorklogs.js): the view tabs' shape, each in
-   its own color (blue for Pending, amber for On Hold, grey for Archived), in both themes.
+   its own color (blue for Pending, amber for On Hold), in both themes.
    Unselected: the color's text, a faint border and tint. Selected: a stronger tint and a solid
    border, with an inner ring that changes no size. After the view tabs' rules, so they win. */
 .pending-tabs .pending-tab {
@@ -3435,10 +3450,6 @@ body {
 
 .pending-tabs .pending-tab.is-on-hold {
   --tab-color: var(--warning);
-}
-
-.pending-tabs .pending-tab.is-archived {
-  --tab-color: var(--text-subtle);
 }
 
 .pending-tabs .pending-tab:hover {
