@@ -1,7 +1,7 @@
 /**
- * The selected day's time by Jira issue, for the day panel's Summary tab: the day's worklogs
+ * Time by Jira issue, for the selected day's Summary tab and the Weekly Summary: worklogs
  * (aggregateWorklogsByWeek()'s), grouped by issue, each issue's total time and its share of the
- * day's. Read-only: the worklogs themselves are left as they are.
+ * whole. Read-only: the worklogs themselves are left as they are.
  */
 
 import { formatDuration } from './worklogUtils.js';
@@ -39,17 +39,17 @@ export function wholePercentages(amounts) {
 }
 
 /**
- * The day's worklogs grouped by Jira issue key (by issue ID when a worklog has no key, and all
- * of those with neither together), the issue with the most time first and, on a tie, the one
- * logged first. A worklog with no valid duration counts as 0.
+ * Worklogs (a day's or a week's) grouped by Jira issue key (by issue ID when a worklog has no
+ * key, and all of those with neither together), the issue with the most time first and, on a
+ * tie, the one logged first. A worklog with no valid duration counts as 0.
  *
- * @param {Array<object>} worklogs - A day's worklogs, from aggregateWorklogsByWeek()
+ * @param {Array<object>} worklogs - A day's or a week's worklogs, from aggregateWorklogsByWeek()
  * @returns {{
  *   issues: Array<{ id: string, issueKey: string, issueSummary: string, seconds: number, formattedDuration: string, percent: number }>,
  *   totalSeconds: number
  * }}
  */
-export function summarizeDayByIssue(worklogs) {
+export function summarizeByIssue(worklogs) {
   const groups = new Map();
   for (const worklog of Array.isArray(worklogs) ? worklogs : []) {
     if (!worklog) continue;

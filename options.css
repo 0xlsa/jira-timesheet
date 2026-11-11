@@ -980,13 +980,198 @@ body {
   background-color: var(--success);
 }
 
-/* Selected-day panel */
-.day-panel {
+/* Daily and Weekly Summary: two halves of one segmented control across the full width, the
+   selected one in the selected tabs' blue. Unlike the selected day's underlined tabs, a control
+   of its own, as it changes the whole view. */
+.view-tabs {
+  display: flex;
+  padding: 3px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.view-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-subtle);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.view-tab:hover {
+  color: var(--text-main);
+}
+
+.view-tab.is-selected {
+  color: #58a6ff;
+  background-color: var(--bg-card);
+  border-color: var(--primary-border);
+}
+
+[data-theme="light"] .view-tab.is-selected {
+  color: var(--primary);
+}
+
+.view-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+/* One card for the week's views: the Daily / Weekly Summary control on top, then Daily's weekday
+   cards and selected day, or the Weekly Summary. The day panel's card, now around all of them. */
+.week-views {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Each view: Daily's weekday cards and day panel, spaced as the page's sections are */
+.week-view-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* The Weekly Summary, in the week's card (no card of its own): the week's dates, its totals (the
+   summary cards' labels), then its time by issue (as in the day's Summary) and each day's total. */
+.week-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.week-summary-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-main);
+  letter-spacing: -0.2px;
+}
+
+.week-summary-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0;
+}
+
+.week-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.week-summary-stat-value {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The week's total in the day total's green; grey when nothing is logged */
+.week-summary-stat-value.is-time {
+  color: var(--success);
+}
+
+.week-summary-stat-value.is-zero {
+  color: var(--text-muted);
+}
+
+.week-summary-heading {
+  margin: 6px 0 -4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+/* Each day's total, all seven, in the Summary's container: day, date, a bar on the week's scale
+   (the longest day fills it), and the time on the right. A day without time: no bar, muted. */
+.week-daily-totals {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 4px 14px;
+  list-style: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.week-daily-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: 10px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.week-daily-day {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.week-daily-date {
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-daily-track {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background-color: var(--bg-card-elevated);
+  overflow: hidden;
+}
+
+.week-daily-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--primary);
+}
+
+.week-daily-total {
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.week-daily-row.is-empty .week-daily-day,
+.week-daily-row.is-empty .week-daily-date,
+.week-daily-row.is-empty .week-daily-total {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Selected-day panel */
+.day-panel {
+  /* In the week's card, below the weekday cards and a subtle line (no card of its own) */
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2550,7 +2735,7 @@ body {
 }
 
 @media (max-width: 600px) {
-  .day-panel {
+  .week-views {
     padding: 16px;
   }
 

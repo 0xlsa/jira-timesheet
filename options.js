@@ -202,6 +202,9 @@ let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'tru
 // The selected day's tab (Worklogs or Summary): one for every day, kept while the page is open
 // and back to Worklogs when it opens again (not stored).
 let selectedDayTab = 'worklogs';
+// The week's view (Daily or Weekly Summary): kept while the page is open, across weeks, and back to
+// Daily when it opens again (not stored).
+let selectedView = 'daily';
 
 /** Selecting a day, here or in another week, shows its worklogs; its header still collapses them. */
 function expandDayPanel() {
@@ -619,7 +622,9 @@ function renderDays(aggregatedData, baseUrl = '') {
       localStorage.setItem('jts-day-panel-expanded', String(expanded));
     },
     dayTab: selectedDayTab,
-    onSelectDayTab: (tab) => { selectedDayTab = tab; }
+    onSelectDayTab: (tab) => { selectedDayTab = tab; },
+    view: selectedView,
+    onSelectView: (view) => { selectedView = view; }
   });
   pendingActionsMenu.sync();
 }

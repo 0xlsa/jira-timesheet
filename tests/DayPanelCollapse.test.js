@@ -207,10 +207,12 @@ describe('Day panel - collapsing the selected day', () => {
         selectedDateKey: '2026-10-19', onSelectDay: () => {}, dayExpanded,
         workingIssues: { state: { status: 'ready', issues: [] }, expanded: true }
       });
-      return container.childNodes.map((node) => node.className.split(' ')[0]);
+      return [container, container.querySelector('#dailyView')].map((el) => el.childNodes.map((node) => node.className.split(' ')[0]));
     };
-    assert.deepEqual(order(true), ['week-strip', 'day-panel', 'working-issues']);
-    assert.deepEqual(order(false), ['week-strip', 'day-panel', 'working-issues']);
+    // My Work is below both views, outside their card: the same whichever is shown.
+    const expected = [['week-views', 'working-issues'], ['week-strip', 'day-panel']];
+    assert.deepEqual(order(true), expected);
+    assert.deepEqual(order(false), expected);
   });
 
   it('remembers the state when the tab is opened again', () => {

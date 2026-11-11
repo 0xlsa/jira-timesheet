@@ -5,7 +5,8 @@
 
 import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
-import { summarizeDayByIssue } from '../worklog/timeDistribution.js';
+import { summarizeByIssue } from '../worklog/timeDistribution.js';
+import { formatDuration } from '../worklog/worklogUtils.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
 import { formatPendingTotal, pendingTabTotals, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
@@ -1303,30 +1304,39 @@ const DAY_TABS = [
 // Issues past the last color share a neutral grey rather than repeat one.
 const SUMMARY_TONES = 8;
 
+// The week's views, in order: the days (the default), and the week's time as a whole.
+const VIEWS = [
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly Summary' }
+];
+
 /**
- * The selected day's tabs, side by side and of equal width, each with its count: Worklogs (its
- * worklogs) and Summary (its distinct issues). A tablist (WAI-ARIA tabs): the selected tab is the
- * one in the tab order, and the arrow keys, Home, and End choose another. Choosing a tab shows its
- * panel at once, in place (no new request), then tells `onSelect`.
+ * A row of tabs, side by side and of equal width, each with its count when it has one. A tablist
+ * (WAI-ARIA tabs): the selected tab is the one in the tab order, and the arrow keys, Home, and End
+ * choose another. Choosing a tab shows its panel at once, in place (no new request), then tells
+ * `onSelect`. An unknown `selected` selects the first tab.
  *
- * @param {{ worklogs: number, summary: number }} counts
- * @param {{ worklogs: HTMLElement, summary: HTMLElement }} panels
+ * @param {Array<{ id: string, label: string, count?: number }>} tabs
+ * @param {Record<string, HTMLElement>} panels - Each tab's panel, by tab ID
  * @param {string} selected
  * @param {(tab: string) => void} [onSelect]
+ * @param {{ className: string, idPrefix: string, label: string }} names - The row's class (each
+ *   tab's is it without its final s), the tabs' ID prefix, and the row's accessible name
  * @returns {HTMLElement}
  */
-function renderDayTabs(counts, panels, selected, onSelect) {
-  let current = DAY_TABS.some((tab) => tab.id === selected) ? selected : DAY_TABS[0].id;
-  const buttons = DAY_TABS.map(({ id, label }) => h('button', {
+function renderTabs(tabs, panels, selected, onSelect, { className, idPrefix, label: rowLabel }) {
+  const tabClass = className.replace(/s$/, '');
+  let current = tabs.some((tab) => tab.id === selected) ? selected : tabs[0].id;
+  const buttons = tabs.map(({ id, label, count }) => h('button', {
     type: 'button',
     role: 'tab',
-    id: `dayTab-${id}`,
-    class: 'day-tab',
+    id: `${idPrefix}-${id}`,
+    class: tabClass,
     'data-tab': id,
     'aria-controls': panels[id].id
   },
-    h('span', { class: 'day-tab-name' }, label),
-    h('span', { class: 'day-tab-count' }, ` (${counts[id]})`)));
+    h('span', { class: `${tabClass}-name` }, label),
+    count !== undefined && h('span', { class: `${tabClass}-count` }, ` (${count})`)));
 
   const show = (id) => {
     current = id;
@@ -1345,7 +1355,7 @@ function renderDayTabs(counts, panels, selected, onSelect) {
   };
   show(current);
 
-  const tablist = h('div', { class: 'day-tabs', role: 'tablist', 'aria-label': 'Selected day' }, buttons);
+  const tablist = h('div', { class: className, role: 'tablist', 'aria-label': rowLabel }, buttons);
   tablist.addEventListener('click', (event) => {
     const button = event.target.closest('[role="tab"]');
     if (button) select(button.dataset.tab);
@@ -1366,18 +1376,19 @@ function renderDayTabs(counts, panels, selected, onSelect) {
 }
 
 /**
- * The Summary tab's contents: a thin bar split by issue, in proportion to each one's time, then
- * each issue (its color, key, summary, time, and share of the day), one per row. The
+ * The Summary tab's contents (and the Weekly Summary's time distribution): a thin bar split by issue, in proportion to each one's time, then
+ * each issue (its color, key, summary, time, and share of the total), one per row. The
  * list gives every number; the bar only shows them (its name lists the shares, its parts' tooltips
  * the times).
  *
- * @param {ReturnType<typeof summarizeDayByIssue>} summary
+ * @param {ReturnType<typeof summarizeByIssue>} summary
  * @param {string} baseUrl
+ * @param {string} [emptyText] - Said instead when no time is logged
  * @returns {HTMLElement}
  */
-function renderDaySummary({ issues, totalSeconds }, baseUrl) {
+function renderDaySummary({ issues, totalSeconds }, baseUrl, emptyText = 'No time logged for this day.') {
   if (!(totalSeconds > 0)) {
-    return h('div', { class: 'empty-day-placeholder' }, 'No time logged for this day.');
+    return h('div', { class: 'empty-day-placeholder' }, emptyText);
   }
   const tone = (index) => (index < SUMMARY_TONES ? `is-tone-${index + 1}` : 'is-tone-other');
   const keyOf = (issue) => issue.issueKey || 'No issue key';
@@ -1406,9 +1417,80 @@ function renderDaySummary({ issues, totalSeconds }, baseUrl) {
   return h('div', { class: 'day-summary' }, bar, list);
 }
 
+const MONTH_FORMAT = new Intl.DateTimeFormat('en-GB', { month: 'long' });
+
 /**
- * Renders the 7 weekday cards, the selected day's worklog panel, and the My Work section
- * into `container`. Daily totals and weekly totals are never modified by changing the selection.
+ * The Weekly Summary's dates, in the day panel's date style: "9–15 November 2026",
+ * "26 October – 1 November 2026", "28 December 2026 – 3 January 2027".
+ * @param {Date} start
+ * @param {Date} end
+ * @returns {string}
+ */
+export function formatWeekSpan(start, end) {
+  const sameYear = start.getFullYear() === end.getFullYear();
+  if (sameYear && start.getMonth() === end.getMonth()) {
+    return `${start.getDate()}–${end.getDate()} ${MONTH_FORMAT.format(end)} ${end.getFullYear()}`;
+  }
+  if (sameYear) {
+    return `${start.getDate()} ${MONTH_FORMAT.format(start)} – ${end.getDate()} ${MONTH_FORMAT.format(end)} ${end.getFullYear()}`;
+  }
+  return `${LONG_DATE_FORMAT.format(start)} – ${LONG_DATE_FORMAT.format(end)}`;
+}
+
+// Each day of the Weekly Summary's daily totals: "Mon" and "19 Oct".
+const WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-GB', { weekday: 'short' });
+const SHORT_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
+
+/**
+ * The Weekly Summary: the week's dates, its total time, worklogs, and distinct issues; its time by
+ * issue, as in the selected day's Summary; then each day's total, all seven, on one scale (the
+ * week's longest day fills its bar). Everything comes from the week already loaded, grouped by day
+ * as the Daily view groups it.
+ *
+ * @param {{ weekDays: Array<object> }} week
+ * @param {string} baseUrl
+ * @returns {HTMLElement}
+ */
+function renderWeeklySummary(week, baseUrl) {
+  const days = week.weekDays || [];
+  const worklogs = days.flatMap((day) => day.worklogs || []);
+  const summary = summarizeByIssue(worklogs);
+  const formatTotal = (seconds) => formatDuration(seconds, { padZeroMinutes: true, alwaysShowHours: true });
+  const range = days.length > 0 ? formatWeekSpan(days[0].date, days[days.length - 1].date) : '';
+
+  const stat = (label, value, className = '') => h('div', { class: 'week-summary-stat' },
+    h('dt', { class: 'stat-label' }, label),
+    h('dd', { class: `week-summary-stat-value ${className}`.trim() }, value));
+
+  const daySeconds = days.map((day) => Math.max(0, Number(day.totalDurationSeconds) || 0));
+  const longest = Math.max(0, ...daySeconds);
+  const dailyTotals = h('ul', { class: 'week-daily-totals' }, days.map((day, index) => {
+    const seconds = daySeconds[index];
+    const width = longest > 0 ? (seconds / longest) * 100 : 0;
+    return h('li', { class: `week-daily-row${seconds > 0 ? '' : ' is-empty'}`, 'data-date-key': day.dateKey },
+      h('span', { class: 'week-daily-day' }, WEEKDAY_FORMAT.format(day.date)),
+      h('span', { class: 'week-daily-date' }, SHORT_DATE_FORMAT.format(day.date)),
+      h('span', { class: 'week-daily-track', 'aria-hidden': 'true' },
+        seconds > 0 && h('span', { class: 'week-daily-fill', style: `width: ${width.toFixed(1)}%` })),
+      h('span', { class: 'week-daily-total' }, formatTotal(seconds)));
+  }));
+
+  return h('section', { class: 'week-summary', 'aria-labelledby': 'weekSummaryTitle' },
+    h('h3', { id: 'weekSummaryTitle', class: 'week-summary-title' }, `Week: ${range}`),
+    h('dl', { class: 'week-summary-stats' },
+      stat('Total time', formatTotal(summary.totalSeconds), summary.totalSeconds > 0 ? 'is-time' : 'is-zero'),
+      stat('Worklogs', String(worklogs.length)),
+      stat('Jira issues', String(summary.issues.length))),
+    h('h4', { class: 'week-summary-heading' }, 'Time distribution'),
+    renderDaySummary(summary, baseUrl, 'No time logged this week.'),
+    h('h4', { class: 'week-summary-heading' }, 'Daily totals'),
+    dailyTotals);
+}
+
+/**
+ * Renders the week's views, Daily (the 7 weekday cards and the selected day's worklog panel) and
+ * Weekly Summary, below the tabs that choose between them, then the My Work section into
+ * `container`. Daily totals and weekly totals are never modified by changing the selection.
  *
  * @param {HTMLElement} container
  * @param {{ weekDays: Array<object> }} week - Aggregated week from aggregateWorklogsByWeek()
@@ -1433,9 +1515,12 @@ function renderDaySummary({ issues, totalSeconds }, baseUrl) {
  * @param {'worklogs' | 'summary'} [options.dayTab] - The selected day's tab: its worklogs one by
  *   one (the default), or its time by issue. One tab for every day.
  * @param {(tab: 'worklogs' | 'summary') => void} [options.onSelectDayTab] - Called after another
- *   tab of the selected day is chosen; the panel switches tabs itself
+ *   tab of the selected day is chosen; the panel switches tabs itself * @param {'daily' | 'weekly'} [options.view] - The week's view: Daily (the weekday cards and the
+ *   selected day's panel; the default) or Weekly Summary. My Work is below either.
+ * @param {(view: 'daily' | 'weekly') => void} [options.onSelectView] - Called after the other view
+ *   is chosen; the page switches views itself
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay, dayTab = DAY_TABS[0].id, onSelectDayTab }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay, dayTab = DAY_TABS[0].id, onSelectDayTab, view = VIEWS[0].id, onSelectView }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -1481,7 +1566,8 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     strip.appendChild(dayCard);
   });
 
-  container.appendChild(strip);
+  // The Daily view: the weekday cards, then the selected day's panel.
+  const dailyView = h('div', { id: 'dailyView', class: 'week-view-panel', role: 'tabpanel', 'aria-labelledby': 'viewTab-daily' }, strip);
 
   // 2. Selected-day worklogs panel
   const panel = document.createElement('section');
@@ -1560,16 +1646,26 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     worklogsPanel.appendChild(emptyPlaceholder);
   }
 
-  const summary = summarizeDayByIssue(selectedDay.worklogs);
+  const summary = summarizeByIssue(selectedDay.worklogs);
   const summaryPanel = h('div', { id: 'selectedDaySummary', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-summary' },
     renderDaySummary(summary, baseUrl));
   body.append(
-    renderDayTabs({ worklogs: selectedDay.worklogs.length, summary: summary.issues.length }, { worklogs: worklogsPanel, summary: summaryPanel }, dayTab, onSelectDayTab),
+    renderTabs(DAY_TABS.map((tab) => ({ ...tab, count: tab.id === 'worklogs' ? selectedDay.worklogs.length : summary.issues.length })),
+      { worklogs: worklogsPanel, summary: summaryPanel }, dayTab, onSelectDayTab, { className: 'day-tabs', idPrefix: 'dayTab', label: 'Selected day' }),
     worklogsPanel,
     summaryPanel);
 
   setDayPanelExpanded(panel, dayExpanded);
-  container.appendChild(panel);
+  dailyView.appendChild(panel);
+
+  // The Weekly Summary view, from the same week, and the tabs that choose between the two views.
+  const weeklyView = h('div', { id: 'weeklySummaryView', class: 'week-view-panel', role: 'tabpanel', 'aria-labelledby': 'viewTab-weekly' },
+    renderWeeklySummary(week, baseUrl));
+  // All three in one card (options.css).
+  container.appendChild(h('div', { class: 'week-views' },
+    renderTabs(VIEWS, { daily: dailyView, weekly: weeklyView }, view, onSelectView, { className: 'view-tabs', idPrefix: 'viewTab', label: 'Week views' }),
+    dailyView,
+    weeklyView));
 
   // 3. My Work, below the selected day's worklogs: the user's issues in progress or with
   // work logged recently

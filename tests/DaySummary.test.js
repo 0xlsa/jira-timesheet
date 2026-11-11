@@ -6,7 +6,7 @@ import { renderWeek } from '../src/ui/weekView.js';
 import { h } from '../src/ui/dom.js';
 import { aggregateWorklogsByWeek, getWeekDays } from '../src/worklog/worklogUtils.js';
 import { removeWorklogFromWeek, replaceWorklogInWeek } from '../src/worklog/weeklyWorklogService.js';
-import { summarizeDayByIssue, wholePercentages } from '../src/worklog/timeDistribution.js';
+import { summarizeByIssue, wholePercentages } from '../src/worklog/timeDistribution.js';
 
 const MINUTE = 60;
 const HOUR = 3600;
@@ -15,7 +15,7 @@ const wl = (id, issueKey, seconds, extra = {}) => ({ id, issueId: `9${id}`, issu
 describe('Summary - time by issue', () => {
   it('groups by issue, most time first, with whole percentages that add up to 100', () => {
     // EKB-31139 in two worklogs (3h + 1h 30m).
-    const { issues, totalSeconds } = summarizeDayByIssue([
+    const { issues, totalSeconds } = summarizeByIssue([
       wl('1', 'EKB-31139', 3 * HOUR, { issueSummary: 'Bind Consul only to the overlay network' }),
       wl('2', 'EKB-30668', 45 * MINUTE),
       wl('3', 'EKB-30767', 3 * HOUR + 10 * MINUTE),
@@ -44,19 +44,19 @@ describe('Summary - time by issue', () => {
   });
 
   it('keeps issues with the same time in the order they were logged', () => {
-    const { issues } = summarizeDayByIssue([wl('1', 'B-1', HOUR), wl('2', 'A-1', HOUR), wl('3', 'C-1', HOUR)]);
+    const { issues } = summarizeByIssue([wl('1', 'B-1', HOUR), wl('2', 'A-1', HOUR), wl('3', 'C-1', HOUR)]);
     assert.deepEqual(issues.map((i) => [i.issueKey, i.percent]), [['B-1', 34], ['A-1', 33], ['C-1', 33]]);
   });
 
   it('gives a single issue 100%', () => {
-    const { issues } = summarizeDayByIssue([wl('1', 'KAN-1', HOUR), wl('2', 'KAN-1', 30 * MINUTE)]);
+    const { issues } = summarizeByIssue([wl('1', 'KAN-1', HOUR), wl('2', 'KAN-1', 30 * MINUTE)]);
     assert.deepEqual(issues.map((i) => [i.issueKey, i.formattedDuration, i.percent]), [['KAN-1', '1h 30m', 100]]);
   });
 
   it('handles empty days, missing issue details, and invalid durations', () => {
-    assert.deepEqual(summarizeDayByIssue([]), { issues: [], totalSeconds: 0 });
-    assert.deepEqual(summarizeDayByIssue(undefined), { issues: [], totalSeconds: 0 });
-    const { issues, totalSeconds } = summarizeDayByIssue([
+    assert.deepEqual(summarizeByIssue([]), { issues: [], totalSeconds: 0 });
+    assert.deepEqual(summarizeByIssue(undefined), { issues: [], totalSeconds: 0 });
+    const { issues, totalSeconds } = summarizeByIssue([
       null,
       wl('1', '', HOUR, { issueId: '77', issueSummary: 'No summary available' }),
       wl('2', '', 30 * MINUTE, { issueId: '77', issueSummary: 'Known by its ID' }),
@@ -118,7 +118,7 @@ function createPage() {
     tab: (id) => q(`#dayTab-${id}`),
     worklogsPanel: () => q('#selectedDayWorklogs'),
     summaryPanel: () => q('#selectedDaySummary'),
-    rows: () => container.querySelectorAll('.day-summary-item').map((item) => [
+    rows: () => q('#selectedDaySummary').querySelectorAll('.day-summary-item').map((item) => [
       item.querySelector('.issue-key-badge').textContent,
       item.querySelector('.day-summary-title').textContent,
       item.querySelector('.day-summary-duration').textContent,
@@ -202,19 +202,19 @@ describe('Day panel - Worklogs and Summary tabs', () => {
       ['EKB-30668', 'Upgrade from 25.5.0 to feature branches fails on service after reboot', '0h 45m', '8%']
     ]);
     // The full title stays in reach, in the tooltip too.
-    const titles = page.container.querySelectorAll('.day-summary-title');
+    const titles = page.summaryPanel().querySelectorAll('.day-summary-title');
     assert.ok(titles.every((t) => t.getAttribute('title') === t.textContent));
     // The bar: one part per issue, as wide as its time, in the list's colors.
-    const bar = page.q('.day-summary-bar');
+    const bar = page.summaryPanel().querySelector('.day-summary-bar');
     assert.equal(bar.getAttribute('role'), 'img');
     assert.equal(bar.getAttribute('aria-label'), 'Time by issue: EKB-31139 44%, EKB-30767 31%, EKB-31086 17%, EKB-30668 8%');
     const segments = bar.querySelectorAll('.day-summary-segment');
     assert.deepEqual(segments.map((s) => s.getAttribute('style')), ['flex-grow: 16200', 'flex-grow: 11400', 'flex-grow: 6300', 'flex-grow: 2700']);
     assert.deepEqual(segments.map((s) => s.getAttribute('title')), ['EKB-31139 · 4h 30m · 44%', 'EKB-30767 · 3h 10m · 31%', 'EKB-31086 · 1h 45m · 17%', 'EKB-30668 · 0h 45m · 8%']);
-    const tones = (selector) => page.container.querySelectorAll(selector).map((el) => el.className.split(' ').find((c) => c.startsWith('is-tone-')));
+    const tones = (selector) => page.summaryPanel().querySelectorAll(selector).map((el) => el.className.split(' ').find((c) => c.startsWith('is-tone-')));
     assert.deepEqual(tones('.day-summary-segment'), ['is-tone-1', 'is-tone-2', 'is-tone-3', 'is-tone-4']);
     assert.deepEqual(tones('.day-summary-swatch'), tones('.day-summary-segment'));
-    assert.equal(page.q('.day-summary-item').querySelector('.issue-key-badge').getAttribute('href'), 'https://acme.atlassian.net/browse/EKB-31139');
+    assert.equal(page.summaryPanel().querySelector('.day-summary-item').querySelector('.issue-key-badge').getAttribute('href'), 'https://acme.atlassian.net/browse/EKB-31139');
   });
 
   it('keeps the selected tab when another day is selected, and shows 100% for a single issue', () => {
@@ -225,7 +225,7 @@ describe('Day panel - Worklogs and Summary tabs', () => {
     assert.ok(shown(page.summaryPanel()));
     assert.deepEqual(page.tabs().map((t) => t.textContent), ['Worklogs (2)', 'Summary (1)']);
     assert.deepEqual(page.rows(), [['KAN-9', 'Only one issue today', '3h 00m', '100%']]);
-    assert.equal(page.container.querySelectorAll('.day-summary-segment').length, 1);
+    assert.equal(page.summaryPanel().querySelectorAll('.day-summary-segment').length, 1);
   });
 
   it('shows an empty state in both tabs on a day without worklogs', () => {
@@ -263,7 +263,7 @@ describe('Day panel - Worklogs and Summary tabs', () => {
     const many = Array.from({ length: 10 }, (_, i) => ({ id: String(i + 1), issueId: String(i + 1), issueKey: `KAN-${i + 1}`, issueSummary: `Task ${i + 1}`, started: at('2026-10-30', `${String(8 + i).padStart(2, '0')}:00`), timeSpentSeconds: (20 - i) * MINUTE }));
     const container = h('div', {});
     renderWeek(container, weekOf(many), { selectedDateKey: '2026-10-30', onSelectDay: () => {}, dayExpanded: true, dayTab: 'summary' });
-    const tones = container.querySelectorAll('.day-summary-swatch').map((el) => el.className.split(' ').find((c) => c.startsWith('is-tone-')));
+    const tones = container.querySelector('#selectedDaySummary').querySelectorAll('.day-summary-swatch').map((el) => el.className.split(' ').find((c) => c.startsWith('is-tone-')));
     assert.deepEqual(tones, ['is-tone-1', 'is-tone-2', 'is-tone-3', 'is-tone-4', 'is-tone-5', 'is-tone-6', 'is-tone-7', 'is-tone-8', 'is-tone-other', 'is-tone-other']);
   });
 

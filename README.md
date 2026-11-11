@@ -71,6 +71,11 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - A thin bar split by issue, each part as wide as its share of the day's time, then one row per issue, most time first: its color in the bar, its key (linked to Jira), its summary (cut short with an ellipsis when long), its total time, and its share of the day. Worklogs on the same issue are added together; the shares are whole percentages that always add up to 100%.
 - The Summary is read-only and uses the worklogs already loaded: switching tabs sends nothing to Jira, and the Summary follows every worklog you log, edit, or delete, and every sync.
 
+**Weekly Summary**
+- Above the weekday cards, two views of equal width: **Daily** (the weekday cards and the selected day's panel, with its Worklogs and Summary tabs) and **Weekly Summary**. Daily is shown when the page opens; the view you choose stays as you move between weeks, until the page is closed. The week navigation, the summary cards, and My Work stay in place in both.
+- The Weekly Summary shows the week's dates, its total time, worklogs, and distinct Jira issues; its time by issue, with the same bar and rows as the day's Summary, for the whole week; and each of the seven days' totals on one scale (the week's longest day fills its bar), with the days without time in grey.
+- It's drawn from the week already loaded, with each worklog on the day the Daily view puts it, so it adds no requests to Jira and follows every worklog you log, edit, or delete, and every sync. Going back to Daily keeps the selected day and its tab.
+
 **Editing worklogs**
 - Change the date, start time, duration (hours and minutes), and work description (comment). The issue key, title, and status are read-only.
 - Only the fields you changed are sent to Jira. An untouched comment keeps its Jira formatting.
@@ -354,6 +359,7 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `IssuePicker.test.js` | The issue search's 300 ms debounce, cancelled and ignored stale searches, reused answers, the 10-suggestion limit, empty and failed searches, and the field's keyboard and mouse use, including **Enter** picking the exact key |
 | `DeleteWorklogDialog.test.js` | The delete confirmation: the details shown (local date, start time, duration), success, failures that keep the error, ignoring a second click while deleting, and escaping |
 | `DaySummary.test.js` | The selected day's time by issue (grouping by key, then ID; most time first; whole percentages adding up to 100; empty days, missing details, and invalid durations); the Worklogs and Summary tabs (equal widths, counts, switching in place, keyboard, kept across days, empty states), the bar and rows, and following worklogs created, edited, and deleted |
+| `WeeklySummary.test.js` | The Daily and Weekly Summary views (Daily by default, equal widths, switching in place, kept across weeks, back to the same day and tab); the week's dates, totals, and distinct issues from that week only; its time by issue across days; all seven days' totals on one scale; an empty week; and following worklogs created, edited, and deleted |
 | `WeekView.test.js` | Issue status labels and their theme colors; the original weekday cards and selected-day panel; the selected day's circular add button, its label, and its date across weeks; a new worklog appearing on its day with the updated totals |
 | `SafeRendering.test.js` | Jira text containing markup (such as `<img src=x onerror=alert(1)>`) shown as text in worklog cards, the weekly view, the edit and Log work panel, the delete confirmation, and connection status messages; the DOM helpers refusing event handler attributes; the weekly view's day and edit buttons |
 | `WeeklyWorklogService.test.js` | Week ranges across a daylight-saving change, loading a week, and recalculating day and week totals after creating, editing, or deleting a worklog |
@@ -475,7 +481,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── JiraUrlValidator.js        # URL validation and origin checks
 │   └── worklog/
 │       ├── worklogUtils.js            # Weeks, time zones, durations, aggregation
-│       ├── timeDistribution.js        # The selected day's time by issue (the Summary tab)
+│       ├── timeDistribution.js        # Time by issue (the day's Summary tab and the Weekly Summary)
 │       ├── worklogEdit.js             # Edit form conversion, validation, Jira formats
 │       ├── pendingClassification.js   # Worklog Queue's tabs, actions, selection, and classification changes
 │       └── weeklyWorklogService.js    # Loads a week and applies worklog changes

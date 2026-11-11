@@ -801,8 +801,9 @@ describe('WeekView - My Work section', () => {
         selectedDateKey: '2026-10-26', onSelectDay: () => {}, dayExpanded,
         workingIssues: { state: { status: 'loading' }, expanded: true }
       });
-      assert.deepEqual(container.childNodes.map((node) => node.className.split(' ')[0]), ['week-strip', 'day-panel', 'working-issues'], `dayExpanded: ${dayExpanded}`);
-      assert.equal(container.childNodes[2].id, 'workingIssues');
+      assert.deepEqual(container.childNodes.map((node) => node.className.split(' ')[0]), ['week-views', 'working-issues'], `dayExpanded: ${dayExpanded}`);
+      assert.deepEqual(container.querySelector('#dailyView').childNodes.map((node) => node.className.split(' ')[0]), ['week-strip', 'day-panel']);
+      assert.equal(container.childNodes[1].id, 'workingIssues');
     }
   });
 
