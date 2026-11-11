@@ -6,7 +6,7 @@
 import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
-import { formatPendingTotal, pendingTotalSeconds, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
+import { formatPendingTotal, pendingTabTotals, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
@@ -440,6 +440,11 @@ function uniqueIssues(issues) {
  * @param {(id: string) => void} options.pending.onDiscard - Called with a pending worklog's ID from its Discard button
  * @param {(id: string) => void} [options.pending.onSubmit] - Called with a pending worklog's ID from its Submit button
  * @param {number} [options.pending.now] - For a submission left running too long
+ * @param {string} [options.pending.tab='ready'] - The selected classification tab: the group lists it,
+ *   and its header counts it and gives its total time
+ * @param {(tab: string) => void} [options.pending.onSelectTab] - Called with a classification tab when it's chosen
+ * @param {(id: string) => void} [options.pending.onMenu] - Called with a pending worklog's ID from its ⋯ button
+ * @param {object} [options.pending.selection] - Selection mode (renderPendingWorklogs()'s `selection`)
  * @param {{ active?: boolean, pending?: boolean }} [options.groupsExpanded] - Whether each group is
  *   expanded; each is unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle] - Called
@@ -571,7 +576,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
           id: 'workingIssuesViewPanel', class: 'working-issues-view-panel', role: 'tabpanel',
           'aria-labelledby': `workingIssuesViewTab-${selectedView?.id ?? ALL_VIEW_ID}`, 'aria-busy': searching ? 'true' : undefined
         }, selectedView ? renderViewResults(selectedView, views, { baseUrl, onLogWork, timer }) : activeContent)) : activeContent,
-      { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer }));
+      { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer, viewName: views ? (selectedView?.name ?? ALL_VIEW_NAME) : null }));
   } else {
     body.replaceChildren(fragment(list, errorMessage));
   }
@@ -587,6 +592,10 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       // discarded pending worklog leaves the Pending Worklogs group's header.
       (/^(view-row:)?timer-stop:/.test(focusKey) ? all.find((el) => el.dataset.focusKey === focusKey.replace('timer-stop:', 'timer:')) : null) ||
       (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'group:pending') : null) ||
+      // A worklog moved to another tab, or the bulk bar gone with the selection: the selected
+      // classification tab.
+      (/^(menu|select|pending-bulk|pending-select|pending-deselect)/.test(focusKey)
+        ? all.find((el) => el.classList.contains('pending-tab') && el.getAttribute('aria-selected') === 'true') : null) ||
       // A view's button that's gone (Retry once it worked, Edit view once the field is back, a row of
       // results searched again): the selected view's tab.
       (focusKey.startsWith('view-') ? all.find((el) => el.getAttribute('role') === 'tab' && el.getAttribute('aria-selected') === 'true') : null) ||
@@ -906,7 +915,7 @@ const GROUPS = [
   { id: 'active', label: 'Issues', icon: () => [
     svg('path', { d: 'm3 17 2 2 4-4' }), svg('path', { d: 'm3 7 2 2 4-4' }),
     svg('path', { d: 'M13 6h8' }), svg('path', { d: 'M13 12h8' }), svg('path', { d: 'M13 18h8' })] },
-  { id: 'pending', label: 'Pending Worklogs', icon: () => [
+  { id: 'pending', label: 'Worklogs', icon: () => [
     svg('circle', { cx: '12', cy: '12', r: '10' }), svg('polyline', { points: '12 6 12 12 16 14' })] }
 ];
 
@@ -974,10 +983,12 @@ const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox:
  * only; both can be open, or closed, at once. The headers, with their counts, show either way.
  * Expanding or collapsing never changes the timer or a pending worklog.
  *
- * Each header counts what its group lists: "Issues (5)" the selected view's issues (Active's
+ * Each header counts what its group lists: "Issues (5) · Active" the selected view's issues (Active's
  * rows include the running timer's issue when Jira doesn't list it; a custom view's "20+" when more
- * match); "Pending Worklogs (2)" the pending worklogs, one per stopped session, so two sessions on
- * one issue count twice.
+ * match), followed by that view's name in blue, with the view tabs; "Pending Worklogs (2) · Ready" the selected classification tab's pending worklogs (Ready
+ * unless another is chosen), one per stopped session, so two sessions on one issue count twice,
+ * followed by that tab's name in its color. Its total time, on the right, is the same tab's.
+ * Collapsed or not, the headers are the same.
  *
  * With `onGroupMove` and both groups, each header starts with a drag handle, the only place a drag
  * starts (a click on the rest of the header still expands and collapses the group). Dragged a few
@@ -994,9 +1005,11 @@ const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox:
  * @param {string[]} [options.groupOrder]
  * @param {(order: string[]) => void} [options.onGroupMove]
  * @param {HTMLElement | null} [options.announcer] - The section's status region
+ * @param {string | null} [options.viewName] - The selected Issues view's name, for its header; none
+ *   without view tabs
  * @returns {DocumentFragment}
  */
-function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer }) {
+function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer, viewName = null }) {
   const shown = orderedGroups(groupOrder).filter(({ id }) => id === 'active' || pending);
   const movable = Boolean(onGroupMove) && shown.length > 1;
   const labels = Object.fromEntries(GROUPS.map(({ id, label }) => [id, label]));
@@ -1092,8 +1105,11 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     });
   };
 
+  // What the Pending Worklogs header counts and totals: the selected classification tab.
+  const pendingTab = pending ? pendingTabTotals(pending.entries, pending.tab) : null;
+
   return fragment(shown.map(({ id, label, icon }) => {
-    const count = id === 'active' ? activeCount : String(pending.entries.length);
+    const count = id === 'active' ? activeCount : String(pendingTab.count);
     const toggle = h('button', {
       type: 'button',
       id: `workingIssuesGroupToggle-${id}`,
@@ -1108,17 +1124,26 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
         svg('polyline', { points: '6 9 12 15 18 9' })),
       svg('svg', { class: `working-issues-group-icon is-${id}`, ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' },
         ...icon()),
-      h('span', { class: 'working-issues-group-title' }, count === null ? label : `${label} (${count})`));
+      h('span', { class: 'working-issues-group-title' }, count === null ? label : `${label} (${count})`),
+      // Pending Worklogs names its selected tab after the count, in the tab's color, so the count
+      // and the total on the right read as that tab's. The dot is only seen; the name is read.
+      // Both are one span, so on a narrow window they give way together.
+      id === 'pending' && h('span', { class: `working-issues-group-classification is-${pendingTab.id}`, title: pendingTab.label },
+        h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), pendingTab.label),
+      // Issues names its selected view the same way, in the selected view tab's blue.
+      id === 'active' && viewName && h('span', { class: 'working-issues-group-classification is-view', title: viewName },
+        h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), viewName));
     const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
       id === 'active' ? activeContent : renderPendingWorklogs({
         entries: pending.entries, site: pending.site, now: pending.now,
-        onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit
+        onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit,
+        tab: pending.tab, onSelectTab: pending.onSelectTab, onMenu: pending.onMenu, selection: pending.selection
       }));
     // Pointer-only: keyboard users move the group from its header button.
     const handle = movable ? h('span', { class: 'working-issues-group-handle', title: GROUP_HANDLE_TITLE, 'aria-hidden': 'true' }, gripIcon()) : null;
     // Pending Worklogs' total time, at the far right of its header (beside the button, so its name
     // stays the title and count); a click on it toggles the group like the rest of the header.
-    const total = id === 'pending' && renderPendingTotal(pending.entries);
+    const total = id === 'pending' && renderPendingTotal(pendingTab);
     const header = h('div', { class: 'working-issues-group-header' },
       handle,
       h('h4', { class: 'working-issues-group-heading' }, toggle),
@@ -1161,16 +1186,16 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
 }
 
 /**
- * The Pending Worklogs header's total: every pending worklog's time, summed from the same entries
- * the group lists, so it changes with them. "0h 00m", fainter, when nothing is pending.
- * @param {Array<object>} entries - `timeTracking.pending`
+ * The Pending Worklogs header's total: the selected classification tab's time, summed from the same
+ * entries the group lists, so it changes with them. "0h 00m", fainter, when the tab is empty.
+ * @param {{ label: string, count: number, seconds: number }} totals - pendingTabTotals()
  * @returns {HTMLElement}
  */
-function renderPendingTotal(entries) {
-  const text = formatPendingTotal(pendingTotalSeconds(entries));
+function renderPendingTotal({ label, count, seconds }) {
+  const text = formatPendingTotal(seconds);
   return h('span', {
-    class: `working-issues-group-total${entries.length === 0 ? ' is-empty' : ''}`,
-    title: `Total pending time: ${text}`
+    class: `working-issues-group-total${count === 0 ? ' is-empty' : ''}`,
+    title: `Total time in ${label}: ${text}`
   }, text);
 }
 

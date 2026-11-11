@@ -1338,7 +1338,8 @@ body {
 .worklog-delete-btn,
 .pending-submit-btn,
 .pending-edit-btn,
-.pending-discard-btn {
+.pending-discard-btn,
+.pending-menu-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1357,7 +1358,8 @@ body {
 .worklog-delete-btn:hover,
 .pending-submit-btn:hover,
 .pending-edit-btn:hover,
-.pending-discard-btn:hover {
+.pending-discard-btn:hover,
+.pending-menu-btn:hover {
   color: var(--text-main);
   background-color: var(--bg-hover);
 }
@@ -1367,7 +1369,8 @@ body {
 .worklog-delete-btn:focus-visible,
 .pending-submit-btn:focus-visible,
 .pending-edit-btn:focus-visible,
-.pending-discard-btn:focus-visible {
+.pending-discard-btn:focus-visible,
+.pending-menu-btn:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 1px;
 }
@@ -1377,7 +1380,8 @@ body {
 .worklog-delete-btn .icon,
 .pending-submit-btn .icon,
 .pending-edit-btn .icon,
-.pending-discard-btn .icon {
+.pending-discard-btn .icon,
+.pending-menu-btn .icon {
   width: 15px;
   height: 15px;
 }
@@ -1395,7 +1399,8 @@ body {
 
 /* Submit or Edit can't be used now; the tooltip says why (aria-disabled keeps it readable and focusable) */
 .pending-submit-btn[aria-disabled="true"],
-.pending-edit-btn[aria-disabled="true"] {
+.pending-edit-btn[aria-disabled="true"],
+.pending-menu-btn[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -1769,6 +1774,87 @@ body {
   opacity: 0.6;
 }
 
+/* Pending Worklogs' header: its title and count, a small grey dot (shared with Issues), then the selected tab's name in the
+   tab's color (blue Pending, amber On Hold, grey Archived). On one line whatever the width, the total
+   staying at the far right: the tab's name gives way first (an ellipsis), then the title. */
+.working-issues-group.is-pending .working-issues-group-header {
+  flex-wrap: nowrap;
+}
+
+.working-issues-group.is-pending .working-issues-group-heading {
+  flex: 1 1 0;
+}
+
+.working-issues-group.is-pending .working-issues-group-toggle {
+  min-width: 0;
+}
+
+.working-issues-group.is-pending .working-issues-group-title,
+.working-issues-group-classification {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.working-issues-group.is-pending .working-issues-group-title {
+  flex: 0 1 auto;
+}
+
+.working-issues-group-separator {
+  margin-right: 8px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.working-issues-group-classification {
+  flex: 0 1000 auto;
+}
+
+.working-issues-group-classification.is-ready {
+  color: #58a6ff;
+}
+
+[data-theme="light"] .working-issues-group-classification.is-ready {
+  color: var(--primary);
+}
+
+.working-issues-group-classification.is-on-hold {
+  color: var(--warning);
+}
+
+.working-issues-group-classification.is-archived {
+  color: var(--text-subtle);
+}
+
+/* Issues' header names its selected view the same way, in the selected view tab's blue. Its header
+   has nothing on the right, so only the button's own parts give way: the view's name first (an
+   ellipsis), then the title. */
+.working-issues-group-classification.is-view {
+  color: #58a6ff;
+}
+
+[data-theme="light"] .working-issues-group-classification.is-view {
+  color: var(--primary);
+}
+
+/* The heading shares the handle's line, rather than wrapping below it for a long view name. */
+.working-issues-group.is-active .working-issues-group-heading {
+  flex: 1 1 0;
+}
+
+.working-issues-group.is-active .working-issues-group-toggle {
+  min-width: 0;
+}
+
+.working-issues-group.is-active .working-issues-group-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Space between the two containers, and above the first (room for the drop line, and apart from
    the timed issue under the My Work title) */
 .working-issues-group + .working-issues-group {
@@ -1964,6 +2050,247 @@ body {
 
 .pending-worklog.is-too-short .pending-worklog-duration {
   color: var(--warning);
+}
+
+/* The ⋯ button's menu is open: it stays highlighted, like a hovered button */
+.pending-menu-btn[aria-expanded="true"] {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+/* Pending Worklogs' classification tabs (Ready, On Hold, Archived), in the view tabs' look, with
+   Select at the far right */
+.pending-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.pending-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Select: quiet until selection mode is on, then the selected tab's colors (it reads Done) */
+.pending-select-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-subtle);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.pending-select-toggle .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.pending-select-toggle:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.pending-select-toggle.is-active {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.pending-select-toggle[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pending-select-toggle:focus-visible,
+.pending-selection-btn:focus-visible,
+.pending-bulk-btn:focus-visible,
+.pending-select-checkbox:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+/* Selection mode's bar, below the tabs: Select all and Deselect all on the left; with a selection,
+   how many and their time, then where they can go, on the right */
+.pending-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.pending-selection-controls,
+.pending-bulk,
+.pending-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.pending-bulk {
+  gap: 10px;
+  margin-left: auto;
+}
+
+.pending-selection-btn {
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.pending-selection-btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.pending-selection-btn[aria-disabled="true"] {
+  color: var(--text-muted);
+  background: none;
+  cursor: default;
+}
+
+.pending-bulk-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pending-bulk-btn {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--text-main);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.pending-bulk-btn:hover {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.pending-bulk-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: progress;
+}
+
+/* After a bulk change that didn't move every worklog: which ones, and why, on a line of its own */
+.pending-selection-notice {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* In selection mode, each row starts with its checkbox; the row itself toggles it too. Selected
+   rows get the editing worklog's soft blue band. */
+.pending-worklogs.is-selecting .pending-worklog {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  cursor: pointer;
+}
+
+.pending-select-checkbox {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.pending-worklog.is-selected {
+  position: relative;
+  isolation: isolate;
+}
+
+.pending-worklog.is-selected::before {
+  content: '';
+  position: absolute;
+  inset: 2px -8px;
+  z-index: -1;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-light);
+  pointer-events: none;
+}
+
+/* A pending worklog's ⋯ menu: one for the page, placed under the button (src/ui/pendingActionsMenu.js) */
+.pending-actions-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.pending-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--text-main);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pending-actions-item .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--text-subtle);
+}
+
+.pending-actions-item:hover,
+.pending-actions-item:focus {
+  background-color: var(--bg-hover);
+  outline: none;
+}
+
+.pending-actions-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
 }
 
 .working-issues-message {
@@ -3085,6 +3412,53 @@ body {
 
 .working-issues-view-tab.is-selected .working-issues-view-tab-count {
   color: inherit;
+}
+
+/* Pending Worklogs' classification tabs (src/ui/pendingWorklogs.js): the view tabs' shape, each in
+   its own color (blue for Pending, amber for On Hold, grey for Archived), in both themes.
+   Unselected: the color's text, a faint border and tint. Selected: a stronger tint and a solid
+   border, with an inner ring that changes no size. After the view tabs' rules, so they win. */
+.pending-tabs .pending-tab {
+  color: var(--tab-color);
+  background-color: color-mix(in srgb, var(--tab-color) 5%, transparent);
+  border-color: color-mix(in srgb, var(--tab-color) 28%, transparent);
+}
+
+.pending-tabs .pending-tab.is-ready {
+  /* Pending: the selected view tabs' blue */
+  --tab-color: #58a6ff;
+}
+
+[data-theme="light"] .pending-tabs .pending-tab.is-ready {
+  --tab-color: var(--primary);
+}
+
+.pending-tabs .pending-tab.is-on-hold {
+  --tab-color: var(--warning);
+}
+
+.pending-tabs .pending-tab.is-archived {
+  --tab-color: var(--text-subtle);
+}
+
+.pending-tabs .pending-tab:hover {
+  background-color: color-mix(in srgb, var(--tab-color) 11%, transparent);
+}
+
+.pending-tabs .pending-tab.is-selected {
+  color: var(--tab-color);
+  background-color: color-mix(in srgb, var(--tab-color) 16%, transparent);
+  border-color: var(--tab-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tab-color) 45%, transparent);
+}
+
+.pending-tabs .pending-tab .working-issues-view-tab-count {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.pending-tabs .pending-tab.is-selected .working-issues-view-tab-count {
+  opacity: 1;
 }
 
 /* Moving a custom view's tab: a vertical touch still scrolls the page; a drag moves the tab. While

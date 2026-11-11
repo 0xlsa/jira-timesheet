@@ -19,8 +19,11 @@
  *   `startedAt` is the session's start (the worklog's start in Jira); `accumulatedMs` the active time
  *   banked by pauses; `resumedAt` when the current active stretch began, or null while paused.
  * - pending: [{ id, site, issueId, issueKey, issueSummary, startedAt, stoppedAt, timeSpentSeconds, comment,
- *   submission? }] `submission` is set while a submission to Jira runs or after one didn't succeed:
- *   { state: 'submitting' | 'failed' | 'uncertain', at, message? } (see submissionStatus()).
+ *   classification?, submission? }] `submission` is set while a submission to Jira runs or after one didn't
+ *   succeed: { state: 'submitting' | 'failed' | 'uncertain', at, message? } (see submissionStatus()).
+ *   `classification` is where the user filed it in Pending Worklogs: 'on-hold' or 'archived', and
+ *   absent for Ready (every new session, and every one stored before classifications). It's this
+ *   browser's own metadata: nothing about it is ever sent to Jira.
  * Timestamps are epoch milliseconds, durations whole seconds unless named Ms. `site` is
  * `${deploymentType}|${baseUrl}` (siteId()). `issueId` is Jira's numeric ID, or '' when it isn't known.
  *
@@ -28,6 +31,10 @@
  * with nothing banked (accumulatedMs 0, resumedAt = startedAt), and its pending worklogs have no
  * submission. It's written back as version 2 on the next change only; reading never writes. An
  * older build reading version 2 refuses it (UNSUPPORTED_VERSION) rather than overwriting it.
+ *
+ * `classification` came later within version 2, as an optional field: a build from before it reads
+ * every pending worklog as it always did (and, on its next change, writes them back as Ready),
+ * rather than refusing the timer altogether.
  */
 
 export const TIME_TRACKING_KEY = 'timeTracking';
@@ -44,6 +51,13 @@ export const TIME_TRACKING_LOCK_NAME = 'jts-time-tracking';
 
 // Shortest worklog Jira accepts (see JiraClient's worklog body); shorter sessions stay pending until edited.
 export const MIN_WORKLOG_SECONDS = 60;
+
+// Where a pending worklog is filed, in the Worklogs group's tab order. 'ready' (shown as Pending;
+// the ID is the name it had before) is the default, and is never stored: an entry without
+// `classification` is Pending, so no stored data names it.
+export const PENDING_CLASSIFICATIONS = Object.freeze(['ready', 'on-hold', 'archived']);
+export const DEFAULT_CLASSIFICATION = 'ready';
+const STORED_CLASSIFICATIONS = new Set(['on-hold', 'archived']);
 
 // Jira issue keys are PROJECTKEY-NUMBER (see src/jira/issueKeySearch.js).
 const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
@@ -64,13 +78,14 @@ const ISSUE_ID = /^\d+$/;
  *   unknown), so it can't be edited; submitting it again checks Jira first
  * - TOO_SHORT: the pending worklog is under a minute, which Jira doesn't accept
  * - OTHER_SITE: the pending worklog was tracked on another Jira site than the one it's submitted to
+ * - INVALID_CLASSIFICATION: a classification change named no pending worklog, or no known classification
  */
 export class TimeTrackingError extends Error {
   /**
    * @param {string} message
    * @param {'LOCK_UNAVAILABLE' | 'INVALID_ISSUE' | 'UNSUPPORTED_VERSION' |
    *   'PENDING_NOT_FOUND' | 'PENDING_CHANGED' | 'INVALID_PENDING' | 'SUBMISSION_IN_PROGRESS' |
-   *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE'} code
+   *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE' | 'INVALID_CLASSIFICATION'} code
    */
   constructor(message, code) {
     super(message);
@@ -158,8 +173,20 @@ function toPending(raw) {
   if (!Number.isSafeInteger(timeSpentSeconds) || timeSpentSeconds < 0 || typeof comment !== 'string') return null;
   const submission = toSubmission(raw.submission);
   const entry = { ...base, stoppedAt, timeSpentSeconds, comment };
+  // Anything else (none, Ready, or a value from a newer build) reads as Ready: the default, which
+  // sends nothing anywhere, so the worklog is never hidden or lost.
+  if (STORED_CLASSIFICATIONS.has(raw.classification)) entry.classification = raw.classification;
   if (submission) entry.submission = submission;
   return entry;
+}
+
+/**
+ * Where a pending worklog is filed in Pending Worklogs: 'ready' (the default), 'on-hold', or 'archived'.
+ * @param {{ classification?: string }} entry
+ * @returns {'ready' | 'on-hold' | 'archived'}
+ */
+export function classificationOf(entry) {
+  return STORED_CLASSIFICATIONS.has(entry?.classification) ? entry.classification : DEFAULT_CLASSIFICATION;
 }
 
 /**
@@ -510,6 +537,63 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
         const discarded = state.pending.find((entry) => entry.id === id);
         if (!discarded) throw pendingNotFound();
         return { state: { ...state, pending: state.pending.filter((entry) => entry.id !== id) }, discarded };
+      });
+    },
+
+    /**
+     * Files pending worklogs under a classification (Ready, On Hold, or Archived), in one write:
+     * either every change below is stored, or (when the write fails) none is. Only this browser's
+     * metadata changes; the worklogs' times, comments, and submission state stay as they are, and
+     * nothing goes to Jira.
+     *
+     * Each ID is answered on its own. One that's no longer stored (submitted or discarded,
+     * perhaps in another tab) or that's being submitted right now is refused, and the others are
+     * still filed. One already under the classification is left as it is. When nothing changes,
+     * nothing is written.
+     *
+     * @param {string[]} ids
+     * @param {'ready' | 'on-hold' | 'archived'} classification
+     * @returns {Promise<{ state: object, classified: object[], unchanged: object[],
+     *   refused: Array<{ id: string, code: 'PENDING_NOT_FOUND' | 'SUBMISSION_IN_PROGRESS', issueKey?: string }> }>}
+     *   `classified` and `unchanged` are the entries as stored afterwards, in the order of `ids`
+     * @throws {TimeTrackingError} INVALID_CLASSIFICATION
+     */
+    async classifyPending(ids, classification) {
+      if (!PENDING_CLASSIFICATIONS.includes(classification) || !Array.isArray(ids) || ids.length === 0 ||
+          !ids.every((id) => typeof id === 'string' && id !== '')) {
+        throw new TimeTrackingError('Choose one or more pending worklogs, and Pending, On Hold, or Archived.', 'INVALID_CLASSIFICATION');
+      }
+      const wanted = [...new Set(ids)];
+
+      return transition((state) => {
+        const at = now();
+        const classified = [];
+        const unchanged = [];
+        const refused = [];
+        const changes = new Map();
+        for (const id of wanted) {
+          const current = state.pending.find((entry) => entry.id === id);
+          if (!current) {
+            refused.push({ id, code: 'PENDING_NOT_FOUND' });
+          } else if (submissionStatus(current, at) === 'submitting') {
+            refused.push({ id, code: 'SUBMISSION_IN_PROGRESS', issueKey: current.issueKey });
+          } else if (classificationOf(current) === classification) {
+            unchanged.push(current);
+          } else {
+            const next = { ...current };
+            if (classification === DEFAULT_CLASSIFICATION) delete next.classification;
+            else next.classification = classification;
+            changes.set(id, next);
+            classified.push(next);
+          }
+        }
+        if (changes.size === 0) return { classified, unchanged, refused };
+        return {
+          state: { ...state, pending: state.pending.map((entry) => changes.get(entry.id) ?? entry) },
+          classified,
+          unchanged,
+          refused
+        };
       });
     },
 

@@ -49,7 +49,9 @@ import { DISCARD_PENDING_WORDING, formatPendingDuration, siteBaseUrl } from './s
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
-import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus } from './src/timer/timeTrackingStore.js';
+import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus, classificationOf } from './src/timer/timeTrackingStore.js';
+import { createPendingSelection, classifyPendingWorklogs, rowActions, settleBulkSelection } from './src/worklog/pendingClassification.js';
+import { createPendingActionsMenu } from './src/ui/pendingActionsMenu.js';
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
 import { loadAboutInfo, renderAboutSection, renderSettingsVersion } from './src/ui/aboutSection.js';
@@ -218,6 +220,13 @@ const weekPicker = createWeekPicker({
   }
 });
 
+// A pending worklog's ⋯ menu (Mark as Ready, Put On Hold, Archive): one for every row, which stays
+// open while My Work is drawn again, on the row's new ⋯ button.
+const pendingActionsMenu = createPendingActionsMenu({
+  container: document.body,
+  findButton: (id) => daysContainer.querySelector(`.pending-menu-btn[data-pending-id="${CSS.escape(id)}"]`)
+});
+
 let currentAggregatedData = null;
 let isBusyFetching = false;
 
@@ -236,6 +245,16 @@ const workingIssuesGroupsExpanded = {
   active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
   pending: localStorage.getItem('jts-working-issues-pending-expanded') !== 'false'
 };
+// Pending Worklogs' classification tab (Ready, On Hold, or Archived; remembered in this browser),
+// selection mode, and the selected worklogs, which always belong to the selected tab (see
+// src/worklog/pendingClassification.js). The selection itself is never saved.
+const pendingSelection = createPendingSelection(localStorage.getItem('jts-pending-classification'));
+// True while a classification change is being saved: another one waits until it's done.
+let isClassifyingPending = false;
+// After a bulk change that didn't move every selected worklog: the ones left, each with why (their
+// rows are flagged), and what happened (in the selection bar). Null otherwise; cleared by the next
+// change of selection mode, tab, or selection.
+let pendingNotMoved = null;
 
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
@@ -597,6 +616,7 @@ function renderDays(aggregatedData, baseUrl = '') {
       localStorage.setItem('jts-day-panel-expanded', String(expanded));
     }
   });
+  pendingActionsMenu.sync();
 }
 
 // ============================================================================
@@ -695,6 +715,8 @@ function setWorkingIssuesState(state) {
   } else if (!state) {
     section?.remove();
   }
+  // The ⋯ menu follows its row's new button, or closes once the row is gone.
+  pendingActionsMenu.sync();
 }
 
 // ============================================================================
@@ -765,14 +787,133 @@ function timedIssue(issue) {
 function pendingOptions() {
   const state = timer.getState();
   if (!state.tracking || !currentClient) return undefined;
+  const entries = state.tracking.pending;
+  // Worklogs that left the selected tab (moved, submitted, or discarded, here or in another tab)
+  // leave the selection too.
+  pendingSelection.reconcile(entries);
   return {
-    entries: state.tracking.pending,
+    entries,
     site: siteId(currentClient.deploymentType, currentClient.baseUrl),
     now: Date.now(),
     onEdit: startEditPending,
     onDiscard: confirmDiscardPending,
-    onSubmit: submitPending
+    onSubmit: submitPending,
+    tab: pendingSelection.tab,
+    onSelectTab: selectPendingTab,
+    onMenu: togglePendingActions,
+    selection: {
+      active: pendingSelection.selecting,
+      ids: pendingSelection.selectedIds(),
+      busy: isClassifyingPending,
+      notMoved: pendingNotMoved?.items,
+      notice: pendingNotMoved?.notice,
+      onToggleMode: () => {
+        pendingNotMoved = null;
+        pendingSelection.setSelecting(!pendingSelection.selecting);
+        showPendingWorklogs();
+      },
+      onToggle: (id) => {
+        if (!pendingSelection.toggle(id, pendingEntries())) return;
+        pendingNotMoved = null;
+        showPendingWorklogs();
+      },
+      onSelectAll: () => {
+        pendingNotMoved = null;
+        // Every worklog in the tab, as stored: not only the rows on screen.
+        pendingSelection.selectAll(pendingEntries());
+        showPendingWorklogs();
+      },
+      onDeselectAll: () => {
+        pendingNotMoved = null;
+        pendingSelection.deselectAll();
+        showPendingWorklogs();
+      },
+      onClassify: (classification) => classifyPending(pendingSelection.selectedIds(), classification, { bulk: true })
+    }
   };
+}
+
+/** Every pending worklog, as last read from storage. */
+function pendingEntries() {
+  return timer.getState().tracking?.pending ?? [];
+}
+
+/** Draws My Work again, for a change of tab or selection (nothing is read or written). */
+function showPendingWorklogs() {
+  setWorkingIssuesState(workingIssuesState);
+}
+
+/**
+ * Shows another classification tab in Pending Worklogs, remembered in this browser. The selection
+ * doesn't carry over; selection mode stays as it was.
+ * @param {string} tab
+ */
+function selectPendingTab(tab) {
+  if (!pendingSelection.selectTab(tab)) return;
+  pendingNotMoved = null;
+  localStorage.setItem('jts-pending-classification', tab);
+  pendingActionsMenu.close();
+  showPendingWorklogs();
+}
+
+/**
+ * Opens a pending worklog's ⋯ menu, offering the classifications it isn't under, or closes it when
+ * it's open already. Not while it's being submitted.
+ * @param {string} id
+ */
+function togglePendingActions(id) {
+  if (pendingActionsMenu.openFor() === id) {
+    pendingActionsMenu.close({ restoreFocus: true });
+    return;
+  }
+  const entry = findPendingWorklog(id);
+  if (!entry) return;
+  if (submissionStatus(entry) === 'submitting') {
+    showToast(`${entry.issueKey}'s worklog is being submitted, so it can't be moved now.`, { durationMs: 8000 });
+    return;
+  }
+  pendingActionsMenu.open({
+    id,
+    label: `Move the pending worklog for ${entry.issueKey}`,
+    actions: rowActions(classificationOf(entry)),
+    onChoose: (classification) => classifyPending([id], classification)
+  });
+}
+
+/**
+ * Files pending worklogs under Ready, On Hold, or Archived: from a row's menu, or the selected ones
+ * from the bulk bar. Only this browser's metadata changes, in one write; nothing is sent to Jira.
+ * Each tab's count and total follow from the stored state, here and in other tabs.
+ *
+ * The tab shown stays the same: moved worklogs leave it, and it may show its empty state.
+ *
+ * After a bulk change that moved every worklog, selection mode closes, clearing the selection: no
+ * Done needed. Otherwise selection mode stays, the ones that didn't move (being submitted, or
+ * nothing saved at all) stay selected, each flagged on its row, and the selection bar and a toast
+ * name them: never success for a change that wasn't made.
+ * @param {string[]} ids
+ * @param {'ready' | 'on-hold' | 'archived'} classification
+ * @param {{ bulk?: boolean }} [options]
+ */
+async function classifyPending(ids, classification, { bulk = false } = {}) {
+  if (isClassifyingPending || ids.length === 0) return;
+  isClassifyingPending = true;
+  if (bulk) pendingNotMoved = null;
+  // The bulk actions wait while it's saved.
+  if (bulk) showPendingWorklogs();
+  let outcome;
+  try {
+    outcome = await classifyPendingWorklogs({ classify: timer.classifyPending, entries: pendingEntries(), ids, to: classification });
+  } finally {
+    isClassifyingPending = false;
+  }
+  if (bulk) pendingNotMoved = settleBulkSelection(pendingSelection, outcome);
+  showPendingWorklogs();
+  if (outcome.status === 'done') {
+    showToast(outcome.message, { success: true, subtitle: 'Only in this browser: nothing was sent to Jira' });
+  } else {
+    showToast(`${outcome.message}. ${outcome.detail}`, { durationMs: 10000 });
+  }
 }
 
 /**
@@ -842,7 +983,7 @@ function logWorkTimerOptions() {
     },
     async onStop() {
       const stopped = await timer.stop();
-      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Pending Worklogs' });
+      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Worklogs' });
       return stopped;
     }
   };

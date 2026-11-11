@@ -22,7 +22,7 @@ const ERROR_MESSAGES = {
 // Engine errors whose own message is written for users (it names the issue or says what happened).
 const OWN_MESSAGE_CODES = new Set([
   'PENDING_NOT_FOUND', 'PENDING_CHANGED', 'INVALID_PENDING',
-  'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE'
+  'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE', 'INVALID_CLASSIFICATION'
 ]);
 
 // Errors that leave the timer unusable until the page is reloaded (or the data changes).
@@ -258,6 +258,20 @@ export function createTimerController({
      * @returns {Promise<boolean>}
      */
     discardPending: async (id) => Boolean(await mutate(() => store.discardPending(id), { rethrow: true })),
+
+    /**
+     * Files pending worklogs under Ready, On Hold, or Archived, in this browser only (see
+     * timeTrackingStore's classifyPending()): one write for all of them. Rejects with a user-facing
+     * Error when nothing could be stored (the caller keeps what the user chose); IDs refused one
+     * by one come back in `refused`.
+     * @param {string[]} ids
+     * @param {'ready' | 'on-hold' | 'archived'} classification
+     * @returns {Promise<{ classified: object[], unchanged: object[], refused: Array<{ id: string, code: string, issueKey?: string }> }>}
+     */
+    classifyPending: async (ids, classification) => {
+      const { classified, unchanged, refused } = await mutate(() => store.classifyPending(ids, classification), { rethrow: true });
+      return { classified, unchanged, refused };
+    },
 
     /**
      * Marks a pending worklog as being submitted (see timeTrackingStore's beginSubmission()).
