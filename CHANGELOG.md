@@ -23,14 +23,14 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 ### Added
 
-- Worklogs has Pending and On Hold tabs, each with its count and its own color: blue and amber. Your pending worklogs, and every new one, start in Pending. <!-- highlight -->
+- Worklog Queue has Pending and On Hold tabs, each with its count and its own color: blue and amber. Your pending worklogs, and every new one, start in Pending. <!-- highlight -->
 - Each pending worklog's ⋯ menu moves it to Pending or On Hold. This only files it in this browser: nothing is sent to Jira, and the worklog itself doesn't change. <!-- highlight -->
 - Select worklogs, beside the tabs, picks several pending worklogs to move at once, one by one or with Select all. A bar shows how many are selected and their total time, with the tabs they can move to. Once they've moved, selection mode closes by itself; any that couldn't move stay selected, marked Not moved, with the reason.
 
 ### Changed
 
-- Pending Worklogs in My Work is now called Worklogs.
-- The Worklogs header names the selected tab and its count in the tab's color, such as Worklogs · Pending (2), and totals that tab.
+- Pending Worklogs in My Work is now called Worklog Queue.
+- The Worklog Queue header names the selected tab and its count in the tab's color, such as Worklog Queue · Pending (2), and totals that tab.
 - The Issues header names the selected view and its count in blue, such as Issues · Reported (12).
 
 ## [1.2.1] - 2026-11-07

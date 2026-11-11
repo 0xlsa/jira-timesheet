@@ -983,7 +983,7 @@ function logWorkTimerOptions() {
     },
     async onStop() {
       const stopped = await timer.stop();
-      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Worklogs' });
+      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Worklog Queue' });
       return stopped;
     }
   };

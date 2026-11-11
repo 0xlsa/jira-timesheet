@@ -1774,8 +1774,8 @@ body {
   opacity: 0.6;
 }
 
-/* Worklogs' header: its title, a small grey dot (shared with Issues), then the selected tab's name
-   and count in the tab's color (blue Pending, amber On Hold): "Worklogs · Pending (2)". On one
+/* Worklog Queue's header: its title, a small grey dot (shared with Issues), then the selected tab's name
+   and count in the tab's color (blue Pending, amber On Hold): "Worklog Queue · Pending (2)". On one
    line whatever the width, the total staying at the far right: the tab's name gives way first (an
    ellipsis, its count staying whole), then the title. */
 .working-issues-group.is-pending .working-issues-group-header {

@@ -454,7 +454,7 @@ describe('Pending Worklogs - classification tabs', () => {
     const { section } = render({ entries: stored });
     assert.deepEqual(tabTexts(section), ['Pending (3)', 'On Hold (1)']);
     assert.deepEqual(rowIds(section), ['p4', 'p2', 'p1']);
-    assert.equal(pendingHeader(section).textContent, 'Worklogs · Pending (3)');
+    assert.equal(pendingHeader(section).textContent, 'Worklog Queue · Pending (3)');
     // The worklogs themselves, times and comments included, are as stored.
     assert.deepEqual(stored.map(({ classification, ...rest }) => rest), [entry('p1'), entry('p2'), entry('p3'), entry('p4')]);
   });
@@ -483,12 +483,12 @@ describe('Pending Worklogs - classification tabs', () => {
         renderWorkingIssues(section, { ...options, groupsExpanded });
         const toggle = pendingHeader(section);
         const head = toggle.closest('.working-issues-group-header');
-        // Chevron, clock, "Worklogs", then the dot, the tab's name, and its count together; the
+        // Chevron, clock, "Worklog Queue", then the dot, the tab's name, and its count together; the
         // total outside, at the right.
         assert.deepEqual(toggle.children.map((c) => c.getAttribute('class')), [
           'working-issues-group-chevron', 'working-issues-group-icon is-pending', 'working-issues-group-title',
           `working-issues-group-classification is-${tab}`]);
-        assert.equal(toggle.querySelector('.working-issues-group-title').textContent, 'Worklogs');
+        assert.equal(toggle.querySelector('.working-issues-group-title').textContent, 'Worklog Queue');
         const name = toggle.querySelector('.working-issues-group-classification');
         assert.equal(name.querySelector('.working-issues-group-separator').getAttribute('aria-hidden'), 'true');
         assert.equal(name.textContent, ` · ${label} (${count})`);
@@ -507,18 +507,18 @@ describe('Pending Worklogs - classification tabs', () => {
   it('follows the selected tab and its worklogs as they change', () => {
     const { section, options } = render();
     const read = () => [pendingHeader(section).textContent, section.querySelector('.working-issues-group-total').textContent];
-    assert.deepEqual(read(), ['Worklogs · Pending (3)', '20h 25m']);
+    assert.deepEqual(read(), ['Worklog Queue · Pending (3)', '20h 25m']);
     renderWorkingIssues(section, { ...options, pending: { ...options.pending, tab: 'on-hold' } });
-    assert.deepEqual(read(), ['Worklogs · On Hold (2)', '0h 55m']);
+    assert.deepEqual(read(), ['Worklog Queue · On Hold (2)', '0h 55m']);
     // A worklog put on hold elsewhere, then one edited, then one submitted (gone).
     const moved = ENTRIES.map((e) => (e.id === 'p1' ? { ...e, classification: 'on-hold' } : e));
     renderWorkingIssues(section, { ...options, pending: { ...options.pending, tab: 'on-hold', entries: moved } });
-    assert.deepEqual(read(), ['Worklogs · On Hold (3)', '11h 00m']);
+    assert.deepEqual(read(), ['Worklog Queue · On Hold (3)', '11h 00m']);
     const edited = moved.map((e) => (e.id === 'p3' ? { ...e, timeSpentSeconds: 3600 } : e));
     renderWorkingIssues(section, { ...options, pending: { ...options.pending, tab: 'on-hold', entries: edited } });
-    assert.deepEqual(read(), ['Worklogs · On Hold (3)', '11h 15m']);
+    assert.deepEqual(read(), ['Worklog Queue · On Hold (3)', '11h 15m']);
     renderWorkingIssues(section, { ...options, pending: { ...options.pending, tab: 'on-hold', entries: edited.filter((e) => e.id !== 'p1') } });
-    assert.deepEqual(read(), ['Worklogs · On Hold (2)', '1h 10m']);
+    assert.deepEqual(read(), ['Worklog Queue · On Hold (2)', '1h 10m']);
   });
 
   it('colors the header\'s tab name like its tab, and keeps the header on one line, the total at the right', () => {
@@ -543,11 +543,11 @@ describe('Pending Worklogs - classification tabs', () => {
 
   it('counts and totals the selected tab in the group header', () => {
     const ready = render().section;
-    assert.equal(pendingHeader(ready).textContent, 'Worklogs · Pending (3)');
+    assert.equal(pendingHeader(ready).textContent, 'Worklog Queue · Pending (3)');
     assert.equal(ready.querySelector('.working-issues-group-total').textContent, '20h 25m');
 
     const onHold = render({ tab: 'on-hold' }).section;
-    assert.equal(pendingHeader(onHold).textContent, 'Worklogs · On Hold (2)');
+    assert.equal(pendingHeader(onHold).textContent, 'Worklog Queue · On Hold (2)');
     assert.equal(onHold.querySelector('.working-issues-group-total').textContent, '0h 55m');
     assert.equal(onHold.querySelector('.working-issues-group-total').getAttribute('title'), 'Total time in On Hold: 0h 55m');
     assert.deepEqual(rowIds(onHold), ['p4', 'p3']);
@@ -915,7 +915,7 @@ describe('Pending Worklogs - classifying, end to end', () => {
     await page.settle();
 
     assert.deepEqual(tabsOf(page.section), ['Pending (0)', 'On Hold (5)']);
-    assert.equal(pendingHeader(page.section).textContent, 'Worklogs · Pending (0)');
+    assert.equal(pendingHeader(page.section).textContent, 'Worklog Queue · Pending (0)');
     assert.equal(page.section.querySelector('.working-issues-group-total').textContent, '0h 00m');
     assert.deepEqual(rowIds(page.section), [], 'the moved worklogs leave the view');
     // Still on Pending, now empty, with its own note.
@@ -932,7 +932,7 @@ describe('Pending Worklogs - classifying, end to end', () => {
     assert.deepEqual(page.jiraCalls, []);
 
     click(page.section, '#pendingTab-on-hold');
-    assert.equal(pendingHeader(page.section).textContent, 'Worklogs · On Hold (5)');
+    assert.equal(pendingHeader(page.section).textContent, 'Worklog Queue · On Hold (5)');
     assert.equal(page.section.querySelector('.working-issues-group-total').textContent, '21h 20m');
   });
 
@@ -949,7 +949,7 @@ describe('Pending Worklogs - classifying, end to end', () => {
 
     assert.deepEqual(tabsOf(page.section), ['Pending (2)', 'On Hold (3)']);
     assert.deepEqual(rowIds(page.section), ['p5', 'p1']);
-    assert.equal(pendingHeader(page.section).textContent, 'Worklogs · Pending (2)');
+    assert.equal(pendingHeader(page.section).textContent, 'Worklog Queue · Pending (2)');
     assert.equal(page.section.querySelector('.working-issues-group-total').textContent, '10h 20m');
     assert.equal(pendingGroup(page.section).querySelector('.pending-tab.is-selected').id, 'pendingTab-ready', 'stays on Pending');
     assert.equal(page.selection.size, 0);
@@ -972,7 +972,7 @@ describe('Pending Worklogs - classifying, end to end', () => {
     assert.equal(outcome.message, 'Moved 3 of 4 worklogs to On Hold');
     assert.deepEqual(page.selection.selectedIds(), ['p6'], 'the one that didn\'t move stays selected');
     assert.deepEqual(tabsOf(page.section), ['Pending (1)', 'On Hold (5)']);
-    assert.equal(pendingHeader(page.section).textContent, 'Worklogs · Pending (1)');
+    assert.equal(pendingHeader(page.section).textContent, 'Worklog Queue · Pending (1)');
     assert.equal(page.section.querySelector('.working-issues-group-total').textContent, '0h 30m');
     assert.equal(page.selection.selecting, true, 'selection mode stays, to try again');
     assert.equal(pendingGroup(page.section).querySelector('.pending-bulk-summary').textContent, '1 selected · 0h 30m');

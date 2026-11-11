@@ -233,7 +233,7 @@ function renderClassificationTabs(tab, summary, onSelectTab) {
     h('span', { class: 'working-issues-view-tab-name' }, label),
     h('span', { class: 'working-issues-view-tab-count' }, ` (${summary[id].count})`)));
 
-  const tablist = h('div', { class: 'pending-tabs', role: 'tablist', 'aria-label': 'Worklogs by classification' }, buttons);
+  const tablist = h('div', { class: 'pending-tabs', role: 'tablist', 'aria-label': 'Worklog Queue by classification' }, buttons);
   const select = (id) => {
     if (id !== tab) onSelectTab?.(id);
   };

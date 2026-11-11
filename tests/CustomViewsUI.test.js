@@ -99,7 +99,7 @@ describe('Custom views - tabs in Issues', () => {
     const { views } = viewsOptions([REPORTED, QUEUE]);
     const section = render({ views });
     assert.deepEqual(groupIds(section), ['active', 'pending']);
-    assert.deepEqual(section.querySelectorAll('.working-issues-group-toggle').map((el) => el.textContent), ['Issues · Active (3)', 'Worklogs · Pending (1)']);
+    assert.deepEqual(section.querySelectorAll('.working-issues-group-toggle').map((el) => el.textContent), ['Issues · Active (3)', 'Worklog Queue · Pending (1)']);
     assert.equal(myIssues(section).querySelectorAll('[role="tablist"]').length, 1);
     assert.deepEqual(tabTexts(section), ['Active (3)', 'Reported', 'Development Queue']);
     assert.equal(myIssues(section).querySelector('.working-issues-viewbar').querySelectorAll('[role="tab"]').length, 3);

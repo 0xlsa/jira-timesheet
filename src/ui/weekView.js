@@ -915,7 +915,7 @@ const GROUPS = [
   { id: 'active', label: 'Issues', icon: () => [
     svg('path', { d: 'm3 17 2 2 4-4' }), svg('path', { d: 'm3 7 2 2 4-4' }),
     svg('path', { d: 'M13 6h8' }), svg('path', { d: 'M13 12h8' }), svg('path', { d: 'M13 18h8' })] },
-  { id: 'pending', label: 'Worklogs', icon: () => [
+  { id: 'pending', label: 'Worklog Queue', icon: () => [
     svg('circle', { cx: '12', cy: '12', r: '10' }), svg('polyline', { points: '12 6 12 12 16 14' })] }
 ];
 
@@ -1112,7 +1112,7 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
    */
   const renderGroupClassification = ({ tone, name }, count) => {
     const text = count === null ? name : `${name} (${count})`;
-    // The spaces aren't drawn (the button's gap spaces the parts) but make the text "Worklogs · Pending (2)".
+    // The spaces aren't drawn (the button's gap spaces the parts) but make the text "Worklog Queue · Pending (2)".
     return h('span', { class: `working-issues-group-classification is-${tone}`, title: text }, ' ',
       h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), ' ',
       h('span', { class: 'working-issues-group-classification-name' }, name),
@@ -1140,8 +1140,8 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
         svg('polyline', { points: '6 9 12 15 18 9' })),
       svg('svg', { class: `working-issues-group-icon is-${id}`, ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' },
         ...icon()),
-      // A header that names a selected tab (Worklogs' classification, Issues' view) gives its count
-      // to that name, in the tab's color: "Worklogs · Pending (2)"; without one, the title has it.
+      // A header that names a selected tab (Worklog Queue's classification, Issues' view) gives its count
+      // to that name, in the tab's color: "Worklog Queue · Pending (2)"; without one, the title has it.
       h('span', { class: 'working-issues-group-title' }, named || count === null ? label : `${label} (${count})`),
       named && renderGroupClassification(named, count));
     const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
