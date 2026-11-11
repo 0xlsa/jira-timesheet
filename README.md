@@ -56,7 +56,7 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - With Public Holidays on, a banner under the week navigation shows the next public holiday from today in your selected country; click it to go to that week. Turn it off with **Show Next Public Holiday** in Settings.
 - Seven weekday cards with each day's total, worklog count, and a progress bar (a full bar is 8 hours). Today is marked, and weekend cards have a subtle background.
 - Summary cards for the week total, the selected day's total, and the connected Jira account and edition.
-- Below the cards, the selected day's panel lists its worklogs. Click its header (or the day's total) to collapse or expand them; the date, count, and total stay in view. The panel starts collapsed, and your choice applies to every day and is remembered.
+- Below the cards, the selected day's panel lists its worklogs. Click its header (or the day's total) to collapse or expand them; the date, count, and total stay in view. The panel starts expanded, and your choice applies to every day: selecting another day or week, or switching to the Weekly Summary and back, leaves it as it is. It's kept while the page is open, not stored.
 - Totals are calculated in whole seconds, so the week total always equals the sum of the daily totals, and each daily total equals the sum of that day's worklogs.
 
 **Worklogs** (for the selected day, in start-time order, together in one container with a line between each)
