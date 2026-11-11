@@ -199,6 +199,9 @@ let selectedDateKey = getLocalDateKey(new Date());
 // Whether the selected day's panel shows its worklogs: one state for every day, remembered across
 // sessions as My Work's is; collapsed until the user expands it or selects a day.
 let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'true';
+// The selected day's tab (Worklogs or Summary): one for every day, kept while the page is open
+// and back to Worklogs when it opens again (not stored).
+let selectedDayTab = 'worklogs';
 
 /** Selecting a day, here or in another week, shows its worklogs; its header still collapses them. */
 function expandDayPanel() {
@@ -614,7 +617,9 @@ function renderDays(aggregatedData, baseUrl = '') {
     onToggleDay: (expanded) => {
       isDayPanelExpanded = expanded;
       localStorage.setItem('jts-day-panel-expanded', String(expanded));
-    }
+    },
+    dayTab: selectedDayTab,
+    onSelectDayTab: (tab) => { selectedDayTab = tab; }
   });
   pendingActionsMenu.sync();
 }

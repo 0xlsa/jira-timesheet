@@ -33,6 +33,19 @@
   /* The Pending Worklogs header's total: a muted slate grey, the same in both themes */
   --pending-total: #64748b;
 
+  /* The selected day's Summary: one color per issue, by rank (src/ui/weekView.js), each stepped
+     for its theme's surface. The dataviz reference palette, in its validated order (adjacent pairs
+     colorblind-safe); the list beside the bar names every part, so no color is read alone. */
+  --summary-1: #3987e5;
+  --summary-2: #d95926;
+  --summary-3: #199e70;
+  --summary-4: #c98500;
+  --summary-5: #d55181;
+  --summary-6: #008300;
+  --summary-7: #9085e9;
+  --summary-8: #e66767;
+  --summary-other: #6e7681;
+
   /* Feedback Colors */
   --success: #3fb950;
   --success-bg: rgba(63, 185, 80, 0.12);
@@ -84,6 +97,16 @@
 
   --duration-highlight: #0284c7;
   --duration-today: #16a34a;
+
+  --summary-1: #2a78d6;
+  --summary-2: #eb6834;
+  --summary-3: #1baf7a;
+  --summary-4: #eda100;
+  --summary-5: #e87ba4;
+  --summary-6: #008300;
+  --summary-7: #6250d6;
+  --summary-8: #e34948;
+  --summary-other: #8893a7;
 
   --success: #16a34a;
   --success-bg: rgba(22, 163, 74, 0.1);
@@ -1138,6 +1161,170 @@ body {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+}
+
+/* The selected day's body: its tabs, then the selected tab's panel */
+.day-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Worklogs and Summary: two tabs of exactly half the width each, on a subtle line, the selected
+   one underlined in the selected tabs' blue */
+.day-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.day-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-subtle);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.day-tab:hover {
+  color: var(--text-main);
+}
+
+.day-tab.is-selected {
+  color: #58a6ff;
+  border-bottom-color: currentColor;
+}
+
+[data-theme="light"] .day-tab.is-selected {
+  color: var(--primary);
+}
+
+.day-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.day-tab-count {
+  white-space: pre;
+  font-weight: 400;
+}
+
+/* The Summary: in the worklogs' container (same border, radius, and sides), a thin bar split by
+   issue, then the issues, one per row */
+.day-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 4px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+/* 8px, fully rounded ends, a 2px gap between parts; each part as wide as its share */
+.day-summary-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.day-summary-segment {
+  flex: 1 1 0;
+  min-width: 3px;
+  background-color: var(--summary-color);
+}
+
+.is-tone-1 { --summary-color: var(--summary-1); }
+.is-tone-2 { --summary-color: var(--summary-2); }
+.is-tone-3 { --summary-color: var(--summary-3); }
+.is-tone-4 { --summary-color: var(--summary-4); }
+.is-tone-5 { --summary-color: var(--summary-5); }
+.is-tone-6 { --summary-color: var(--summary-6); }
+.is-tone-7 { --summary-color: var(--summary-7); }
+.is-tone-8 { --summary-color: var(--summary-8); }
+.is-tone-other { --summary-color: var(--summary-other); }
+
+/* One issue per row, across the full width, divided by subtle lines like the worklogs. The rows
+   share the list's columns (subgrid), so keys, times, and shares line up from row to row. */
+.day-summary-list {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Swatch, key, title (cut short with an ellipsis), time, share (both on the right) */
+.day-summary-item {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: 10px;
+  padding: 7px 0;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.day-summary-item + .day-summary-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.day-summary-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--summary-color);
+}
+
+.day-summary-item .issue-key-badge {
+  font-size: 12px;
+  padding: 1px 6px;
+}
+
+.issue-key-badge.is-missing {
+  color: var(--text-subtle);
+  background-color: var(--bg-card-elevated);
+  border-color: var(--border-color);
+}
+
+.day-summary-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-subtle);
+}
+
+.day-summary-duration {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.day-summary-share {
+  min-width: 3ch;
+  margin-left: 6px;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
 }
 
 /* Individual Worklog Item: a row of the shared container, no border or background of its own.

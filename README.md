@@ -66,6 +66,11 @@ The screenshots were taken in Chrome, with demonstration data; the extension loo
 - The duration, always in hours and two-digit minutes (for example, `1h 00m` or `0h 45m`).
 - **+** (log work), **✎** (edit), and trash (delete) buttons, directly beneath the duration. They stay in the same place whatever the length of the title or comment.
 
+**Summary** (the selected day's second tab)
+- Below the day's header, two tabs of equal width: **Worklogs**, with the day's worklog count, lists the worklogs as above; **Summary**, with the number of distinct issues, shows the day's time by issue. Worklogs is selected when the page opens; the tab you choose stays selected as you move between days, until the page is closed.
+- A thin bar split by issue, each part as wide as its share of the day's time, then one row per issue, most time first: its color in the bar, its key (linked to Jira), its summary (cut short with an ellipsis when long), its total time, and its share of the day. Worklogs on the same issue are added together; the shares are whole percentages that always add up to 100%.
+- The Summary is read-only and uses the worklogs already loaded: switching tabs sends nothing to Jira, and the Summary follows every worklog you log, edit, or delete, and every sync.
+
 **Editing worklogs**
 - Change the date, start time, duration (hours and minutes), and work description (comment). The issue key, title, and status are read-only.
 - Only the fields you changed are sent to Jira. An untouched comment keeps its Jira formatting.
@@ -348,6 +353,7 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `IssueKeySearch.test.js` | Which input is searched (any project prefix, a digit after the hyphen), the JQL, exact-key-first ordering with keys that are prefixes of each other (EKB-308, EKB-3086, EKB-30864; KAN-1, KAN-10) against a fake Jira that behaves like Cloud and like Data Center, and each edition's endpoint, 10-result limit, fields, exact-key lookup, errors, and cancellation |
 | `IssuePicker.test.js` | The issue search's 300 ms debounce, cancelled and ignored stale searches, reused answers, the 10-suggestion limit, empty and failed searches, and the field's keyboard and mouse use, including **Enter** picking the exact key |
 | `DeleteWorklogDialog.test.js` | The delete confirmation: the details shown (local date, start time, duration), success, failures that keep the error, ignoring a second click while deleting, and escaping |
+| `DaySummary.test.js` | The selected day's time by issue (grouping by key, then ID; most time first; whole percentages adding up to 100; empty days, missing details, and invalid durations); the Worklogs and Summary tabs (equal widths, counts, switching in place, keyboard, kept across days, empty states), the bar and rows, and following worklogs created, edited, and deleted |
 | `WeekView.test.js` | Issue status labels and their theme colors; the original weekday cards and selected-day panel; the selected day's circular add button, its label, and its date across weeks; a new worklog appearing on its day with the updated totals |
 | `SafeRendering.test.js` | Jira text containing markup (such as `<img src=x onerror=alert(1)>`) shown as text in worklog cards, the weekly view, the edit and Log work panel, the delete confirmation, and connection status messages; the DOM helpers refusing event handler attributes; the weekly view's day and edit buttons |
 | `WeeklyWorklogService.test.js` | Week ranges across a daylight-saving change, loading a week, and recalculating day and week totals after creating, editing, or deleting a worklog |
@@ -469,6 +475,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   │   └── JiraUrlValidator.js        # URL validation and origin checks
 │   └── worklog/
 │       ├── worklogUtils.js            # Weeks, time zones, durations, aggregation
+│       ├── timeDistribution.js        # The selected day's time by issue (the Summary tab)
 │       ├── worklogEdit.js             # Edit form conversion, validation, Jira formats
 │       ├── pendingClassification.js   # Worklog Queue's tabs, actions, selection, and classification changes
 │       └── weeklyWorklogService.js    # Loads a week and applies worklog changes

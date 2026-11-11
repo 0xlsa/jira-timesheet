@@ -5,6 +5,7 @@
 
 import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
+import { summarizeDayByIssue } from '../worklog/timeDistribution.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
 import { formatPendingTotal, pendingTabTotals, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
@@ -1292,6 +1293,119 @@ export function updateHolidays(container, week, holidays) {
   }
 }
 
+// The selected day's tabs, in order: its worklogs one by one, and its time by issue.
+const DAY_TABS = [
+  { id: 'worklogs', label: 'Worklogs' },
+  { id: 'summary', label: 'Summary' }
+];
+
+// The Summary's colors, by rank (see options.css): the issue with the most time takes the first.
+// Issues past the last color share a neutral grey rather than repeat one.
+const SUMMARY_TONES = 8;
+
+/**
+ * The selected day's tabs, side by side and of equal width, each with its count: Worklogs (its
+ * worklogs) and Summary (its distinct issues). A tablist (WAI-ARIA tabs): the selected tab is the
+ * one in the tab order, and the arrow keys, Home, and End choose another. Choosing a tab shows its
+ * panel at once, in place (no new request), then tells `onSelect`.
+ *
+ * @param {{ worklogs: number, summary: number }} counts
+ * @param {{ worklogs: HTMLElement, summary: HTMLElement }} panels
+ * @param {string} selected
+ * @param {(tab: string) => void} [onSelect]
+ * @returns {HTMLElement}
+ */
+function renderDayTabs(counts, panels, selected, onSelect) {
+  let current = DAY_TABS.some((tab) => tab.id === selected) ? selected : DAY_TABS[0].id;
+  const buttons = DAY_TABS.map(({ id, label }) => h('button', {
+    type: 'button',
+    role: 'tab',
+    id: `dayTab-${id}`,
+    class: 'day-tab',
+    'data-tab': id,
+    'aria-controls': panels[id].id
+  },
+    h('span', { class: 'day-tab-name' }, label),
+    h('span', { class: 'day-tab-count' }, ` (${counts[id]})`)));
+
+  const show = (id) => {
+    current = id;
+    for (const button of buttons) {
+      const isSelected = button.dataset.tab === id;
+      button.classList.toggle('is-selected', isSelected);
+      button.setAttribute('aria-selected', String(isSelected));
+      button.setAttribute('tabindex', isSelected ? '0' : '-1');
+      panels[button.dataset.tab].classList.toggle('hidden', !isSelected);
+    }
+  };
+  const select = (id) => {
+    if (id === current) return;
+    show(id);
+    onSelect?.(id);
+  };
+  show(current);
+
+  const tablist = h('div', { class: 'day-tabs', role: 'tablist', 'aria-label': 'Selected day' }, buttons);
+  tablist.addEventListener('click', (event) => {
+    const button = event.target.closest('[role="tab"]');
+    if (button) select(button.dataset.tab);
+  });
+  tablist.addEventListener('keydown', (event) => {
+    // With a modifier, the keys are the page's shortcuts (Ctrl/⌘+arrows change the day).
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    const index = buttons.findIndex((button) => button.dataset.tab === current);
+    const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = buttons[(next + buttons.length) % buttons.length];
+    target.focus();
+    select(target.dataset.tab);
+  });
+  return tablist;
+}
+
+/**
+ * The Summary tab's contents: a thin bar split by issue, in proportion to each one's time, then
+ * each issue (its color, key, summary, time, and share of the day), one per row. The
+ * list gives every number; the bar only shows them (its name lists the shares, its parts' tooltips
+ * the times).
+ *
+ * @param {ReturnType<typeof summarizeDayByIssue>} summary
+ * @param {string} baseUrl
+ * @returns {HTMLElement}
+ */
+function renderDaySummary({ issues, totalSeconds }, baseUrl) {
+  if (!(totalSeconds > 0)) {
+    return h('div', { class: 'empty-day-placeholder' }, 'No time logged for this day.');
+  }
+  const tone = (index) => (index < SUMMARY_TONES ? `is-tone-${index + 1}` : 'is-tone-other');
+  const keyOf = (issue) => issue.issueKey || 'No issue key';
+
+  const bar = h('div', {
+    class: 'day-summary-bar',
+    role: 'img',
+    'aria-label': `Time by issue: ${issues.map((issue) => `${keyOf(issue)} ${issue.percent}%`).join(', ')}`
+  },
+  // A part at zero draws nothing.
+  issues.map((issue, index) => issue.seconds > 0 && h('span', {
+    class: `day-summary-segment ${tone(index)}`,
+    style: `flex-grow: ${issue.seconds}`,
+    title: `${keyOf(issue)} · ${issue.formattedDuration} · ${issue.percent}%`
+  })));
+
+  const list = h('ul', { class: 'day-summary-list' }, issues.map((issue, index) => h('li', { class: 'day-summary-item' },
+    h('span', { class: `day-summary-swatch ${tone(index)}`, 'aria-hidden': 'true' }),
+    issue.issueKey
+      ? h('a', { href: issueBrowseUrl(baseUrl, issue.issueKey), target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey} in Jira` }, issue.issueKey)
+      : h('span', { class: 'issue-key-badge is-missing' }, keyOf(issue)),
+    h('span', { class: 'day-summary-title', title: issue.issueSummary }, issue.issueSummary),
+    h('span', { class: 'day-summary-duration' }, issue.formattedDuration),
+    h('span', { class: 'day-summary-share' }, `${issue.percent}%`))));
+
+  return h('div', { class: 'day-summary' }, bar, list);
+}
+
 /**
  * Renders the 7 weekday cards, the selected day's worklog panel, and the My Work section
  * into `container`. Daily totals and weekly totals are never modified by changing the selection.
@@ -1316,8 +1430,12 @@ export function updateHolidays(container, week, holidays) {
  *   collapsed otherwise. One state for every day.
  * @param {(expanded: boolean) => void} [options.onToggleDay] - Called after the selected day's
  *   panel header expands or collapses it
+ * @param {'worklogs' | 'summary'} [options.dayTab] - The selected day's tab: its worklogs one by
+ *   one (the default), or its time by issue. One tab for every day.
+ * @param {(tab: 'worklogs' | 'summary') => void} [options.onSelectDayTab] - Called after another
+ *   tab of the selected day is chosen; the panel switches tabs itself
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay, dayTab = DAY_TABS[0].id, onSelectDayTab }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -1405,6 +1523,8 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
   });
   const body = h('div', { id: 'selectedDayBody', class: 'day-panel-body' });
   panel.append(header, body);
+  // The Worklogs tab's panel: the day's worklogs, one by one, as they've always been shown.
+  const worklogsPanel = h('div', { id: 'selectedDayWorklogs', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-worklogs' });
 
   if (selectedDay.worklogs.length > 0) {
     const listEl = document.createElement('div');
@@ -1432,13 +1552,21 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
       });
     }
 
-    body.appendChild(listEl);
+    worklogsPanel.appendChild(listEl);
   } else {
     const emptyPlaceholder = document.createElement('div');
     emptyPlaceholder.className = 'empty-day-placeholder';
     emptyPlaceholder.textContent = 'No worklogs logged for this day.';
-    body.appendChild(emptyPlaceholder);
+    worklogsPanel.appendChild(emptyPlaceholder);
   }
+
+  const summary = summarizeDayByIssue(selectedDay.worklogs);
+  const summaryPanel = h('div', { id: 'selectedDaySummary', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-summary' },
+    renderDaySummary(summary, baseUrl));
+  body.append(
+    renderDayTabs({ worklogs: selectedDay.worklogs.length, summary: summary.issues.length }, { worklogs: worklogsPanel, summary: summaryPanel }, dayTab, onSelectDayTab),
+    worklogsPanel,
+    summaryPanel);
 
   setDayPanelExpanded(panel, dayExpanded);
   container.appendChild(panel);
