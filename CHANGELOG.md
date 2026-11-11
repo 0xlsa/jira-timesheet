@@ -19,6 +19,8 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-11-11
+
 ### Added
 
 - Worklogs has Pending, On Hold, and Archived tabs, each with its count and its own color: blue, amber, and grey. Your pending worklogs, and every new one, start in Pending. <!-- highlight -->
