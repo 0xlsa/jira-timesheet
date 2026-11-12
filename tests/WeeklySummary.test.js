@@ -2,7 +2,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { installFakeDocument } from './support/fakeDom.js';
-import { formatWeekSpan, renderWeek } from '../src/ui/weekView.js';
+import { formatWeekSpan, renderWeek, updateWeekSummaryTimer } from '../src/ui/weekView.js';
 import { h } from '../src/ui/dom.js';
 import { aggregateWorklogsByWeek, buildEmptyWeek, getWeekDays } from '../src/worklog/worklogUtils.js';
 import { removeWorklogFromWeek, replaceWorklogInWeek } from '../src/worklog/weeklyWorklogService.js';
@@ -209,6 +209,100 @@ describe('Week views - Daily and Weekly Summary', () => {
     assert.equal(formatWeekSpan(new Date(2026, 10, 9), new Date(2026, 10, 15)), '9–15 November 2026');
     assert.equal(formatWeekSpan(new Date(2026, 9, 26), new Date(2026, 10, 1)), '26 October – 1 November 2026');
     assert.equal(formatWeekSpan(new Date(2026, 11, 28), new Date(2027, 0, 3)), '28 December 2026 – 3 January 2027');
+  });
+});
+
+describe('Week views - Weekly Summary issue buttons', () => {
+  let restoreDocument;
+  before(() => { restoreDocument = installFakeDocument(); });
+  after(() => restoreDocument());
+
+  const SITE = 'cloud|https://acme.atlassian.net';
+
+  /** The Weekly Summary with My Work's timer and log work handlers. */
+  function createWeekly({ running = null, busy = false, withTimer = true, withLogWork = true } = {}) {
+    const container = h('div', {});
+    const calls = { logged: [], started: [], stopped: 0, paused: 0, resumed: 0 };
+    const timer = (state) => ({
+      site: SITE, running: state.running, now: Date.now(), busy: state.busy,
+      onStart: (issue) => calls.started.push(issue), onStop: () => { calls.stopped += 1; },
+      onPause: () => { calls.paused += 1; }, onResume: () => { calls.resumed += 1; }
+    });
+    renderWeek(container, weekOf(MONDAY, SOURCE), {
+      selectedDateKey: '2026-10-26',
+      baseUrl: 'https://acme.atlassian.net',
+      onSelectDay: () => {},
+      view: 'weekly',
+      onLogWorkOnIssue: withLogWork ? (issue) => calls.logged.push(issue) : undefined,
+      timer: withTimer ? timer({ running, busy }) : undefined
+    });
+    const row = (key) => container.querySelector('#weeklySummaryView').querySelectorAll('.day-summary-item')
+      .find((item) => item.querySelector('.issue-key-badge').textContent === key);
+    const actions = (key) => row(key).querySelector('.day-summary-actions').querySelectorAll('button')
+      .map((button) => button.dataset.timerAction || button.getAttribute('aria-label'));
+    return { container, calls, row, actions, setTimer: (state) => updateWeekSummaryTimer(container, timer(state)) };
+  }
+
+  it('ends each issue with Start and + buttons, and opens Log work or starts a timer on that issue', () => {
+    const page = createWeekly();
+    assert.ok(page.container.querySelector('#weeklySummaryView').querySelector('.day-summary-list').classList.contains('has-actions'));
+    for (const key of ['EKB-1', 'EKB-2', 'EKB-3']) {
+      assert.deepEqual(page.actions(key), ['start', `Log work on ${key}`]);
+    }
+    page.row('EKB-2').querySelector('.day-summary-log-btn').click();
+    assert.deepEqual(page.calls.logged, [{ issueId: '92', issueKey: 'EKB-2', issueSummary: 'About EKB-2' }]);
+    page.row('EKB-1').querySelector('.working-issue-timer-btn').click();
+    assert.deepEqual(page.calls.started, [{ issueId: '91', issueKey: 'EKB-1', issueSummary: 'About EKB-1' }]);
+  });
+
+  it('has no buttons for time logged without an issue key', () => {
+    const page = createWeekly();
+    assert.deepEqual(page.actions('No issue key'), []);
+  });
+
+  it('shows the timed issue\'s elapsed time with Pause and Stop, and Resume while paused', () => {
+    const running = { site: SITE, issueId: '92', issueKey: 'EKB-2', issueSummary: 'About EKB-2', resumedAt: Date.now() - 60_000, accumulatedMs: 0 };
+    const page = createWeekly({ running });
+    assert.deepEqual(page.actions('EKB-2'), ['pause', 'stop', 'Log work on EKB-2']);
+    assert.ok(page.row('EKB-2').querySelector('.working-issue-elapsed'));
+    assert.deepEqual(page.actions('EKB-1'), ['start', 'Log work on EKB-1']);
+    page.row('EKB-2').querySelector('[data-timer-action="pause"]').click();
+    page.row('EKB-2').querySelector('[data-timer-action="stop"]').click();
+    assert.deepEqual([page.calls.paused, page.calls.stopped], [1, 1]);
+  });
+
+  it('follows the timer in place, keeping focus on the same button', () => {
+    const page = createWeekly();
+    const start = page.row('EKB-1').querySelector('.working-issue-timer-btn');
+    start.focus();
+    const running = { site: SITE, issueId: '91', issueKey: 'EKB-1', issueSummary: 'About EKB-1', resumedAt: Date.now(), accumulatedMs: 0 };
+    page.setTimer({ running });
+    assert.deepEqual(page.actions('EKB-1'), ['pause', 'stop', 'Log work on EKB-1']);
+    assert.equal(page.container.ownerDocument.activeElement.dataset.timerAction, 'pause');
+    page.setTimer({ running: { ...running, resumedAt: null, accumulatedMs: 60_000 } });
+    assert.deepEqual(page.actions('EKB-1'), ['resume', 'stop', 'Log work on EKB-1']);
+    page.row('EKB-1').querySelector('[data-timer-action="resume"]').click();
+    assert.equal(page.calls.resumed, 1);
+    page.setTimer({ running: null });
+    assert.deepEqual(page.actions('EKB-1'), ['start', 'Log work on EKB-1']);
+  });
+
+  it('ignores the timer buttons while busy', () => {
+    const page = createWeekly({ busy: true });
+    const start = page.row('EKB-1').querySelector('.working-issue-timer-btn');
+    assert.equal(start.getAttribute('aria-disabled'), 'true');
+    start.click();
+    assert.deepEqual(page.calls.started, []);
+  });
+
+  it('has only the buttons it has handlers for, and none in the selected day\'s Summary', () => {
+    assert.deepEqual(createWeekly({ withTimer: false }).actions('EKB-1'), ['Log work on EKB-1']);
+    assert.deepEqual(createWeekly({ withLogWork: false }).actions('EKB-1'), ['start']);
+    const none = createWeekly({ withTimer: false, withLogWork: false });
+    assert.ok(!none.container.querySelector('#weeklySummaryView').querySelector('.day-summary-list').classList.contains('has-actions'));
+    assert.equal(none.container.querySelector('.day-summary-actions'), null);
+    const page = createWeekly();
+    assert.equal(page.container.querySelector('#selectedDaySummary').querySelector('.day-summary-actions'), null);
   });
 });
 

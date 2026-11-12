@@ -1384,9 +1384,11 @@ function renderTabs(tabs, panels, selected, onSelect, { className, idPrefix, lab
  * @param {ReturnType<typeof summarizeByIssue>} summary
  * @param {string} baseUrl
  * @param {string} [emptyText] - Said instead when no time is logged
+ * @param {{ onLogWork?: (issue: object) => void, timer?: object }} [actions] - With it, each issue
+ *   with a key ends with My Work's timer controls and log work (plus) button (the Weekly Summary)
  * @returns {HTMLElement}
  */
-function renderDaySummary({ issues, totalSeconds }, baseUrl, emptyText = 'No time logged for this day.') {
+function renderDaySummary({ issues, totalSeconds }, baseUrl, emptyText = 'No time logged for this day.', actions) {
   if (!(totalSeconds > 0)) {
     return h('div', { class: 'empty-day-placeholder' }, emptyText);
   }
@@ -1405,16 +1407,85 @@ function renderDaySummary({ issues, totalSeconds }, baseUrl, emptyText = 'No tim
     title: `${keyOf(issue)} · ${issue.formattedDuration} · ${issue.percent}%`
   })));
 
-  const list = h('ul', { class: 'day-summary-list' }, issues.map((issue, index) => h('li', { class: 'day-summary-item' },
+  const hasActions = Boolean(actions?.onLogWork || actions?.timer);
+  const list = h('ul', { class: `day-summary-list${hasActions ? ' has-actions' : ''}` }, issues.map((issue, index) => h('li', { class: 'day-summary-item', 'data-row-index': String(index) },
     h('span', { class: `day-summary-swatch ${tone(index)}`, 'aria-hidden': 'true' }),
     issue.issueKey
       ? h('a', { href: issueBrowseUrl(baseUrl, issue.issueKey), target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey} in Jira` }, issue.issueKey)
       : h('span', { class: 'issue-key-badge is-missing' }, keyOf(issue)),
     h('span', { class: 'day-summary-title', title: issue.issueSummary }, issue.issueSummary),
     h('span', { class: 'day-summary-duration' }, issue.formattedDuration),
-    h('span', { class: 'day-summary-share' }, `${issue.percent}%`))));
+    h('span', { class: 'day-summary-share' }, `${issue.percent}%`),
+    hasActions && renderSummaryActions(issue, actions))));
+
+  if (hasActions) {
+    const state = { issues, ...actions };
+    summaryActionStates.set(list, state);
+    list.addEventListener('click', (event) => {
+      const logBtn = state.onLogWork && event.target.closest('.day-summary-log-btn');
+      const timerBtn = state.timer && event.target.closest('.working-issue-timer-btn');
+      const button = logBtn || timerBtn;
+      if (!button) return;
+      const issue = state.issues[Number(button.closest('.day-summary-item')?.dataset.rowIndex)];
+      if (!issue?.issueKey) return;
+      if (logBtn) state.onLogWork(summaryIssue(issue));
+      else runTimerAction(state.timer, timerBtn.dataset.timerAction, summaryIssue(issue));
+    });
+  }
 
   return h('div', { class: 'day-summary' }, bar, list);
+}
+
+// A summary list's issues, timer, and log work handler, for its clicks and its timer's updates
+// (updateWeekSummaryTimer()).
+const summaryActionStates = new WeakMap();
+
+/**
+ * The issue a summary row's buttons act on, as My Work's rows give it.
+ * @param {{ issueId: string, issueKey: string, issueSummary: string }} issue - From summarizeByIssue()
+ * @returns {{ issueId: string, issueKey: string, issueSummary: string }}
+ */
+function summaryIssue({ issueId, issueKey, issueSummary }) {
+  return { issueId, issueKey, issueSummary };
+}
+
+/**
+ * A summary row's last column: My Work's timer controls (Start; or the elapsed time with Pause or
+ * Resume, and Stop, on the timed issue) and its log work (plus) button. Empty for time logged
+ * without an issue key.
+ * @param {object} issue - From summarizeByIssue()
+ * @param {{ onLogWork?: (issue: object) => void, timer?: object }} actions
+ * @returns {HTMLElement}
+ */
+function renderSummaryActions(issue, { onLogWork, timer }) {
+  return h('span', { class: 'day-summary-actions' },
+    issue.issueKey && timer && renderIssueTimer(summaryIssue(issue), timer, 'week-summary:'),
+    issue.issueKey && onLogWork && h('button', { type: 'button', class: 'day-summary-log-btn', 'data-issue-key': issue.issueKey, 'aria-label': `Log work on ${issue.issueKey}`, title: 'Log work' },
+      buttonIcon(
+        svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+        svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))));
+}
+
+/**
+ * Brings the Weekly Summary's timer controls up to date with the timer (started, paused, resumed,
+ * stopped, busy), in place; focus stays on the button with the same role. Their elapsed times tick
+ * with updateWorkingIssuesTimer().
+ * @param {HTMLElement} container - renderWeek()'s container
+ * @param {object} [timer] - As renderWeek()'s `timer`; none removes the timer controls
+ */
+export function updateWeekSummaryTimer(container, timer) {
+  const list = container.querySelector('#weeklySummaryView')?.querySelector('.day-summary-list.has-actions');
+  const state = list && summaryActionStates.get(list);
+  if (!state) return;
+  state.timer = timer;
+  const focusKey = list.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
+  for (const row of list.querySelectorAll('.day-summary-item')) {
+    const issue = state.issues[Number(row.dataset.rowIndex)];
+    row.querySelector('.day-summary-actions')?.replaceChildren(...renderSummaryActions(issue, state).childNodes);
+  }
+  if (focusKey) {
+    [...list.querySelectorAll('[data-focus-key]')].find((el) => el.dataset.focusKey === focusKey)?.focus();
+  }
 }
 
 const MONTH_FORMAT = new Intl.DateTimeFormat('en-GB', { month: 'long' });
@@ -1449,9 +1520,11 @@ const SHORT_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', mon
  *
  * @param {{ weekDays: Array<object> }} week
  * @param {string} baseUrl
+ * @param {{ onLogWork?: (issue: object) => void, timer?: object }} [actions] - Each issue's timer
+ *   controls and log work button (renderDaySummary())
  * @returns {HTMLElement}
  */
-function renderWeeklySummary(week, baseUrl) {
+function renderWeeklySummary(week, baseUrl, actions) {
   const days = week.weekDays || [];
   const worklogs = days.flatMap((day) => day.worklogs || []);
   const summary = summarizeByIssue(worklogs);
@@ -1482,7 +1555,7 @@ function renderWeeklySummary(week, baseUrl) {
       stat('Worklogs', String(worklogs.length)),
       stat('Jira issues', String(summary.issues.length))),
     h('h4', { class: 'week-summary-heading' }, 'Time distribution'),
-    renderDaySummary(summary, baseUrl, 'No time logged this week.'),
+    renderDaySummary(summary, baseUrl, 'No time logged this week.', actions),
     h('h4', { class: 'week-summary-heading' }, 'Daily totals'),
     dailyTotals);
 }
@@ -1515,12 +1588,18 @@ function renderWeeklySummary(week, baseUrl) {
  * @param {'worklogs' | 'summary'} [options.dayTab] - The selected day's tab: its worklogs one by
  *   one (the default), or its time by issue. One tab for every day.
  * @param {(tab: 'worklogs' | 'summary') => void} [options.onSelectDayTab] - Called after another
- *   tab of the selected day is chosen; the panel switches tabs itself * @param {'daily' | 'weekly'} [options.view] - The week's view: Daily (the weekday cards and the
+ *   tab of the selected day is chosen; the panel switches tabs itself
+ * @param {'daily' | 'weekly'} [options.view] - The week's view: Daily (the weekday cards and the
  *   selected day's panel; the default) or Weekly Summary. My Work is below either.
  * @param {(view: 'daily' | 'weekly') => void} [options.onSelectView] - Called after the other view
  *   is chosen; the page switches views itself
+ * @param {(issue: { issueId: string, issueKey: string, issueSummary: string }) => void} [options.onLogWorkOnIssue] -
+ *   Called with an issue when its log work (plus) button in the Weekly Summary is clicked; no such
+ *   buttons without it
+ * @param {object} [options.timer] - The timer, as renderWorkingIssues()'s `timer`: each Weekly
+ *   Summary issue gets My Work's timer controls; none without it (updateWeekSummaryTimer() updates them)
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay, dayTab = DAY_TABS[0].id, onSelectDayTab, view = VIEWS[0].id, onSelectView }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay, dayTab = DAY_TABS[0].id, onSelectDayTab, view = VIEWS[0].id, onSelectView, onLogWorkOnIssue, timer }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -1665,7 +1744,7 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
 
   // The Weekly Summary view, from the same week, and the tabs that choose between the two views.
   const weeklyView = h('div', { id: 'weeklySummaryView', class: 'week-view-panel', role: 'tabpanel', 'aria-labelledby': 'viewTab-weekly' },
-    renderWeeklySummary(week, baseUrl));
+    renderWeeklySummary(week, baseUrl, { onLogWork: onLogWorkOnIssue, timer }));
   // All three in one card (options.css).
   container.appendChild(h('div', { class: 'week-views' },
     renderTabs(VIEWS, { daily: dailyView, weekly: weeklyView }, view, onSelectView, { className: 'view-tabs', idPrefix: 'viewTab', label: 'Week views' }),

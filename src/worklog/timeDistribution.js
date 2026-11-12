@@ -45,7 +45,7 @@ export function wholePercentages(amounts) {
  *
  * @param {Array<object>} worklogs - A day's or a week's worklogs, from aggregateWorklogsByWeek()
  * @returns {{
- *   issues: Array<{ id: string, issueKey: string, issueSummary: string, seconds: number, formattedDuration: string, percent: number }>,
+ *   issues: Array<{ id: string, issueId: string, issueKey: string, issueSummary: string, seconds: number, formattedDuration: string, percent: number }>,
  *   totalSeconds: number
  * }}
  */
@@ -56,7 +56,8 @@ export function summarizeByIssue(worklogs) {
     const issueKey = String(worklog.issueKey ?? '').trim();
     const id = issueKey || (worklog.issueId ? `id:${worklog.issueId}` : '');
     const summary = String(worklog.issueSummary ?? '').trim();
-    const group = groups.get(id) ?? { id, issueKey, issueSummary: '', seconds: 0, order: groups.size };
+    const group = groups.get(id) ?? { id, issueId: '', issueKey, issueSummary: '', seconds: 0, order: groups.size };
+    if (worklog.issueId && !group.issueId) group.issueId = String(worklog.issueId);
     if (summary && summary !== NO_SUMMARY && !group.issueSummary) group.issueSummary = summary;
     group.seconds += secondsOf(worklog);
     groups.set(id, group);
@@ -65,8 +66,9 @@ export function summarizeByIssue(worklogs) {
   const sorted = [...groups.values()].sort((a, b) => b.seconds - a.seconds || a.order - b.order);
   const percentages = wholePercentages(sorted.map((group) => group.seconds));
   return {
-    issues: sorted.map(({ id, issueKey, issueSummary, seconds }, index) => ({
+    issues: sorted.map(({ id, issueId, issueKey, issueSummary, seconds }, index) => ({
       id,
+      issueId,
       issueKey,
       issueSummary: issueSummary || NO_SUMMARY,
       seconds,

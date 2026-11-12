@@ -38,7 +38,7 @@ import { createPlatform, ext, isExtensionContext } from './src/compat/browser-ap
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays, orderWorkingIssuesGroups, VIEW_TAB_SHORTCUTS, GROUP_SHORTCUTS } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateWeekSummaryTimer, updateHolidays, orderWorkingIssuesGroups, VIEW_TAB_SHORTCUTS, GROUP_SHORTCUTS } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -614,7 +614,10 @@ function renderDays(aggregatedData, baseUrl = '') {
     dayTab: selectedDayTab,
     onSelectDayTab: (tab) => { selectedDayTab = tab; },
     view: selectedView,
-    onSelectView: (view) => { selectedView = view; }
+    onSelectView: (view) => { selectedView = view; },
+    // Each Weekly Summary issue's + and timer buttons, as in My Work
+    onLogWorkOnIssue: aggregatedData.sourceWorklogs ? (issue) => startLogWorkOnIssue(issue, 'day-summary-log-btn') : undefined,
+    timer: timerOptions()
   });
   pendingActionsMenu.sync();
 }
@@ -732,12 +735,14 @@ const timer = createTimerController({
   // another tab's change arrives here too.
   onChange: () => {
     setWorkingIssuesState(workingIssuesState);
+    updateWeekSummaryTimer(daysContainer, timerOptions());
     worklogEditor?.refreshTimer();
   },
   // Only the elapsed times change each second, in place.
   onTick: () => {
-    const section = daysContainer.querySelector('#workingIssues');
-    if (section) updateWorkingIssuesTimer(section, Date.now());
+    for (const section of daysContainer.querySelectorAll('#workingIssues, #weeklySummaryView')) {
+      updateWorkingIssuesTimer(section, Date.now());
+    }
   },
   onError: (message) => showToast(message, { durationMs: 8000 })
 });
@@ -1577,11 +1582,12 @@ function startLogWork(worklogId) {
 }
 
 /**
- * Opens the Log work panel for an issue in My Work (the row's + button). Like a worklog
- * card's + button, the date defaults to the selected day and the start time to now.
- * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }} issue
+ * Opens the Log work panel for an issue in My Work or the Weekly Summary (the row's + button).
+ * Like a worklog card's + button, the date defaults to the selected day and the start time to now.
+ * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus?: object | null }} issue
+ * @param {string} [buttonClass] - The + button's class, which gets focus back once the panel closes
  */
-function startLogWorkOnIssue(issue) {
+function startLogWorkOnIssue(issue, buttonClass = 'working-issue-log-btn') {
   closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -1594,7 +1600,7 @@ function startLogWorkOnIssue(issue) {
     },
     dateKey: selectedDateKey,
     // Back to the + button it was opened from
-    returnFocusTo: () => daysContainer.querySelector(`.working-issue-log-btn[data-issue-key="${CSS.escape(issue.issueKey)}"]`)
+    returnFocusTo: () => daysContainer.querySelector(`.${buttonClass}[data-issue-key="${CSS.escape(issue.issueKey)}"]`)
   });
 }
 

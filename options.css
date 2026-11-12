@@ -1254,7 +1254,8 @@ body {
 }
 
 /* Circular add worklog button in the selected day's heading, and the timer and log work buttons
-   of each My Work row */
+   of each My Work row and Weekly Summary issue */
+.day-summary-log-btn,
 .working-issue-timer-btn,
 .working-issues-view-btn,
 .working-issue-log-btn,
@@ -1274,6 +1275,7 @@ body {
   transition: color var(--transition), background-color var(--transition), border-color var(--transition);
 }
 
+.day-summary-log-btn:hover,
 .working-issue-timer-btn:hover,
 .working-issues-view-btn:hover,
 .working-issue-log-btn:hover,
@@ -1283,6 +1285,7 @@ body {
   border-color: var(--primary-border);
 }
 
+.day-summary-log-btn:focus-visible,
 .working-issue-timer-btn:focus-visible,
 .working-issues-view-btn:focus-visible,
 .working-issue-log-btn:focus-visible,
@@ -1291,6 +1294,7 @@ body {
   outline-offset: 2px;
 }
 
+.day-summary-log-btn .icon,
 .working-issue-timer-btn .icon,
 .working-issues-view-btn .icon,
 .working-issue-log-btn .icon,
@@ -1451,6 +1455,18 @@ body {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* In the Weekly Summary, a last column for each issue's timer and log work buttons */
+.day-summary-list.has-actions {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+}
+
+.day-summary-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* Swatch, key, title (cut short with an ellipsis), time, share (both on the right) */
