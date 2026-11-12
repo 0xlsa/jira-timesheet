@@ -94,6 +94,9 @@ describe('Week views - Daily and Weekly Summary', () => {
     assert.ok(!shown(page.weekly()));
     assert.equal(page.daily().querySelectorAll('.day-card').length, 7);
     assert.ok(page.daily().querySelector('.day-panel'));
+    // Wednesday has no worklogs, so no tabs; Monday has them, in Daily.
+    assert.equal(page.daily().querySelector('#dayTab-worklogs'), null);
+    page.q('.day-card[data-date-key="2026-10-26"]').click();
     assert.ok(page.daily().querySelector('#dayTab-worklogs') && page.daily().querySelector('#dayTab-summary'), 'Worklogs and Summary stay in Daily');
     assert.equal(page.weekly().querySelector('.day-card'), null, 'no weekday cards in the Weekly Summary');
   });

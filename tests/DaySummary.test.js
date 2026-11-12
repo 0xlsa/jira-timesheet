@@ -228,13 +228,21 @@ describe('Day panel - Worklogs and Summary tabs', () => {
     assert.equal(page.summaryPanel().querySelectorAll('.day-summary-segment').length, 1);
   });
 
-  it('shows an empty state in both tabs on a day without worklogs', () => {
+  it('shows only the empty state, without the tabs, on a day without worklogs', () => {
     const page = createPage();
+    page.tab('summary').click();
     page.select('2026-10-29');
-    assert.deepEqual(page.tabs().map((t) => t.textContent), ['Worklogs (0)', 'Summary (0)']);
-    assert.equal(page.worklogsPanel().querySelector('.empty-day-placeholder').textContent, 'No worklogs logged for this day.');
-    assert.equal(page.summaryPanel().querySelector('.empty-day-placeholder').textContent, 'No time logged for this day.');
-    assert.equal(page.summaryPanel().querySelector('.day-summary-bar'), null);
+    const body = page.q('.day-panel-body');
+    assert.deepEqual(body.childNodes.map((el) => el.className), ['empty-day-placeholder']);
+    assert.equal(body.textContent, 'No worklogs logged for this day.');
+    assert.deepEqual(page.tabs(), []);
+    assert.equal(page.worklogsPanel(), null);
+    assert.equal(page.summaryPanel(), null);
+    // The header is as before, and the next day with worklogs is back on the tab that was chosen.
+    assert.equal(page.q('.day-panel-meta').textContent, '0 worklogs \u2022 0h 00m total');
+    assert.ok(page.q('.day-add-btn'));
+    page.select('2026-10-28');
+    assert.ok(page.tab('summary').classList.contains('is-selected'));
   });
 
   it('follows worklogs created, edited, and deleted', () => {

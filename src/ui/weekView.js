@@ -1646,14 +1646,19 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     worklogsPanel.appendChild(emptyPlaceholder);
   }
 
-  const summary = summarizeByIssue(selectedDay.worklogs);
-  const summaryPanel = h('div', { id: 'selectedDaySummary', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-summary' },
-    renderDaySummary(summary, baseUrl));
-  body.append(
-    renderTabs(DAY_TABS.map((tab) => ({ ...tab, count: tab.id === 'worklogs' ? selectedDay.worklogs.length : summary.issues.length })),
-      { worklogs: worklogsPanel, summary: summaryPanel }, dayTab, onSelectDayTab, { className: 'day-tabs', idPrefix: 'dayTab', label: 'Selected day' }),
-    worklogsPanel,
-    summaryPanel);
+  if (selectedDay.worklogs.length === 0) {
+    // A day without worklogs: only its empty state, without the tabs.
+    body.append(...worklogsPanel.childNodes);
+  } else {
+    const summary = summarizeByIssue(selectedDay.worklogs);
+    const summaryPanel = h('div', { id: 'selectedDaySummary', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-summary' },
+      renderDaySummary(summary, baseUrl));
+    body.append(
+      renderTabs(DAY_TABS.map((tab) => ({ ...tab, count: tab.id === 'worklogs' ? selectedDay.worklogs.length : summary.issues.length })),
+        { worklogs: worklogsPanel, summary: summaryPanel }, dayTab, onSelectDayTab, { className: 'day-tabs', idPrefix: 'dayTab', label: 'Selected day' }),
+      worklogsPanel,
+      summaryPanel);
+  }
 
   setDayPanelExpanded(panel, dayExpanded);
   dailyView.appendChild(panel);
