@@ -350,8 +350,8 @@ function renderWorkingIssue(issue, baseUrl, canLogWork, timer, index, scope = ''
 /**
  * Fills the header's timer controls: the elapsed time with Pause (Resume while paused) and Stop,
  * the same buttons and handlers as the timed issue's row; or nothing (hidden) when no timer runs.
- * They're beside the header button, not in it, so they work while the section is collapsed and a
- * click on one doesn't expand or collapse it.
+ * They're beside the header button (after the timed issue), not in it, so they work while the
+ * section is collapsed and a click on one doesn't expand or collapse it.
  * @param {HTMLElement} controls
  * @param {object} [timer]
  */
@@ -381,18 +381,26 @@ function renderHeaderTimer(controls, timer) {
 }
 
 /**
- * Fills the line under the header with the timed issue, running or paused ("KAN-12: Fix the login
- * page"), or hides it.
+ * Fills the timed issue, running or paused, just before the header's timer controls: its key (a
+ * link to Jira, on the timer's own site) and its summary beside it, which truncates; or hides it. The line's title gives the issue in full ("KAN-12: Fix the login page").
  * @param {HTMLElement} line
  * @param {object} [timer]
+ * @param {string} baseUrl - The connected Jira site's URL, for the key's link
  */
-function renderHeaderTimerSummary(line, timer) {
+function renderHeaderTimerSummary(line, timer, baseUrl) {
   const running = timer?.running;
-  const text = running ? (running.issueSummary ? `${running.issueKey}: ${running.issueSummary}` : running.issueKey) : '';
-  line.classList.toggle('hidden', !text);
-  line.textContent = text;
-  if (text) line.setAttribute('title', text);
-  else line.removeAttribute('title');
+  line.classList.toggle('hidden', !running);
+  if (!running) {
+    line.replaceChildren();
+    line.removeAttribute('title');
+    return;
+  }
+  const issueBaseUrl = running.site && running.site !== timer.site ? siteBaseUrl(running.site) : baseUrl;
+  line.setAttribute('title', running.issueSummary ? `${running.issueKey}: ${running.issueSummary}` : running.issueKey);
+  line.replaceChildren(fragment(
+    h('a', { href: issueBrowseUrl(issueBaseUrl, running.issueKey), target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${running.issueKey} in Jira` },
+      running.issueKey),
+    Boolean(running.issueSummary) && h('span', { class: 'working-issues-timer-summary-text' }, running.issueSummary)));
 }
 
 /**
@@ -497,15 +505,15 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       setWorkingIssuesExpanded(section, isExpanded);
       onToggle?.(isExpanded);
     });
-    // The timer controls (top right) and the timed issue (under the titles) are beside the header
-    // button: buttons can't go in a button. A click elsewhere in the header, other than on the
-    // timer controls, still toggles.
+    // The timed issue and the timer controls (at the right), on the title's line, are beside the
+    // header button: buttons can't go in a button. A click elsewhere
+    // in the header, other than on the timer controls or the issue key's link, still toggles.
     const header = h('div', { class: 'working-issues-header' },
       h('h3', { class: 'working-issues-heading' }, toggle),
       h('span', { class: 'working-issues-timer hidden' }),
       h('span', { class: 'working-issues-timer-summary hidden' }));
     header.addEventListener('click', (event) => {
-      if (!event.target.closest('button, .working-issues-timer')) toggle.click();
+      if (!event.target.closest('button, a, .working-issues-timer')) toggle.click();
     });
     section.replaceChildren(header, h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }),
       // Kept across renders, so what it says (a view moved) is announced once.
@@ -532,7 +540,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
     state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' })));
   renderHeaderTimer(section.querySelector('.working-issues-timer'), timer);
-  renderHeaderTimerSummary(section.querySelector('.working-issues-timer-summary'), timer);
+  renderHeaderTimerSummary(section.querySelector('.working-issues-timer-summary'), timer, baseUrl);
   section.classList.toggle('has-timer', Boolean(timer?.running));
 
   const retryButton = state.status === 'error' && onRetry

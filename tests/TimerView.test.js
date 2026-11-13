@@ -218,19 +218,24 @@ describe('Timer - header controls', () => {
   after(() => restoreDocument());
 
   const summaryOf = (section) => section.querySelector('.working-issues-timer-summary');
-  function render(running, { expanded = false, state = READY, ...extra } = {}) {
+  // The timed issue's line as [key, summary] (null for a summary it doesn't show).
+  const timedIssueOf = (section) => [
+    summaryOf(section).querySelector('.issue-key-badge')?.textContent ?? null,
+    summaryOf(section).querySelector('.working-issues-timer-summary-text')?.textContent ?? null
+  ];
+  function render(running, { expanded = false, state = READY, baseUrl, ...extra } = {}) {
     const calls = [];
     const toggles = [];
     const section = document.createElement('section');
     const options = (r = running, more = {}) => ({
-      state, expanded, onToggle: (value) => toggles.push(value),
+      state, expanded, baseUrl, onToggle: (value) => toggles.push(value),
       ...timerOptions({ running: r, onPause: () => calls.push('pause'), onResume: () => calls.push('resume'), onStop: () => calls.push('stop'), ...extra, ...more })
     });
     renderWorkingIssues(section, options());
     return { section, calls, toggles, rerender: (r, more) => renderWorkingIssues(section, options(r, more)) };
   }
 
-  it('shows the elapsed time, Pause, and Stop at the top right while running, collapsed', () => {
+  it('shows the elapsed time, Pause, and Stop on their own line while running, collapsed', () => {
     const { section } = render(RUNNING_KAN_12);
     assert.ok(section.classList.contains('is-collapsed'));
     const controls = headerTimerOf(section);
@@ -242,7 +247,7 @@ describe('Timer - header controls', () => {
       [['pause', 'Pause the timer on KAN-12'], ['stop', 'Stop the timer on KAN-12']]);
   });
 
-  it('sits beside the header button, not in it, with the timed issue on a line under both', () => {
+  it('sits beside the header button, not in it, with the timed issue just before the controls', () => {
     const { section } = render(RUNNING_KAN_12);
     const header = section.querySelector('.working-issues-header');
     assert.deepEqual(header.childNodes.map((n) => n.className),
@@ -269,26 +274,40 @@ describe('Timer - header controls', () => {
     assert.equal(headerTimerOf(section).querySelector('.working-issue-elapsed').textContent, '01:02:04');
   });
 
-  it('shows the timed issue as "KEY: summary" under the header, and just the key without a summary', () => {
-    const { section, rerender } = render(RUNNING_KAN_12);
+  it('shows the timed issue as its key badge (a link to Jira) and summary, and just the key without a summary', () => {
+    const { section, rerender } = render(RUNNING_KAN_12, { expanded: false, baseUrl: 'https://acme.atlassian.net' });
     assert.ok(!summaryOf(section).classList.contains('hidden'));
-    assert.equal(summaryOf(section).textContent, 'KAN-12: Fix the login page');
+    assert.ok(section.classList.contains('is-collapsed'), 'shown collapsed');
+    assert.deepEqual(summaryOf(section).childNodes.map((n) => n.className), ['issue-key-badge', 'working-issues-timer-summary-text']);
+    assert.deepEqual(timedIssueOf(section), ['KAN-12', 'Fix the login page']);
+    const key = summaryOf(section).querySelector('.issue-key-badge');
+    assert.equal(key.tagName, 'A');
+    assert.equal(key.getAttribute('href'), 'https://acme.atlassian.net/browse/KAN-12');
+    assert.equal(key.getAttribute('target'), '_blank');
     assert.equal(summaryOf(section).getAttribute('title'), 'KAN-12: Fix the login page', 'in full when truncated');
     rerender({ ...RUNNING_KAN_12, issueId: '20001', issueKey: 'OPS-4', issueSummary: '' });
-    assert.equal(summaryOf(section).textContent, 'OPS-4');
+    assert.deepEqual(timedIssueOf(section), ['OPS-4', null]);
+    assert.equal(summaryOf(section).getAttribute('title'), 'OPS-4');
+  });
+
+  it('links a timed issue on another Jira site to that site', () => {
+    const other = siteId('cloud', 'https://other.atlassian.net');
+    const { section } = render({ ...RUNNING_KAN_12, site: other }, { baseUrl: 'https://acme.atlassian.net' });
+    assert.equal(summaryOf(section).querySelector('.issue-key-badge').getAttribute('href'), 'https://other.atlassian.net/browse/KAN-12');
   });
 
   it('follows the timer to another issue, and is hidden without one', () => {
     const { section, rerender } = render(RUNNING_KAN_12);
     rerender({ ...RUNNING_KAN_12, issueId: '10013', issueKey: 'KAN-13', issueSummary: 'Write the release notes' });
-    assert.equal(summaryOf(section).textContent, 'KAN-13: Write the release notes');
+    assert.deepEqual(timedIssueOf(section), ['KAN-13', 'Write the release notes']);
     assert.deepEqual(headerButtons(section).map((b) => b.dataset.issueKey), ['KAN-13', 'KAN-13']);
 
     rerender(null);
     assert.ok(headerTimerOf(section).classList.contains('hidden'));
     assert.equal(headerTimerOf(section).childNodes.length, 0);
     assert.ok(summaryOf(section).classList.contains('hidden'));
-    assert.equal(summaryOf(section).textContent, '');
+    assert.equal(summaryOf(section).childNodes.length, 0);
+    assert.equal(summaryOf(section).getAttribute('title'), null);
     assert.ok(!section.classList.contains('has-timer'));
 
     const plain = document.createElement('section');
@@ -301,7 +320,7 @@ describe('Timer - header controls', () => {
     const elsewhere = { ...RUNNING_KAN_12, issueId: '20001', issueKey: 'OPS-4', issueSummary: 'Rotate keys' };
     const { section } = render(elsewhere, { state: { status: 'loading' } });
     assert.deepEqual(headerButtons(section).map((b) => b.dataset.issueKey), ['OPS-4', 'OPS-4']);
-    assert.equal(summaryOf(section).textContent, 'OPS-4: Rotate keys');
+    assert.deepEqual(timedIssueOf(section), ['OPS-4', 'Rotate keys']);
   });
 
   it('calls the page\'s Pause, Resume, and Stop, without expanding or collapsing the section', () => {
@@ -329,9 +348,10 @@ describe('Timer - header controls', () => {
     assert.deepEqual(off.calls, ['stop']);
   });
 
-  it('toggles from a click elsewhere in the header, but not from the time between the buttons', () => {
+  it('toggles from a click elsewhere in the header, but not from the time between the buttons or the issue key', () => {
     const { section, toggles } = render(RUNNING_KAN_12);
     headerTimerOf(section).querySelector('.working-issue-elapsed').dispatchEvent({ type: 'click', bubbles: true });
+    summaryOf(section).querySelector('.issue-key-badge').dispatchEvent({ type: 'click', bubbles: true });
     assert.deepEqual(toggles, []);
     summaryOf(section).dispatchEvent({ type: 'click', bubbles: true });
     assert.deepEqual(toggles, [true]);
@@ -360,17 +380,37 @@ describe('Timer - header controls', () => {
     assert.ok(!controls.classList.contains('hidden'));
   });
 
-  it('is laid out with a grid: controls at the top right, and the timed issue truncating just below them', () => {
+  it('is laid out on one line: the title, the timed issue truncating, then the controls on the right', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
     const rule = (selector) => css.match(new RegExp(`\\n${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`))[1];
-    assert.match(rule('.working-issues-header'), /display: grid;\s*grid-template-columns: minmax\(0, 1fr\) auto;/);
-    assert.match(css, /\.working-issues\.has-timer \.working-issues-header \{\s*grid-template-columns: minmax\(0, max-content\) minmax\(max-content, 1fr\);/);
-    assert.match(rule('.working-issues-timer'), /grid-column: 2;\s*grid-row: 1;/);
+    assert.match(rule('.working-issues-header'), /display: grid;\s*grid-template-columns: max-content minmax\(0, 1fr\) auto;\s*align-items: center;/);
+    assert.ok(rule('.working-issues-heading').includes('grid-column: 1 / -1;'), 'the whole line without a timer');
+    assert.ok(rule('.working-issues.has-timer .working-issues-heading').includes('grid-column: 1;'));
+    const controls = rule('.working-issues-timer');
+    for (const declaration of ['grid-column: 3;', 'grid-row: 1;', 'white-space: nowrap;']) {
+      assert.ok(controls.includes(declaration), declaration);
+    }
     const summary = rule('.working-issues-timer-summary');
-    for (const declaration of ['grid-column: 2;', 'grid-row: 2;', 'width: 0;', 'min-width: 100%;', 'overflow: hidden;', 'text-align: right;', 'text-overflow: ellipsis;', 'white-space: nowrap;']) {
+    for (const declaration of ['grid-column: 2;', 'grid-row: 1;', 'display: flex;', 'min-width: 0;']) {
       assert.ok(summary.includes(declaration), declaration);
     }
+    assert.doesNotMatch(summary, /justify-content/, 'the issue starts on the left');
+    const text = rule('.working-issues-timer-summary-text');
+    for (const declaration of ['min-width: 0;', 'overflow: hidden;', 'text-overflow: ellipsis;', 'white-space: nowrap;']) {
+      assert.ok(text.includes(declaration), declaration);
+    }
+    // Narrow: the issue and controls on a line of their own, under the title.
+    assert.match(css, /@media \(max-width: 600px\) \{[^@]*\.working-issues-timer-summary \{\s*grid-column: 1;\s*grid-row: 2;/);
     assert.doesNotMatch(css, /working-issues-timer[^{]*\{[^}]*position: absolute/);
+  });
+
+  it('colors the time green while running and muted while paused, Stop red, and Pause and Resume neutral', () => {
+    const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
+    const rule = (selector) => css.match(new RegExp(`\\n${selector.replace(/[.[\]]/g, '\\$&')} \\{([^}]*)\\}`))[1];
+    assert.ok(rule('.working-issue-elapsed').includes('color: var(--success);'));
+    assert.ok(rule('.working-issue-elapsed.is-paused').includes('color: var(--text-subtle);'));
+    assert.ok(rule('.working-issue-timer-btn.is-running').includes('color: var(--danger);'));
+    assert.doesNotMatch(css, /data-timer-action="(pause|resume)"\]/, 'Pause and Resume keep the neutral button style');
   });
 });
 
@@ -606,15 +646,15 @@ describe('Timer - pause and resume controls', () => {
     assert.equal(document.activeElement.dataset.issueKey, 'KAN-12');
   });
 
-  it('marks its play buttons (Start, Resume) for the solid blue style, and Pause and Stop not', () => {
+  it('marks Start for the solid blue style, and Pause, Resume, and Stop not', () => {
     const running = render(RUNNING).section;
     const paused = render(PAUSED).section;
     const actions = (section) => bodyOf(section).querySelectorAll('.working-issue-timer-btn').map((b) => b.dataset.timerAction);
     assert.deepEqual(actions(running), ['pause', 'stop', 'start']);
     assert.deepEqual(actions(paused), ['resume', 'stop', 'start']);
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
-    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="start"\],\n\.working-issue-timer-btn\[data-timer-action="resume"\] \{\s*color: #ffffff;\s*background-color: var\(--primary\);/);
-    assert.doesNotMatch(css, /data-timer-action="(pause|stop)"/);
+    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="start"\] \{\s*color: #ffffff;\s*background-color: var\(--primary\);/);
+    assert.doesNotMatch(css, /data-timer-action="(pause|resume|stop)"/);
   });
 
   it('lists a paused issue Jira doesn\'t list, with Resume and Stop', () => {

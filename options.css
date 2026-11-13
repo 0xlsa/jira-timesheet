@@ -1303,8 +1303,7 @@ body {
   height: 16px;
 }
 
-/* Stop: a light-red circle with a red icon, in the running-timer indicator's reds; a stronger
-   tint on hover */
+/* Stop: a light-red circle with a red icon, as it ends the timer; a stronger tint on hover */
 .working-issue-timer-btn.is-running {
   color: var(--danger);
   background-color: var(--danger-bg);
@@ -1317,19 +1316,16 @@ body {
   border-color: var(--danger);
 }
 
-/* Play (Start, and Resume while paused) in My Work and the Log work panel: solid primary
-   blue with a white icon, as the Log work button. Pause keeps the neutral style. */
-.working-issue-timer-btn[data-timer-action="start"],
-.working-issue-timer-btn[data-timer-action="resume"] {
+/* Start in My Work and the Log work panel: solid primary blue with a white icon, as the Log work
+   button. Pause and Resume keep the neutral style. */
+.working-issue-timer-btn[data-timer-action="start"] {
   color: #ffffff;
   background-color: var(--primary);
   border-color: var(--primary);
 }
 
 .working-issue-timer-btn[data-timer-action="start"]:hover,
-.working-issue-timer-btn[data-timer-action="resume"]:hover,
-.working-issue-timer-btn[data-timer-action="start"]:active,
-.working-issue-timer-btn[data-timer-action="resume"]:active {
+.working-issue-timer-btn[data-timer-action="start"]:active {
   color: #ffffff;
   background-color: var(--primary-hover);
   border-color: var(--primary-hover);
@@ -1857,28 +1853,32 @@ body {
 }
 
 .working-issues-heading {
-  grid-column: 1;
-  grid-row: 1 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   font-size: inherit;
   font-weight: inherit;
 }
 
-/* The header button on the left; on the right, the timer controls at the top and the timed issue
-   just below them. A click anywhere but the controls toggles, so it all looks clickable. */
+/* One line: the header button; then, with a timer, the timed issue and the timer's controls
+   (on the right), both shown while the section is collapsed. The issue takes the space the title
+   and controls leave, so it truncates rather than pushing them out. A click anywhere but the
+   controls and the issue key toggles, so it all looks clickable. */
 .working-issues-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto 1fr;
-  align-items: start;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
   cursor: pointer;
 }
 
-/* With a timer, the text keeps its width when it can, and the right column takes the rest: at
-   least the controls, with the timed issue truncating in whatever is left. */
-.working-issues.has-timer .working-issues-header {
-  grid-template-columns: minmax(0, max-content) minmax(max-content, 1fr);
+/* With a timer, the title keeps its width, and the issue brings the gap after it */
+.working-issues.has-timer .working-issues-heading {
+  grid-column: 1;
+}
+
+.working-issues.has-timer .working-issues-toggle {
+  padding-right: 0;
 }
 
 .working-issues-toggle {
@@ -1894,11 +1894,6 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-/* The controls bring their own gap on the right */
-.working-issues.has-timer .working-issues-toggle {
-  padding-right: 0;
 }
 
 .working-issues-toggle:focus-visible {
@@ -1945,16 +1940,16 @@ body {
   display: none;
 }
 
-/* The timer controls at the header's top right: the elapsed time, Pause (or Resume), and Stop,
-   as in the timed issue's row. Shown collapsed too. */
+/* The timer controls, at the header's right: the elapsed time, Pause (or Resume), and Stop, as in
+   the timed issue's row. They never wrap or shrink. */
 .working-issues-timer {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 18px 0 10px;
+  padding: 0 18px 0 0;
+  white-space: nowrap;
   cursor: default;
 }
 
@@ -1962,29 +1957,39 @@ body {
   display: none;
 }
 
-/* The timed issue ("KAN-12: Fix the login page"), right-aligned just below the controls. It
-   doesn't size its column (width 0, then the column's full width), so it truncates rather than
-   pushing into the text. */
+/* The header's elapsed time stands out more than a row's */
+.working-issues-timer .working-issue-elapsed {
+  margin-right: 4px;
+  font-size: 15px;
+}
+
+/* The timed issue, between the title and the controls: its key badge, then its summary in muted
+   text; a long summary truncates (the key never does). */
 .working-issues-timer-summary {
   grid-column: 2;
-  grid-row: 2;
-  width: 0;
-  min-width: 100%;
-  padding: 6px 18px 0 10px;
-  overflow: hidden;
-  text-align: right;
-  font-size: 12px;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
   color: var(--text-subtle);
+}
+
+.working-issues-timer-summary-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Running: green; paused: muted (below) */
 .working-issue-elapsed {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 600;
-  color: var(--danger);
+  color: var(--success);
 }
 
 /* Paused: the time stands still */
@@ -2720,6 +2725,43 @@ body {
 
   .working-issue.has-timer {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  /* Too narrow for one line: the timed issue (left) and the controls (right) go on a line of their
+     own under the title */
+  .working-issues-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 8px;
+  }
+
+  .working-issues.has-timer .working-issues-heading {
+    grid-column: 1 / -1;
+  }
+
+  .working-issues.has-timer .working-issues-toggle {
+    padding-right: 18px;
+    padding-bottom: 4px;
+  }
+
+  .working-issues-timer-summary {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 0 0 12px 18px;
+  }
+
+  .working-issues-timer {
+    grid-column: 2;
+    grid-row: 2;
+    padding-bottom: 12px;
+  }
+
+  .working-issues-timer {
+    gap: 6px;
+  }
+
+  .working-issues-timer .working-issue-elapsed {
+    margin-right: 2px;
+    font-size: 13px;
   }
 
   .working-issue-status {

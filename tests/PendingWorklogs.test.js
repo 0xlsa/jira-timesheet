@@ -195,7 +195,8 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
         const { section } = render({ entries, running, expanded: false });
         const summary = section.querySelector('.working-issues-timer-summary');
         assert.equal(summary.classList.contains('hidden'), !running);
-        assert.equal(summary.textContent, running ? 'KAN-12: Fix the login page' : '');
+        assert.equal(summary.textContent, running ? 'KAN-12Fix the login page' : '');
+        assert.equal(summary.getAttribute('title'), running ? 'KAN-12: Fix the login page' : null);
       }
     }
   });
@@ -1076,18 +1077,18 @@ describe('Log work panel - timer button', () => {
     assert.doesNotMatch(css, /\.editor-issue\.has-timer/);
   });
 
-  it('styles the timer buttons: solid blue Play (as Log work), light-red Stop, neutral Pause', () => {
+  it('styles the timer buttons: solid blue Start (as Log work), light-red Stop, neutral Pause and Resume', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
     // The declarations of the rule whose selector list starts with `selector`.
     const rule = (selector) => {
       const at = css.indexOf(`${selector}`);
       return at < 0 ? '' : css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at));
     };
-    const play = rule('.working-issue-timer-btn[data-timer-action="start"],\n.working-issue-timer-btn[data-timer-action="resume"] {');
+    const play = rule('.working-issue-timer-btn[data-timer-action="start"] {');
     const playHover = rule('.working-issue-timer-btn[data-timer-action="start"]:hover,');
     assert.match(play, /color: #ffffff;\s*background-color: var\(--primary\);\s*border-color: var\(--primary\);/);
     assert.match(playHover, /background-color: var\(--primary-hover\);/);
-    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="resume"\]:active \{/);
+    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="start"\]:active \{/);
     // The Log work button's own blue.
     assert.match(rule('.btn-primary {'), /background-color: var\(--primary\);\s*color: #ffffff;/);
 
@@ -1098,8 +1099,8 @@ describe('Log work panel - timer button', () => {
     assert.match(stopHover, /background-color: var\(--danger-border\);\s*border-color: var\(--danger\);/);
     assert.doesNotMatch(stop + stopHover, /background-color: var\(--danger\);/);
 
-    // Pause has no rule of its own: the neutral base style.
-    assert.doesNotMatch(css, /data-timer-action="pause"/);
+    // Pause and Resume have no rule of their own: the neutral base style.
+    assert.doesNotMatch(css, /data-timer-action="(pause|resume)"/);
     // Keyboard focus stays visible on all of them.
     assert.match(css, /\.working-issue-timer-btn:focus-visible,/);
 
