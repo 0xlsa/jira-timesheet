@@ -83,12 +83,14 @@ import {
   MAX_CUSTOM_VIEWS,
   ME_VALUE,
   SYSTEM_FIELDS,
+  EPIC_FIELD,
   buildCustomViewJql,
   describeView,
   orderViews,
   reorderViewIds,
   isViewAvailable,
   usesCustomField,
+  usesEpic,
   viewUserFieldIds,
   validateViewDraft,
   conditionKind
@@ -1178,8 +1180,9 @@ function refreshActiveIssues({ keepShown = false } = {}) {
 // no longer exists shows Active.
 let selectedViewId = localStorage.getItem('jts-working-issues-view') || ALL_VIEW_ID;
 // The site's custom fields views can use (GET /field): its single-select fields and its single-user
-// fields, loaded once per page and Jira site when a view filters on a custom field, or the editor
-// opens: { site, optionIds, userIds, request }, the IDs null until loaded.
+// fields, and how it relates issues to epics (Epic), loaded once per page and Jira site when a view
+// filters on a custom field or Epic, or the editor opens: { site, optionIds, userIds, epic, request },
+// the IDs null and `epic` undefined until loaded (then { field, issueTypeIds }, or null without epics).
 let customFieldCatalog = null;
 
 // The views' results; each answer draws My Work again.
@@ -1202,24 +1205,28 @@ function customViewsFor(client, settings = savedSettings) {
 }
 
 /**
- * The site's custom fields for the editor, asked for once per page and site: its single-user fields
- * (compared with Me; the Additional Assignment Fields are offered already) and its single-select
- * fields. A failure is asked again the next time they're needed.
+ * The site's custom fields for the editor, asked for once per page and site: Epic, where the site has
+ * epics (with the standard fields); its single-user fields (compared with Me; the Additional Assignment
+ * Fields are offered already) and its single-select fields. A failure is asked again the next time
+ * they're needed.
  * @returns {Promise<Array<{ id: string, name: string, kind: 'user' | 'option', group: string }>>}
  */
 function loadCustomFields(client) {
   const site = siteId(client.deploymentType, client.baseUrl);
   if (customFieldCatalog?.site !== site) {
-    const catalog = { site, optionIds: null, userIds: null, request: null };
-    catalog.request = client.getCustomViewFields().then(({ singleSelect, userPickers }) => {
+    const catalog = { site, optionIds: null, userIds: null, epic: undefined, request: null };
+    catalog.request = client.getCustomViewFields().then(({ singleSelect, userPickers, epic }) => {
       catalog.optionIds = new Set(singleSelect.map((field) => field.id));
       catalog.userIds = new Set(userPickers.map((field) => field.id));
+      catalog.epic = epic;
       // A view whose field is gone says so now.
       if (customFieldCatalog === catalog && workingIssuesState) setWorkingIssuesState(workingIssuesState);
       // Jira allows two fields with one name (two "QA Lead" fields): their ID tells them apart.
       const named = (fields) => fields.map((field) => (fields.filter((other) => other.name === field.name).length > 1
         ? { ...field, name: `${field.name} (${field.id})` } : field));
       return [
+        // One Epic on every edition: Cloud's parent or Data Center's Epic Link, as the site has it.
+        ...(epic ? [{ ...EPIC_FIELD, group: 'Fields' }] : []),
         ...named(userPickers).map((field) => ({ id: field.id, name: field.name, kind: 'user', group: 'User fields' })),
         ...named(singleSelect).map((field) => ({ ...field, group: 'Custom fields' }))
       ];
@@ -1230,6 +1237,17 @@ function loadCustomFields(client) {
     customFieldCatalog = catalog;
   }
   return customFieldCatalog.request;
+}
+
+/**
+ * The site's epic field, for an Epic condition's JQL: `parent` (Cloud) or Epic Link's
+ * `customfield_<number>` (Data Center); undefined while not known, null when the site has no epics.
+ * @returns {string | null | undefined}
+ */
+function epicFieldFor(client) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  if (customFieldCatalog?.site !== site || customFieldCatalog.epic === undefined) return undefined;
+  return customFieldCatalog.epic?.field ?? null;
 }
 
 /** Learns whether the custom fields the site's views filter on are still in Jira. */
@@ -1250,13 +1268,32 @@ function updateCustomViews() {
 /**
  * A view's search: its results' key (the Jira site and the view's JQL) and how to run it; null when
  * its field is unavailable, so it can't be searched.
+ *
+ * A view with an Epic condition needs the site's epic field for its JQL. Until it's known (the
+ * site's fields are being read, by checkViewFields()), its search waits for it, as if Jira were
+ * slow to answer; once it's known, the views are drawn again with their real searches, which replace
+ * the waiting one before it asks Jira anything. If the fields can't be read, the view shows that
+ * error, with Retry.
  * @returns {{ key: string, run: (signal: AbortSignal) => Promise<object> } | null}
  */
 function viewSearchFor(client, view, context) {
   if (!isViewAvailable(view, context)) return null;
+  if (usesEpic(view) && context.epicField === undefined) {
+    return {
+      key: `${siteId(client.deploymentType, client.baseUrl)}\nwaiting for the epic field\n${view.id}`,
+      run: async (signal) => {
+        await loadCustomFields(client);
+        signal.throwIfAborted();
+        const epicField = epicFieldFor(client) ?? null;
+        if (!epicField) throw new Error("Epic can't be searched on this Jira site.");
+        const jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context), epicField });
+        return client.searchCustomViewIssues(jql, { signal });
+      }
+    };
+  }
   let jql;
   try {
-    jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context) });
+    jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context), epicField: context.epicField });
   } catch {
     return null;
   }
@@ -1281,7 +1318,8 @@ function customViewsOptions() {
   const context = {
     assignmentFieldIds: assignmentFieldsFor(client).map((field) => field.id),
     singleSelectFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.optionIds : null,
-    userPickerFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.userIds : null
+    userPickerFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.userIds : null,
+    epicField: epicFieldFor(client)
   };
   const searches = new Map(views.map((view) => [view.id, viewSearchFor(client, view, context)]));
 
@@ -1375,7 +1413,8 @@ function jiraFieldValues(client, field) {
 
 /**
  * The values to choose for a field in the editor: Me for a user field; every status or priority
- * Jira lists; for a custom field, Jira's suggestions for its options that start with `query`.
+ * Jira lists; for Epic, the epics matching `query` (by key or summary); for a custom field, Jira's
+ * suggestions for its options that start with `query`.
  * @param {{ id: string, kind: 'user' | 'option' }} field
  * @param {string} [query]
  * @returns {Promise<Array<object>>} Rejects when Jira can't be asked
@@ -1383,6 +1422,13 @@ function jiraFieldValues(client, field) {
 async function fieldValues(field, query = '') {
   if (field.kind === 'user') return [{ ...ME_VALUE }];
   if (!currentClient) throw new Error('No Jira site is connected.');
+  if (field.id === EPIC_FIELD.id) {
+    const client = currentClient;
+    await loadCustomFields(client);
+    const epic = customFieldCatalog?.epic;
+    if (!epic) throw new Error("Epic can't be searched on this Jira site.");
+    return client.searchEpics(query, { issueTypeIds: epic.issueTypeIds });
+  }
   if (field.id === 'status' || field.id === 'priority') {
     const values = await jiraFieldValues(currentClient, field);
     if (!values) throw new Error(`Couldn't load Jira's ${field.id} values.`);
@@ -1432,7 +1478,7 @@ function openViewEditor(viewId) {
     ],
     loadCustomFields: () => loadCustomFields(client),
     loadValues: fieldValues,
-    validate: (draft) => validateViewDraft(draft, { views: customViewsFor(client).views, editingId: view?.id }),
+    validate: (draft) => validateViewDraft(draft, { views: customViewsFor(client).views, editingId: view?.id, epicField: epicFieldFor(client) ?? null }),
     async onSave(valid) {
       const views = await storedViews();
       const { errors } = validateViewDraft({
@@ -1443,7 +1489,7 @@ function openViewEditor(viewId) {
           values: condition.values
         })),
         orderBy: valid.orderBy
-      }, { views, editingId: view?.id });
+      }, { views, editingId: view?.id, epicField: epicFieldFor(client) ?? null });
       const problem = errors.form ?? errors.name ?? errors.conditions ?? errors.orderBy ??
         errors.byCondition?.flatMap((found) => (found ? Object.values(found) : []))[0];
       if (problem) throw new Error(problem);

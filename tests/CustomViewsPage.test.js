@@ -38,7 +38,7 @@ describe('Custom views page wiring', () => {
 
   it('runs each view\'s own search with its JQL, keyed by the Jira site and the JQL', () => {
     const search = functionSource('viewSearchFor');
-    assert.match(search, /jql = buildCustomViewJql\(view, \{ userFieldIds: viewUserFieldIds\(view, context\) \}\);/);
+    assert.match(search, /jql = buildCustomViewJql\(view, \{ userFieldIds: viewUserFieldIds\(view, context\), epicField: context\.epicField \}\);/);
     assert.match(search, /key: `\$\{siteId\(client\.deploymentType, client\.baseUrl\)\}\\n\$\{jql\}`/);
     assert.match(search, /run: \(signal\) => client\.searchCustomViewIssues\(jql, \{ signal \}\)/);
     assert.match(search, /if \(!isViewAvailable\(view, context\)\) return null;/);
@@ -83,7 +83,7 @@ describe('Custom views page wiring', () => {
 
   it('offers the site\'s single-user fields and single-select fields, from one GET /field, and knows them for availability', () => {
     const load = functionSource('loadCustomFields');
-    assert.match(load, /client\.getCustomViewFields\(\)\.then\(\(\{ singleSelect, userPickers \}\) => \{/);
+    assert.match(load, /client\.getCustomViewFields\(\)\.then\(\(\{ singleSelect, userPickers, epic \}\) => \{/);
     assert.match(load, /\.\.\.named\(userPickers\)\.map\(\(field\) => \(\{ id: field\.id, name: field\.name, kind: 'user', group: 'User fields' \}\)\)/);
     // Two fields with one name show their IDs.
     assert.match(load, /\? \{ \.\.\.field, name: `\$\{field\.name\} \(\$\{field\.id\}\)` \} : field/);
@@ -152,7 +152,7 @@ describe('Custom views page wiring', () => {
   it('checks a saved view against what\'s stored at that moment, and gives a new one a random ID', () => {
     const editor = functionSource('openViewEditor');
     assert.match(editor, /const views = await storedViews\(\);/);
-    assert.match(editor, /validateViewDraft\(\{[\s\S]*?\}, \{ views, editingId: view\?\.id \}\)/);
+    assert.match(editor, /validateViewDraft\(\{[\s\S]*?\}, \{ views, editingId: view\?\.id, epicField: epicFieldFor\(client\) \?\? null \}\)/);
     assert.match(editor, /id: view\?\.id \?\? crypto\.randomUUID\(\)/);
     assert.match(editor, /await settingsStore\.saveCustomViews\(site, views\);/);
   });

@@ -26,6 +26,7 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 - Worklog Queue has Pending and On Hold tabs, each with its count and its own color: blue and amber. Your pending worklogs, and every new one, start in Pending. <!-- highlight -->
 - Each pending worklog's ⋯ menu moves it to Pending or On Hold. This only files it in this browser: nothing is sent to Jira, and the worklog itself doesn't change. <!-- highlight -->
 - Select worklogs, beside the tabs, picks several pending worklogs to move at once, one by one or with Select all. A bar shows how many are selected and their total time, with the tabs they can move to. Once they've moved, selection mode closes by itself; any that couldn't move stay selected, marked Not moved, with the reason.
+- Custom views can filter by Epic: choose one or more epics, found by key or summary, with In or Not in. It works on Jira Cloud and Jira Data Center, each searched the way the site relates issues to epics.
 - Create up to five groups of your own in Worklog Queue, such as Overtime, as tabs beside Pending and On Hold. Use + to add one and the pencil to rename or delete it. Move worklogs between groups from their ⋯ menu or the selection bar. Groups only organize worklogs in this browser; to submit a group's worklogs, move them to Pending. Deleting a group moves its worklogs to On Hold. <!-- highlight -->
 
 ### Changed
