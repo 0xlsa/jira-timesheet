@@ -31,7 +31,7 @@ import {
 } from './src/worklog/weeklyWorklogService.js';
 import {
   createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite, customViewOrderForSite,
-  workingIssuesGroupOrderForSite, WORKING_ISSUES_GROUP_IDS
+  workingIssuesGroupOrderForSite, worklogGroupsForSite, WORKING_ISSUES_GROUP_IDS
 } from './src/settings/settingsStore.js';
 import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
@@ -49,8 +49,12 @@ import { DISCARD_PENDING_WORDING, formatPendingDuration, siteBaseUrl } from './s
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
-import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus, classificationOf } from './src/timer/timeTrackingStore.js';
-import { createPendingSelection, classifyPendingWorklogs, rowActions, settleBulkSelection } from './src/worklog/pendingClassification.js';
+import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus, RELEASED_CLASSIFICATION } from './src/timer/timeTrackingStore.js';
+import {
+  createPendingSelection, classifyPendingWorklogs, entriesIn, isClassification, resolveClassification, rowActions, settleBulkSelection
+} from './src/worklog/pendingClassification.js';
+import { MAX_WORKLOG_GROUPS, newGroupId, validateGroupDraft } from './src/worklog/worklogGroups.js';
+import { openWorklogGroupEditor } from './src/ui/worklogGroupEditor.js';
 import { createPendingActionsMenu } from './src/ui/pendingActionsMenu.js';
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
@@ -245,7 +249,7 @@ const workingIssuesGroupsExpanded = {
   active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
   pending: localStorage.getItem('jts-working-issues-pending-expanded') !== 'false'
 };
-// The Worklogs group's classification tab (Pending or On Hold; remembered in this browser),
+// The Worklog Queue's selected tab (Pending, On Hold, or a custom group; remembered in this browser),
 // selection mode, and the selected worklogs, which always belong to the selected tab (see
 // src/worklog/pendingClassification.js). The selection itself is never saved.
 const pendingSelection = createPendingSelection(localStorage.getItem('jts-pending-classification'));
@@ -264,7 +268,8 @@ let isDeleteDialogOpen = false;
 let shortcutsDrawer = null;
 // Open What's New drawer (see src/ui/changelogDrawer.js), or null.
 let changelogDrawer = null;
-// Open custom view editor (see src/ui/customViewEditor.js), or null.
+// Open editor drawer, or null: the custom view editor (src/ui/customViewEditor.js) or the Worklog
+// Queue group editor (src/ui/worklogGroupEditor.js), which share the drawer, one at a time.
 let customViewEditor = null;
 // While the Connection Settings drawer is open: where focus returns, and whether it covers the
 // worklog panel. Null when it's closed.
@@ -793,9 +798,10 @@ function pendingOptions() {
   const state = timer.getState();
   if (!state.tracking || !currentClient) return undefined;
   const entries = state.tracking.pending;
+  const { groups, unsupported } = worklogGroupsFor(currentClient);
   // Worklogs that left the selected tab (moved, submitted, or discarded, here or in another tab)
-  // leave the selection too.
-  pendingSelection.reconcile(entries);
+  // leave the selection too, and a custom group deleted meanwhile gives way to On Hold.
+  pendingSelection.reconcile(entries, groups);
   return {
     entries,
     site: siteId(currentClient.deploymentType, currentClient.baseUrl),
@@ -806,6 +812,13 @@ function pendingOptions() {
     tab: pendingSelection.tab,
     onSelectTab: selectPendingTab,
     onMenu: togglePendingActions,
+    groups,
+    groupActions: {
+      // Groups saved by another version of the extension are left alone: none can be added.
+      canCreate: !unsupported && groups.length < MAX_WORKLOG_GROUPS,
+      onCreate: () => openWorklogGroupEditorFor(null),
+      onEdit: (id) => openWorklogGroupEditorFor(id)
+    },
     selection: {
       active: pendingSelection.selecting,
       ids: pendingSelection.selectedIds(),
@@ -818,14 +831,14 @@ function pendingOptions() {
         showPendingWorklogs();
       },
       onToggle: (id) => {
-        if (!pendingSelection.toggle(id, pendingEntries())) return;
+        if (!pendingSelection.toggle(id, pendingEntries(), pendingGroups())) return;
         pendingNotMoved = null;
         showPendingWorklogs();
       },
       onSelectAll: () => {
         pendingNotMoved = null;
         // Every worklog in the tab, as stored: not only the rows on screen.
-        pendingSelection.selectAll(pendingEntries());
+        pendingSelection.selectAll(pendingEntries(), pendingGroups());
         showPendingWorklogs();
       },
       onDeselectAll: () => {
@@ -843,26 +856,43 @@ function pendingEntries() {
   return timer.getState().tracking?.pending ?? [];
 }
 
+/**
+ * The Worklog Queue's custom groups for a client's Jira site (src/worklog/worklogGroups.js), in tab
+ * order; none without a site.
+ * @param {object | null} client
+ * @returns {{ version: number, groups: Array<{ id: string, name: string }>, unsupported?: true }}
+ */
+function worklogGroupsFor(client) {
+  return client ? worklogGroupsForSite(savedSettings, siteId(client.deploymentType, client.baseUrl)) : { version: 1, groups: [] };
+}
+
+/** The connected Jira site's custom Worklog Queue groups, in tab order. */
+function pendingGroups() {
+  return worklogGroupsFor(currentClient).groups;
+}
+
 /** Draws My Work again, for a change of tab or selection (nothing is read or written). */
 function showPendingWorklogs() {
   setWorkingIssuesState(workingIssuesState);
 }
 
 /**
- * Shows another classification tab in Pending Worklogs, remembered in this browser. The selection
- * doesn't carry over; selection mode stays as it was.
- * @param {string} tab
+ * Shows another tab in the Worklog Queue, remembered in this browser. The selection doesn't carry
+ * over; selection mode stays as it was.
+ * @param {string} tab - 'ready', 'on-hold', or a custom group's ID
+ * @returns {boolean} True when the tab changed (and the queue was drawn again)
  */
 function selectPendingTab(tab) {
-  if (!pendingSelection.selectTab(tab)) return;
+  if (!pendingSelection.selectTab(tab, pendingGroups())) return false;
   pendingNotMoved = null;
   localStorage.setItem('jts-pending-classification', tab);
   pendingActionsMenu.close();
   showPendingWorklogs();
+  return true;
 }
 
 /**
- * Opens a pending worklog's ⋯ menu, offering the classifications it isn't under, or closes it when
+ * Opens a pending worklog's ⋯ menu, offering the groups it isn't in, or closes it when
  * it's open already. Not while it's being submitted.
  * @param {string} id
  */
@@ -877,17 +907,19 @@ function togglePendingActions(id) {
     showToast(`${entry.issueKey}'s worklog is being submitted, so it can't be moved now.`, { durationMs: 8000 });
     return;
   }
+  const groups = pendingGroups();
   pendingActionsMenu.open({
     id,
     label: `Move the pending worklog for ${entry.issueKey}`,
-    actions: rowActions(classificationOf(entry)),
+    actions: rowActions(resolveClassification(entry, groups), groups),
     onChoose: (classification) => classifyPending([id], classification)
   });
 }
 
 /**
- * Files pending worklogs under Pending or On Hold: from a row's menu, or the selected ones
+ * Files pending worklogs under Pending, On Hold, or a custom group: from a row's menu, or the selected ones
  * from the bulk bar. Only this browser's metadata changes, in one write; nothing is sent to Jira.
+ * A worklog is in one group only: moving it to another takes it out of the one it was in.
  * Each tab's count and total follow from the stored state, here and in other tabs.
  *
  * The tab shown stays the same: moved worklogs leave it, and it may show its empty state.
@@ -897,18 +929,25 @@ function togglePendingActions(id) {
  * nothing saved at all) stay selected, each flagged on its row, and the selection bar and a toast
  * name them: never success for a change that wasn't made.
  * @param {string[]} ids
- * @param {'ready' | 'on-hold'} classification
+ * @param {string} classification - 'ready', 'on-hold', or a custom group's ID
  * @param {{ bulk?: boolean }} [options]
  */
 async function classifyPending(ids, classification, { bulk = false } = {}) {
   if (isClassifyingPending || ids.length === 0) return;
+  const groups = pendingGroups();
+  // A custom group deleted in another tab since the menu or bar was drawn: nothing moves there.
+  if (!isClassification(classification, groups)) {
+    showToast('That group was deleted, maybe in another tab. Nothing was moved.', { durationMs: 8000 });
+    showPendingWorklogs();
+    return;
+  }
   isClassifyingPending = true;
   if (bulk) pendingNotMoved = null;
   // The bulk actions wait while it's saved.
   if (bulk) showPendingWorklogs();
   let outcome;
   try {
-    outcome = await classifyPendingWorklogs({ classify: timer.classifyPending, entries: pendingEntries(), ids, to: classification });
+    outcome = await classifyPendingWorklogs({ classify: timer.classifyPending, entries: pendingEntries(), ids, to: classification, groups });
   } finally {
     isClassifyingPending = false;
   }
@@ -1434,6 +1473,91 @@ platform.watchStorage((changes) => {
     savedSettings = settings;
     updateCustomViews();
   }, (err) => console.warn('Could not read the custom views:', err));
+});
+
+/**
+ * Opens the Worklog Queue group editor (src/ui/worklogGroupEditor.js) in the custom view editor's
+ * drawer: to create a group (+, null) or rename or delete one (its pencil). Saving or deleting
+ * writes the site's groups (settingsStore.saveWorklogGroups()), checked again against what's stored
+ * then, so a change made meanwhile in another tab isn't lost. A new group's tab is selected.
+ *
+ * Deleting a group never deletes its worklogs: once the group is gone they read as On Hold, and
+ * they're then filed under On Hold in storage too (timer.releaseGroup()). Nothing goes to Jira.
+ * @param {string | null} groupId
+ */
+function openWorklogGroupEditorFor(groupId) {
+  const client = currentClient;
+  if (!client) return;
+  const group = groupId ? worklogGroupsFor(client).groups.find((item) => item.id === groupId) ?? null : null;
+  if (groupId && !group) return;
+  closeDrawers();
+  pendingActionsMenu.close();
+  const site = siteId(client.deploymentType, client.baseUrl);
+  const returnFocus = document.activeElement;
+  const coversEditor = coverWorklogEditor();
+
+  /** The site's groups as stored now (another tab may have changed them). */
+  const storedGroups = async () => {
+    savedSettings = await settingsStore.load();
+    const stored = worklogGroupsFor(client);
+    if (stored.unsupported) throw new Error('This Jira site\'s Worklog Queue groups were saved by another version of Timesheet for Jira. Update the extension to change them.');
+    return stored.groups;
+  };
+
+  /** Saves the site's groups, then shows `showTab`'s worklogs. */
+  const store = async (groups, showTab) => {
+    await settingsStore.saveWorklogGroups(site, groups);
+    savedSettings = await settingsStore.load();
+    if (!selectPendingTab(showTab)) showPendingWorklogs();
+  };
+
+  customViewEditor = openWorklogGroupEditor(customViewEditorRoot, {
+    group,
+    countWorklogs: () => entriesIn(pendingEntries(), group.id, pendingGroups()).length,
+    validate: (draft) => validateGroupDraft(draft, { groups: worklogGroupsFor(client).groups, editingId: group?.id }),
+    async onSave(valid) {
+      const groups = await storedGroups();
+      const { errors } = validateGroupDraft(valid, { groups, editingId: group?.id });
+      const problem = errors.form ?? errors.name;
+      if (problem) throw new Error(problem);
+      const saved = { id: group?.id ?? newGroupId(), name: valid.name };
+      await store(group ? groups.map((item) => (item.id === group.id ? saved : item)) : [...groups, saved], saved.id);
+      showToast(group ? `Renamed the group to ${saved.name}` : `Created the ${saved.name} group`, { success: true });
+    },
+    onDelete: group && (async () => {
+      const groups = await storedGroups();
+      await store(groups.filter((item) => item.id !== group.id), RELEASED_CLASSIFICATION);
+      let moved = null;
+      try {
+        moved = await timer.releaseGroup(group.id);
+      } catch (err) {
+        // They read as On Hold all the same, the group being gone.
+        console.warn('Could not file the deleted group\'s worklogs under On Hold:', err);
+      }
+      showToast(`Deleted the ${group.name} group`, {
+        subtitle: moved?.length ? `${moved.length === 1 ? 'Its worklog is' : `Its ${moved.length} worklogs are`} in On Hold now` : ''
+      });
+    }),
+    onClose: () => {
+      customViewEditor = null;
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, or to the selected tab once the queue has been drawn again.
+      const target = returnFocus?.isConnected && returnFocus !== document.body
+        ? returnFocus
+        : daysContainer.querySelector('.pending-tabs [aria-selected="true"]');
+      target?.focus();
+    }
+  });
+}
+
+// Worklog Queue groups created, renamed, or deleted in another tab: show them here too. A tab that
+// showed a deleted group shows On Hold, where its worklogs are.
+platform.watchStorage((changes) => {
+  if (!('worklogGroupsBySite' in changes)) return;
+  settingsStore.load().then((settings) => {
+    savedSettings = settings;
+    showPendingWorklogs();
+  }, (err) => console.warn('Could not read the Worklog Queue groups:', err));
 });
 
 /**

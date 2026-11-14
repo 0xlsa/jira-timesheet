@@ -84,7 +84,7 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
     assert.equal(group(section, 'active').querySelector('[role="tablist"]'), null);
     assert.equal(group(section, 'active').querySelector('[role="tab"]'), null);
     assert.equal(group(section, 'active').querySelector('[role="tabpanel"]'), null);
-    assert.equal(group(section, 'pending').querySelector('[role="tablist"]').getAttribute('aria-label'), 'Worklog Queue by classification');
+    assert.equal(group(section, 'pending').querySelector('[role="tablist"]').getAttribute('aria-label'), 'Worklog Queue groups');
     assert.equal(header(section, 'active').textContent, 'Issues (1)');
     assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (3)');
     assert.ok(isOpen(section, 'active') && isOpen(section, 'pending'), 'both show their contents at once');

@@ -1,20 +1,27 @@
 /**
- * The Worklogs group's classifications: Pending and On Hold, one tab each. Pending's
- * internal ID is 'ready' (its name before 1.2.2): it's never stored, so renaming it changed no data,
- * and every worklog stored without a classification still reads as Pending. A pending
- * worklog's classification is this browser's own metadata (src/timer/timeTrackingStore.js,
- * classifyPending()); changing it never sends anything to Jira, and never changes the worklog's
- * time, comment, or submission.
+ * The Worklog Queue's groups (classifications), one tab each: the built-in Pending and On Hold,
+ * then the site's custom groups (src/worklog/worklogGroups.js), up to five. Pending's internal ID is
+ * 'ready' (its name before 1.2.2): it's never stored, so renaming it changed no data, and every
+ * worklog stored without a classification still reads as Pending. A pending worklog's
+ * classification is this browser's own metadata (src/timer/timeTrackingStore.js, classifyPending());
+ * changing it never sends anything to Jira, and never changes the worklog's time, comment, or
+ * submission. Every worklog is in exactly one group: a custom group that's gone reads as On Hold
+ * (resolveClassification()).
  *
  * Here: each tab's count and total, the actions a row's menu and the bulk bar offer, the selection
  * (always within the selected tab), and running a classification change and saying how it went.
- * No DOM and no storage access: the page controller keeps the selection and renders it.
+ * Functions that take `groups` (the connected site's custom groups, { id, name }, in tab order)
+ * know only the built-in ones without them. No DOM and no storage access: the page controller keeps
+ * the selection and renders it.
  */
 
-import { DEFAULT_CLASSIFICATION, PENDING_CLASSIFICATIONS, classificationOf } from '../timer/timeTrackingStore.js';
+import {
+  DEFAULT_CLASSIFICATION, PENDING_CLASSIFICATIONS, RELEASED_CLASSIFICATION, classificationOf
+} from '../timer/timeTrackingStore.js';
+import { isGroupId } from './worklogGroups.js';
 
 /**
- * The classifications, in tab order: the tab's name, a row menu's action, and the bulk bar's.
+ * The built-in classifications, in tab order: the tab's name, a row menu's action, and the bulk bar's.
  * @type {ReadonlyArray<{ id: 'ready' | 'on-hold', label: string, action: string, bulkAction: string }>}
  */
 export const CLASSIFICATIONS = Object.freeze([
@@ -23,21 +30,60 @@ export const CLASSIFICATIONS = Object.freeze([
 ].map(Object.freeze));
 
 /**
- * True for 'ready' and 'on-hold'.
- * @param {unknown} value
- * @returns {boolean}
+ * Every group the Worklog Queue shows, in tab order: Pending, On Hold, then the custom groups
+ * (`custom: true`), each with its tab name, a row menu's action ("Move to Overtime"), and the bulk bar's.
+ * @param {Array<{ id: string, name: string }>} [groups] - The site's custom groups
+ * @returns {Array<{ id: string, label: string, action: string, bulkAction: string, custom?: true }>}
  */
-export function isClassification(value) {
-  return PENDING_CLASSIFICATIONS.includes(value);
+export function classificationsFor(groups = []) {
+  return [
+    ...CLASSIFICATIONS,
+    ...(groups ?? []).map((group) => ({ id: group.id, label: group.name, action: `Move to ${group.name}`, bulkAction: group.name, custom: true }))
+  ];
 }
 
 /**
- * A classification's tab name ("On Hold").
- * @param {string} id
+ * True for 'ready', 'on-hold', and the ID of one of `groups`.
+ * @param {unknown} value
+ * @param {Array<{ id: string }>} [groups]
+ * @returns {boolean}
+ */
+export function isClassification(value, groups = []) {
+  return PENDING_CLASSIFICATIONS.includes(value) || (groups ?? []).some((group) => group.id === value);
+}
+
+/**
+ * The tab a classification shows in: itself when it's one of the queue's; On Hold for a custom
+ * group that's gone (where its worklogs are); Pending for anything else.
+ * @param {unknown} value
+ * @param {Array<{ id: string }>} [groups]
  * @returns {string}
  */
-export function classificationLabel(id) {
-  return (CLASSIFICATIONS.find((c) => c.id === id) ?? CLASSIFICATIONS[0]).label;
+export function resolveTab(value, groups = []) {
+  if (isClassification(value, groups)) return value;
+  return isGroupId(value) ? RELEASED_CLASSIFICATION : DEFAULT_CLASSIFICATION;
+}
+
+/**
+ * The group a pending worklog is in: its stored classification, or On Hold when that's a custom
+ * group that's gone (deleted, or another Jira site's). Never more than one, never none.
+ * @param {object} entry
+ * @param {Array<{ id: string }>} [groups]
+ * @returns {string}
+ */
+export function resolveClassification(entry, groups = []) {
+  return resolveTab(classificationOf(entry), groups);
+}
+
+/**
+ * A classification's tab name ("On Hold", "Overtime").
+ * @param {string} id
+ * @param {Array<{ id: string, name: string }>} [groups]
+ * @returns {string}
+ */
+export function classificationLabel(id, groups = []) {
+  const all = classificationsFor(groups);
+  return (all.find((c) => c.id === id) ?? CLASSIFICATIONS[0]).label;
 }
 
 /**
@@ -45,22 +91,24 @@ export function classificationLabel(id) {
  * it was tracked: a tab never shows only part of its worklogs.
  * @param {Array<object>} entries - `timeTracking.pending`
  * @param {string} classification
+ * @param {Array<{ id: string }>} [groups]
  * @returns {Array<object>}
  */
-export function entriesIn(entries, classification) {
-  return (entries ?? []).filter((entry) => classificationOf(entry) === classification);
+export function entriesIn(entries, classification, groups = []) {
+  return (entries ?? []).filter((entry) => resolveClassification(entry, groups) === classification);
 }
 
 /**
  * Each classification's count and total time (whole seconds), from the same entries the tabs list,
  * so they always add up to every pending worklog.
  * @param {Array<object>} entries - `timeTracking.pending`
- * @returns {Record<'ready' | 'on-hold', { count: number, seconds: number }>}
+ * @param {Array<{ id: string }>} [groups]
+ * @returns {Record<string, { count: number, seconds: number }>} By classification ID
  */
-export function summarizeClassifications(entries) {
-  const summary = Object.fromEntries(PENDING_CLASSIFICATIONS.map((id) => [id, { count: 0, seconds: 0 }]));
+export function summarizeClassifications(entries, groups = []) {
+  const summary = Object.fromEntries(classificationsFor(groups).map(({ id }) => [id, { count: 0, seconds: 0 }]));
   for (const entry of entries ?? []) {
-    const totals = summary[classificationOf(entry)];
+    const totals = summary[resolveClassification(entry, groups)];
     totals.count++;
     totals.seconds += Math.max(0, Number(entry?.timeSpentSeconds) || 0);
   }
@@ -68,39 +116,45 @@ export function summarizeClassifications(entries) {
 }
 
 /**
- * The actions a pending worklog's menu offers: every classification but its own.
- * @param {string} classification - classificationOf() the row
- * @returns {Array<{ id: string, label: string, action: string, bulkAction: string }>}
+ * The actions a pending worklog's menu offers: every group but its own.
+ * @param {string} classification - resolveClassification() the row
+ * @param {Array<{ id: string, name: string }>} [groups]
+ * @returns {Array<{ id: string, label: string, action: string, bulkAction: string, custom?: true }>}
  */
-export function rowActions(classification) {
-  return CLASSIFICATIONS.filter((c) => c.id !== classification);
+export function rowActions(classification, groups = []) {
+  return classificationsFor(groups).filter((c) => c.id !== classification);
 }
 
 /**
- * The bulk bar's actions for the selected worklogs: every classification at least one of them isn't
- * under already (moving them there would change nothing otherwise). None without a selection.
+ * The bulk bar's actions for the selected worklogs: every group at least one of them isn't in
+ * already (moving them there would change nothing otherwise). None without a selection.
  * @param {Array<object>} selected - The selected pending worklogs
- * @returns {Array<{ id: string, label: string, action: string, bulkAction: string }>}
+ * @param {Array<{ id: string, name: string }>} [groups]
+ * @returns {Array<{ id: string, label: string, action: string, bulkAction: string, custom?: true }>}
  */
-export function bulkActions(selected) {
+export function bulkActions(selected, groups = []) {
   if (!selected?.length) return [];
-  return CLASSIFICATIONS.filter((c) => !selected.every((entry) => classificationOf(entry) === c.id));
+  return classificationsFor(groups).filter((c) => !selected.every((entry) => resolveClassification(entry, groups) === c.id));
 }
 
 /**
- * Pending Worklogs' selection: which tab is selected, whether selection mode is on, and which of
+ * The Worklog Queue's selection: which tab is selected, whether selection mode is on, and which of
  * the tab's worklogs are selected. The selection only ever holds worklogs of the selected tab:
  * choosing another tab clears it, and reconcile() drops worklogs that left the tab (filed
- * elsewhere, submitted, or discarded, here or in another browser tab).
+ * elsewhere, submitted, or discarded, here or in another browser tab). A custom group's tab that's
+ * gone gives way to On Hold, where its worklogs went.
  *
- * @param {string} [initialTab] - A classification; Ready otherwise
+ * Methods that take `groups` (the site's custom groups) know only the built-in tabs without them.
+ *
+ * @param {string} [initialTab] - A classification, or a custom group's ID (checked against the
+ *   groups once they're known: reconcile()); Ready otherwise
  */
 export function createPendingSelection(initialTab) {
-  let tab = isClassification(initialTab) ? initialTab : DEFAULT_CLASSIFICATION;
+  let tab = PENDING_CLASSIFICATIONS.includes(initialTab) || isGroupId(initialTab) ? initialTab : DEFAULT_CLASSIFICATION;
   let selecting = false;
   let selected = new Set();
 
-  const idsInTab = (entries) => new Set(entriesIn(entries, tab).map((entry) => entry.id));
+  const idsInTab = (entries, groups) => new Set(entriesIn(entries, tab, groups).map((entry) => entry.id));
 
   return {
     /** The selected tab's classification. */
@@ -119,10 +173,11 @@ export function createPendingSelection(initialTab) {
     /**
      * Selects a tab. Another tab clears the selection, so it never carries over; selection mode stays.
      * @param {string} next
+     * @param {Array<{ id: string }>} [groups]
      * @returns {boolean} True when the tab changed
      */
-    selectTab(next) {
-      if (!isClassification(next) || next === tab) return false;
+    selectTab(next, groups = []) {
+      if (!isClassification(next, groups) || next === tab) return false;
       tab = next;
       selected = new Set();
       return true;
@@ -142,14 +197,15 @@ export function createPendingSelection(initialTab) {
      * gone, is never selected.
      * @param {string} id
      * @param {Array<object>} entries - `timeTracking.pending`
+     * @param {Array<{ id: string }>} [groups]
      * @returns {boolean} True when the selection changed
      */
-    toggle(id, entries) {
+    toggle(id, entries, groups = []) {
       if (selected.has(id)) {
         selected.delete(id);
         return true;
       }
-      if (!selecting || !idsInTab(entries).has(id)) return false;
+      if (!selecting || !idsInTab(entries, groups).has(id)) return false;
       selected.add(id);
       return true;
     },
@@ -157,10 +213,11 @@ export function createPendingSelection(initialTab) {
     /**
      * Selects every worklog in the selected tab, from the stored entries (not only those on screen).
      * @param {Array<object>} entries - `timeTracking.pending`
+     * @param {Array<{ id: string }>} [groups]
      */
-    selectAll(entries) {
+    selectAll(entries, groups = []) {
       if (!selecting) return;
-      selected = idsInTab(entries);
+      selected = idsInTab(entries, groups);
     },
 
     /** Deselects every worklog. */
@@ -169,12 +226,20 @@ export function createPendingSelection(initialTab) {
     },
 
     /**
-     * Keeps only the selected worklogs still in the selected tab.
+     * Keeps only the selected worklogs still in the selected tab. When the selected tab is a custom
+     * group that's gone, On Hold is selected instead (where its worklogs are), with nothing selected.
      * @param {Array<object>} entries - `timeTracking.pending`, as just read
-     * @returns {boolean} True when any was dropped
+     * @param {Array<{ id: string }>} [groups]
+     * @returns {boolean} True when the tab changed, or any worklog was dropped
      */
-    reconcile(entries) {
-      const inTab = idsInTab(entries);
+    reconcile(entries, groups = []) {
+      const shown = resolveTab(tab, groups);
+      if (shown !== tab) {
+        tab = shown;
+        selected = new Set();
+        return true;
+      }
+      const inTab = idsInTab(entries, groups);
       const kept = [...selected].filter((id) => inTab.has(id));
       if (kept.length === selected.size) return false;
       selected = new Set(kept);
@@ -255,12 +320,13 @@ function refusalReasons(refused, single, keyOf) {
  *   controller's classifyPending()
  * @param {Array<object>} options.entries - `timeTracking.pending`, as shown, for the issue keys
  * @param {string[]} options.ids
- * @param {'ready' | 'on-hold'} options.to
+ * @param {string} options.to - 'ready', 'on-hold', or a custom group's ID
+ * @param {Array<{ id: string, name: string }>} [options.groups] - For the group's name
  * @returns {Promise<{ status: 'done' | 'partial' | 'failed', moved: object[], refused: object[],
  *   keep: string[], failures: Array<{ id: string, issueKey: string, reason: string }>, message: string, detail: string }>}
  */
-export async function classifyPendingWorklogs({ classify, entries, ids, to }) {
-  const label = classificationLabel(to);
+export async function classifyPendingWorklogs({ classify, entries, ids, to, groups = [] }) {
+  const label = classificationLabel(to, groups);
   const keyOf = (id) => (entries ?? []).find((entry) => entry.id === id)?.issueKey;
   const one = ids.length === 1 ? keyOf(ids[0]) : null;
   const failMessage = one ? `Couldn't move ${one} to ${label}` : `Couldn't move ${plural(ids.length, 'worklog')} to ${label}`;

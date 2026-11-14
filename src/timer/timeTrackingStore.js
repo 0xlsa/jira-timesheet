@@ -21,9 +21,11 @@
  * - pending: [{ id, site, issueId, issueKey, issueSummary, startedAt, stoppedAt, timeSpentSeconds, comment,
  *   classification?, submission? }] `submission` is set while a submission to Jira runs or after one didn't
  *   succeed: { state: 'submitting' | 'failed' | 'uncertain', at, message? } (see submissionStatus()).
- *   `classification` is where the user filed it in Worklogs: 'on-hold', and
- *   absent for Ready (every new session, and every one stored before classifications). It's this
- *   browser's own metadata: nothing about it is ever sent to Jira.
+ *   `classification` is where the user filed it in the Worklog Queue: 'on-hold', a custom group's
+ *   ID ('group-…', src/worklog/worklogGroups.js), and absent for Ready (every new session, and every
+ *   one stored before classifications). It's this browser's own metadata: nothing about it is ever
+ *   sent to Jira. A group's ID is kept as stored even once the group is gone; the page reads it as
+ *   On Hold then.
  * Timestamps are epoch milliseconds, durations whole seconds unless named Ms. `site` is
  * `${deploymentType}|${baseUrl}` (siteId()). `issueId` is Jira's numeric ID, or '' when it isn't known.
  *
@@ -34,8 +36,10 @@
  *
  * `classification` came later within version 2, as an optional field: a build from before it reads
  * every pending worklog as it always did (and, on its next change, writes them back as Ready),
- * rather than refusing the timer altogether.
+ * rather than refusing the timer altogether. Custom groups' IDs came later still: a build from
+ * before them reads those worklogs as Ready.
  */
+
 
 export const TIME_TRACKING_KEY = 'timeTracking';
 export const TIME_TRACKING_VERSION = 2;
@@ -52,13 +56,41 @@ export const TIME_TRACKING_LOCK_NAME = 'jts-time-tracking';
 // Shortest worklog Jira accepts (see JiraClient's worklog body); shorter sessions stay pending until edited.
 export const MIN_WORKLOG_SECONDS = 60;
 
-// Where a pending worklog is filed, in the Worklogs group's tab order. 'ready' (shown as Pending;
-// the ID is the name it had before) is the default, and is never stored: an entry without
-// `classification` is Pending, so no stored data names it.
+// The built-in places a pending worklog is filed, in the Worklog Queue's tab order (custom groups
+// follow them). 'ready' (shown as Pending; the ID is the name it had before) is the default, and is
+// never stored: an entry without `classification` is Pending, so no stored data names it.
 export const PENDING_CLASSIFICATIONS = Object.freeze(['ready', 'on-hold']);
 export const DEFAULT_CLASSIFICATION = 'ready';
+// Where a custom group's worklogs go when it's deleted.
+export const RELEASED_CLASSIFICATION = 'on-hold';
 // 'archived' was a third one while 1.2.2 was developed, never released: it reads as Pending.
 const STORED_CLASSIFICATIONS = new Set(['on-hold']);
+
+// A custom group's ID (src/worklog/worklogGroups.js makes them): never 'ready' or 'on-hold', nor a
+// value an earlier build stored ('archived').
+const GROUP_ID = /^group-[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * True for a custom group's ID (`group-…`), whether or not that group still exists.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isGroupId(value) {
+  return typeof value === 'string' && GROUP_ID.test(value);
+}
+
+/** True for a classification that's stored: On Hold, or a custom group's ID. */
+const isStoredClassification = (value) => STORED_CLASSIFICATIONS.has(value) || isGroupId(value);
+
+/**
+ * True for a classification a pending worklog can be filed under: Pending ('ready'), On Hold, or a
+ * custom group's ID (whether that group exists is the page's to check).
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isFilingClassification(value) {
+  return PENDING_CLASSIFICATIONS.includes(value) || isGroupId(value);
+}
 
 // Jira issue keys are PROJECTKEY-NUMBER (see src/jira/issueKeySearch.js).
 const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
@@ -80,6 +112,7 @@ const ISSUE_ID = /^\d+$/;
  * - TOO_SHORT: the pending worklog is under a minute, which Jira doesn't accept
  * - OTHER_SITE: the pending worklog was tracked on another Jira site than the one it's submitted to
  * - INVALID_CLASSIFICATION: a classification change named no pending worklog, or no known classification
+ *   (nor a custom group's ID)
  */
 export class TimeTrackingError extends Error {
   /**
@@ -176,18 +209,20 @@ function toPending(raw) {
   const entry = { ...base, stoppedAt, timeSpentSeconds, comment };
   // Anything else (none, Ready, or a value from a newer build) reads as Ready: the default, which
   // sends nothing anywhere, so the worklog is never hidden or lost.
-  if (STORED_CLASSIFICATIONS.has(raw.classification)) entry.classification = raw.classification;
+  if (isStoredClassification(raw.classification)) entry.classification = raw.classification;
   if (submission) entry.submission = submission;
   return entry;
 }
 
 /**
- * Where a pending worklog is filed in Worklogs: 'ready' (the default, shown as Pending) or 'on-hold'.
+ * Where a pending worklog is filed in the Worklog Queue, as stored: 'ready' (the default, shown as
+ * Pending), 'on-hold', or a custom group's ID, which may be a group that's gone (the page's
+ * resolveClassification() reads that as On Hold).
  * @param {{ classification?: string }} entry
- * @returns {'ready' | 'on-hold'}
+ * @returns {string}
  */
 export function classificationOf(entry) {
-  return STORED_CLASSIFICATIONS.has(entry?.classification) ? entry.classification : DEFAULT_CLASSIFICATION;
+  return isStoredClassification(entry?.classification) ? entry.classification : DEFAULT_CLASSIFICATION;
 }
 
 /**
@@ -542,7 +577,7 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
     },
 
     /**
-     * Files pending worklogs under a classification (Pending or On Hold), in one write:
+     * Files pending worklogs under a classification (Pending, On Hold, or a custom group), in one write:
      * either every change below is stored, or (when the write fails) none is. Only this browser's
      * metadata changes; the worklogs' times, comments, and submission state stay as they are, and
      * nothing goes to Jira.
@@ -553,16 +588,16 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
      * nothing is written.
      *
      * @param {string[]} ids
-     * @param {'ready' | 'on-hold'} classification
+     * @param {string} classification - 'ready', 'on-hold', or a custom group's ID
      * @returns {Promise<{ state: object, classified: object[], unchanged: object[],
      *   refused: Array<{ id: string, code: 'PENDING_NOT_FOUND' | 'SUBMISSION_IN_PROGRESS', issueKey?: string }> }>}
      *   `classified` and `unchanged` are the entries as stored afterwards, in the order of `ids`
      * @throws {TimeTrackingError} INVALID_CLASSIFICATION
      */
     async classifyPending(ids, classification) {
-      if (!PENDING_CLASSIFICATIONS.includes(classification) || !Array.isArray(ids) || ids.length === 0 ||
+      if (!isFilingClassification(classification) || !Array.isArray(ids) || ids.length === 0 ||
           !ids.every((id) => typeof id === 'string' && id !== '')) {
-        throw new TimeTrackingError('Choose one or more pending worklogs, and Pending or On Hold.', 'INVALID_CLASSIFICATION');
+        throw new TimeTrackingError('Choose one or more pending worklogs, and where to move them.', 'INVALID_CLASSIFICATION');
       }
       const wanted = [...new Set(ids)];
 
@@ -595,6 +630,33 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
           unchanged,
           refused
         };
+      });
+    },
+
+    /**
+     * Moves every pending worklog filed under a custom group to On Hold (RELEASED_CLASSIFICATION), in
+     * one write, once the group is deleted. Unlike classifyPending(), a worklog being submitted is
+     * moved too: its submission is untouched, and the group it named is gone either way. When none
+     * is filed under it, nothing is written.
+     *
+     * @param {string} groupId
+     * @returns {Promise<{ state: object, released: object[] }>} `released`: the entries as stored afterwards
+     * @throws {TimeTrackingError} INVALID_CLASSIFICATION, for a value that isn't a custom group's ID
+     */
+    async releaseGroup(groupId) {
+      if (!isGroupId(groupId)) {
+        throw new TimeTrackingError('Choose a custom group.', 'INVALID_CLASSIFICATION');
+      }
+      return transition((state) => {
+        const released = [];
+        const pending = state.pending.map((entry) => {
+          if (entry.classification !== groupId) return entry;
+          const next = { ...entry, classification: RELEASED_CLASSIFICATION };
+          released.push(next);
+          return next;
+        });
+        if (released.length === 0) return { released };
+        return { state: { ...state, pending }, released };
       });
     },
 

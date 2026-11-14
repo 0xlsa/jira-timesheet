@@ -1,6 +1,6 @@
 /**
- * The menu a pending worklog's ⋯ button opens: Mark as Pending or Put On Hold, whichever
- * the row isn't filed under already. One menu serves every row, added to the page once; My Work
+ * The menu a pending worklog's ⋯ button opens: Mark as Pending, Put On Hold, and Move to each
+ * custom group, all but the one the row is in already. One menu serves every row, added to the page once; My Work
  * draws its rows again whenever the timer's state changes (in this tab or another), and the menu
  * stays open across that, following the row's new button.
  *
@@ -15,11 +15,12 @@ import { h, svg } from './dom.js';
 
 const ICON_STROKE = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' };
 
-// Each action's icon (decorative): a check for Pending, a pause for On Hold.
+// Each action's icon (decorative): a check for Pending, a pause for On Hold, a folder for a custom group.
 const ACTION_ICONS = {
   ready: () => [svg('path', { d: 'M22 11.08V12a10 10 0 1 1-5.93-9.14' }), svg('polyline', { points: '22 4 12 14.01 9 11.01' })],
   'on-hold': () => [svg('circle', { cx: '12', cy: '12', r: '10' }), svg('line', { x1: '10', y1: '15', x2: '10', y2: '9' }), svg('line', { x1: '14', y1: '15', x2: '14', y2: '9' })]
 };
+const GROUP_ICON = () => [svg('path', { d: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z' })];
 
 /**
  * Where to put the menu: under the anchor with their right edges lined up, or above it when it
@@ -103,7 +104,7 @@ export function createPendingActionsMenu({ container, findButton }) {
     menu.replaceChildren(...actions.map((action) => h('li', { role: 'none' },
       h('button', { type: 'button', role: 'menuitem', class: 'pending-actions-item', 'data-classification': action.id, tabindex: '-1' },
         svg('svg', { class: 'icon', ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' },
-          ...(ACTION_ICONS[action.id]?.() ?? [])),
+          ...(ACTION_ICONS[action.id] ?? GROUP_ICON)()),
         h('span', {}, action.action)))));
     menu.classList.remove('hidden');
     setExpanded(true);

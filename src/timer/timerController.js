@@ -260,18 +260,28 @@ export function createTimerController({
     discardPending: async (id) => Boolean(await mutate(() => store.discardPending(id), { rethrow: true })),
 
     /**
-     * Files pending worklogs under Pending or On Hold, in this browser only (see
+     * Files pending worklogs under Pending, On Hold, or a custom group, in this browser only (see
      * timeTrackingStore's classifyPending()): one write for all of them. Rejects with a user-facing
      * Error when nothing could be stored (the caller keeps what the user chose); IDs refused one
      * by one come back in `refused`.
      * @param {string[]} ids
-     * @param {'ready' | 'on-hold'} classification
+     * @param {string} classification - 'ready', 'on-hold', or a custom group's ID
      * @returns {Promise<{ classified: object[], unchanged: object[], refused: Array<{ id: string, code: string, issueKey?: string }> }>}
      */
     classifyPending: async (ids, classification) => {
       const { classified, unchanged, refused } = await mutate(() => store.classifyPending(ids, classification), { rethrow: true });
       return { classified, unchanged, refused };
     },
+
+    /**
+     * Moves a deleted custom group's pending worklogs to On Hold, in this browser only (see
+     * timeTrackingStore's releaseGroup()). Runs even while another change is in progress, so a
+     * deletion never leaves them behind for that. Rejects with a user-facing Error when storage
+     * fails; they still read as On Hold then, the group being gone.
+     * @param {string} groupId
+     * @returns {Promise<object[]>} The worklogs moved
+     */
+    releaseGroup: async (groupId) => (await mutate(() => store.releaseGroup(groupId), { rethrow: true, queue: true })).released,
 
     /**
      * Marks a pending worklog as being submitted (see timeTrackingStore's beginSubmission()).

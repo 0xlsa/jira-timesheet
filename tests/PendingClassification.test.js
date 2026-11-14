@@ -551,9 +551,9 @@ describe('Pending Worklogs - classification tabs', () => {
     assert.equal(onHold.querySelector('.working-issues-group-total').textContent, '0h 55m');
     assert.equal(onHold.querySelector('.working-issues-group-total').getAttribute('title'), 'Total time in On Hold: 0h 55m');
     assert.deepEqual(rowIds(onHold), ['p4', 'p3']);
-    assert.deepEqual(pendingTabTotals(ENTRIES, 'on-hold'), { id: 'on-hold', label: 'On Hold', count: 2, seconds: 3300 });
+    assert.deepEqual(pendingTabTotals(ENTRIES, 'on-hold'), { id: 'on-hold', tone: 'on-hold', label: 'On Hold', count: 2, seconds: 3300 });
     // A tab remembered from before Archived was removed shows Pending.
-    assert.deepEqual(pendingTabTotals(ENTRIES, 'archived'), { id: 'ready', label: 'Pending', count: 3, seconds: 2 * (10 * HOUR + 300) + 900 });
+    assert.deepEqual(pendingTabTotals(ENTRIES, 'archived'), { id: 'ready', tone: 'ready', label: 'Pending', count: 3, seconds: 2 * (10 * HOUR + 300) + 900 });
   });
 
   it('says why a tab is empty, and that nothing is pending when nothing is', () => {

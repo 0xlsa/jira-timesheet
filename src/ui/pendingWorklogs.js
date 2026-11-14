@@ -1,19 +1,23 @@
 /**
- * The Pending Worklogs group of My Work: the stopped timer sessions kept in this browser
+ * The Worklog Queue group of My Work: the stopped timer sessions kept in this browser
  * (`timeTracking.pending`, see src/timer/timeTrackingStore.js), one row each, with Submit, Edit,
- * and Discard, and a ⋯ menu to file it under Pending or On Hold. Tabs above the rows show
- * one classification at a time (src/worklog/pendingClassification.js), and Select turns on
- * selection mode: a checkbox on each row, Select all and Deselect all, and a bar that moves the
- * selected worklogs at once. Pure DOM rendering; the page controller keeps the selection, and
- * submits (src/worklog/pendingSubmission.js), edits, discards, and classifies.
+ * and Discard, and a ⋯ menu to move it to another group. Tabs above the rows show one group at a
+ * time (src/worklog/pendingClassification.js): Pending and On Hold, then the custom groups
+ * (src/worklog/worklogGroups.js), with Issues' pencil and + buttons beside them to edit the selected
+ * custom group or add one. Select turns on selection mode: a checkbox on each row, Select all and
+ * Deselect all, and a bar that moves the selected worklogs at once. Pure DOM rendering; the page
+ * controller keeps the selection, and submits (src/worklog/pendingSubmission.js), edits, discards,
+ * classifies, and manages the groups.
  */
 
 import { fragment, h, svg } from './dom.js';
+import { tabAddButton, tabEditButton } from './tabBarButtons.js';
 import { formatDuration, formatWorklogDate } from '../worklog/worklogUtils.js';
 import { DEFAULT_CLASSIFICATION, isTooShort, submissionStatus } from '../timer/timeTrackingStore.js';
 import {
-  CLASSIFICATIONS, bulkActions, classificationLabel, entriesIn, isClassification, summarizeClassifications
+  bulkActions, classificationLabel, classificationsFor, entriesIn, resolveTab, summarizeClassifications
 } from '../worklog/pendingClassification.js';
+import { MAX_WORKLOG_GROUPS } from '../worklog/worklogGroups.js';
 
 const ICON_STROKE = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' };
 const buttonIcon = (...shapes) => svg('svg', {
@@ -204,25 +208,27 @@ function renderPendingWorklog(entry, currentSite, now, { menu, selected, notMove
 const EMPTY_NOTES = {
   none: 'No pending worklogs. When you stop a timer, its time waits here until you submit or discard it.',
   ready: 'Nothing is pending.',
-  'on-hold': 'Nothing is on hold.'
+  'on-hold': 'Nothing is on hold.',
+  custom: (name) => `Nothing is in ${name}. Select worklogs in another tab to move them here.`
 };
 
 /**
- * The classification tabs, side by side, each with its count, in the view tabs' shape and each in
- * its own color (blue Pending, amber On Hold; see options.css). A tablist
- * (WAI-ARIA tabs): the selected tab is the one in the tab order, and the arrow keys, Home, and End
- * choose another. Each tab's tooltip gives its total time.
+ * The group tabs, side by side, each with its count: Pending and On Hold in the view tabs' shape,
+ * each in its own color (blue Pending, amber On Hold; see options.css), then the custom groups,
+ * exactly like Issues' view tabs. A tablist (WAI-ARIA tabs): the selected tab is the one in the tab
+ * order, and the arrow keys, Home, and End choose another. Each tab's tooltip gives its total time.
  * @param {string} tab - The selected classification
  * @param {ReturnType<typeof summarizeClassifications>} summary
  * @param {(tab: string) => void} [onSelectTab]
+ * @param {Array<{ id: string, name: string }>} groups - The custom groups
  * @returns {HTMLElement}
  */
-function renderClassificationTabs(tab, summary, onSelectTab) {
-  const buttons = CLASSIFICATIONS.map(({ id, label }) => h('button', {
+function renderClassificationTabs(tab, summary, onSelectTab, groups) {
+  const buttons = classificationsFor(groups).map(({ id, label, custom }) => h('button', {
     type: 'button',
     role: 'tab',
     id: `pendingTab-${id}`,
-    class: `working-issues-view-tab pending-tab is-${id}${id === tab ? ' is-selected' : ''}`,
+    class: `working-issues-view-tab ${custom ? 'pending-group-tab' : `pending-tab is-${id}`}${id === tab ? ' is-selected' : ''}`,
     'data-classification': id,
     'data-focus-key': `pending-tab:${id}`,
     'aria-controls': 'pendingWorklogsPanel',
@@ -233,7 +239,7 @@ function renderClassificationTabs(tab, summary, onSelectTab) {
     h('span', { class: 'working-issues-view-tab-name' }, label),
     h('span', { class: 'working-issues-view-tab-count' }, ` (${summary[id].count})`)));
 
-  const tablist = h('div', { class: 'pending-tabs', role: 'tablist', 'aria-label': 'Worklog Queue by classification' }, buttons);
+  const tablist = h('div', { class: 'pending-tabs', role: 'tablist', 'aria-label': 'Worklog Queue groups' }, buttons);
   const select = (id) => {
     if (id !== tab) onSelectTab?.(id);
   };
@@ -269,19 +275,42 @@ function selectionButton(className, focusKey, text, unavailable, extra = {}) {
 }
 
 /**
+ * The group tabs' bar: the tabs, then (as beside Issues' view tabs) the selected custom group's
+ * pencil, to rename or delete it, and + for a new group while there are fewer than
+ * MAX_WORKLOG_GROUPS. Pending and On Hold have no pencil: they can't be renamed or deleted.
+ * @param {HTMLElement} tablist
+ * @param {{ id: string, name: string } | null} selectedGroup - The selected custom group, if one is
+ * @param {Array<object>} groups
+ * @param {object} [groupActions] - renderPendingWorklogs()'s `groupActions`
+ * @returns {HTMLElement}
+ */
+function renderGroupBar(tablist, selectedGroup, groups, groupActions) {
+  const editButton = groupActions && selectedGroup ? tabEditButton({
+    action: 'edit-group', focusKey: 'pending-group-edit', label: `Edit the ${selectedGroup.name} group`, title: 'Edit group',
+    onClick: () => groupActions.onEdit(selectedGroup.id)
+  }) : null;
+  const addButton = groupActions?.canCreate && groups.length < MAX_WORKLOG_GROUPS ? tabAddButton({
+    action: 'add-group', focusKey: 'pending-group-add', label: 'New Worklog Queue group', title: 'New group',
+    onClick: () => groupActions.onCreate()
+  }) : null;
+  return h('div', { class: 'pending-groupbar' }, tablist, editButton, addButton);
+}
+
+/**
  * Selection mode's bar, below the tabs: Select all and Deselect all, then, with one or more
- * worklogs selected, how many and their total time, and the classifications they can move to.
+ * worklogs selected, how many and their total time, and the groups they can move to.
  * After a bulk change that didn't move every worklog, a line below names the ones left (they stay
  * selected, each flagged on its row).
  * @param {Array<object>} tabEntries - Every worklog in the selected tab
  * @param {Array<object>} chosen - The selected ones
  * @param {object} selection - renderPendingWorklogs()'s `selection`
+ * @param {Array<{ id: string, name: string }>} groups - The custom groups
  * @returns {HTMLElement}
  */
-function renderSelectionBar(tabEntries, chosen, selection) {
+function renderSelectionBar(tabEntries, chosen, selection, groups) {
   const all = tabEntries.length > 0 && chosen.length === tabEntries.length;
   const seconds = chosen.reduce((total, entry) => total + Math.max(0, Number(entry.timeSpentSeconds) || 0), 0);
-  const actions = bulkActions(chosen);
+  const actions = bulkActions(chosen, groups);
 
   const bar = h('div', { class: 'pending-selection-bar', role: 'group', 'aria-label': 'Selection' },
     h('div', { class: 'pending-selection-controls' },
@@ -290,7 +319,7 @@ function renderSelectionBar(tabEntries, chosen, selection) {
     chosen.length > 0 && h('div', { class: 'pending-bulk', role: 'group', 'aria-label': 'Move the selected worklogs' },
       h('span', { class: 'pending-bulk-summary', role: 'status' }, formatSelectionSummary(chosen.length, seconds)),
       h('span', { class: 'pending-bulk-actions' }, actions.map((c) => h('button', {
-        type: 'button', class: `pending-bulk-btn is-${c.id}`, 'data-action': 'classify', 'data-classification': c.id,
+        type: 'button', class: `pending-bulk-btn ${c.custom ? 'is-custom' : `is-${c.id}`}`, 'data-action': 'classify', 'data-classification': c.id,
         'data-focus-key': `pending-bulk:${c.id}`,
         'aria-label': `Move ${chosen.length} selected worklog${chosen.length === 1 ? '' : 's'} to ${c.label}`,
         'aria-disabled': selection.busy ? 'true' : undefined
@@ -310,8 +339,8 @@ function renderSelectionBar(tabEntries, chosen, selection) {
 }
 
 /**
- * Builds the Worklogs group's contents: the classification tabs (Pending and On Hold,
- * each with its count) and, beside them, Select worklogs; selection mode's bar; then the selected tab's
+ * Builds the Worklog Queue's contents: the group tabs (Pending, On Hold, and the custom groups,
+ * each with its count), the pencil and +, and, at the right, Select worklogs; selection mode's bar; then the selected tab's
  * pending worklogs, each on its own row (sessions are never merged), most recently stopped first,
  * or a short note when it has none.
  *
@@ -327,8 +356,14 @@ function renderSelectionBar(tabEntries, chosen, selection) {
  * @param {(id: string) => void} options.onEdit
  * @param {(id: string) => void} options.onDiscard
  * @param {(id: string) => void} [options.onSubmit] - Also called for a disabled Submit, for the page to say why
- * @param {string} [options.tab='ready'] - The selected classification
+ * @param {string} [options.tab='ready'] - The selected classification (a custom group that's gone
+ *   shows On Hold)
  * @param {(tab: string) => void} [options.onSelectTab] - Called with a tab's classification when it's chosen
+ * @param {Array<{ id: string, name: string }>} [options.groups] - The site's custom groups, in tab order
+ * @param {object} [options.groupActions] - Group management; no pencil or + without it
+ * @param {boolean} options.groupActions.canCreate - Offer + (also needs fewer than MAX_WORKLOG_GROUPS groups)
+ * @param {() => void} options.groupActions.onCreate - Called from +
+ * @param {(id: string) => void} options.groupActions.onEdit - Called with the selected custom group's ID from its pencil
  * @param {(id: string) => void} [options.onMenu] - Called with a row's ID from its ⋯ button; no ⋯ without it
  * @param {object} [options.selection] - Selection mode; no Select without it
  * @param {boolean} options.selection.active - Selection mode is on
@@ -344,9 +379,11 @@ function renderSelectionBar(tabEntries, chosen, selection) {
  * @param {string} [options.selection.notice] - What the last bulk change couldn't do, in the bar
  * @returns {DocumentFragment}
  */
-export function renderPendingWorklogs({ entries, site, now = Date.now(), onEdit, onDiscard, onSubmit, tab = DEFAULT_CLASSIFICATION, onSelectTab, onMenu, selection }) {
-  const summary = summarizeClassifications(entries);
-  const tabEntries = entriesIn(entries, tab);
+export function renderPendingWorklogs({ entries, site, now = Date.now(), onEdit, onDiscard, onSubmit, tab: requestedTab = DEFAULT_CLASSIFICATION, onSelectTab, onMenu, selection, groups = [], groupActions }) {
+  const tab = resolveTab(requestedTab, groups);
+  const selectedGroup = groups.find((group) => group.id === tab) ?? null;
+  const summary = summarizeClassifications(entries, groups);
+  const tabEntries = entriesIn(entries, tab, groups);
   const selecting = Boolean(selection?.active);
   const selectedIds = new Set(selecting ? selection.ids : []);
   // Only the selected tab's worklogs can be selected.
@@ -357,7 +394,7 @@ export function renderPendingWorklogs({ entries, site, now = Date.now(), onEdit,
     type: 'button', class: `pending-select-toggle${selecting ? ' is-active' : ''}`, 'data-focus-key': 'pending-select',
     'aria-pressed': String(selecting),
     'aria-disabled': !selecting && tabEntries.length === 0 ? 'true' : undefined,
-    title: selecting ? 'Leave selection mode' : `Select ${classificationLabel(tab)} worklogs to move several at once`
+    title: selecting ? 'Leave selection mode' : `Select ${classificationLabel(tab, groups)} worklogs to move several at once`
   }, selecting
     // Done: a plain check. Select worklogs: a checked box, like the rows' checkboxes.
     ? buttonIcon(svg('polyline', { points: '20 6 9 17 4 12' }))
@@ -370,11 +407,14 @@ export function renderPendingWorklogs({ entries, site, now = Date.now(), onEdit,
     if (selectToggle.getAttribute('aria-disabled') !== 'true') selection.onToggleMode();
   });
 
-  const toolbar = h('div', { class: 'pending-toolbar' }, renderClassificationTabs(tab, summary, onSelectTab), selectToggle);
+  const toolbar = h('div', { class: 'pending-toolbar' },
+    renderGroupBar(renderClassificationTabs(tab, summary, onSelectTab, groups), selectedGroup, groups, groupActions),
+    selectToggle);
 
   let content;
   if (tabEntries.length === 0) {
-    content = h('p', { class: 'working-issues-empty' }, entries.length === 0 ? EMPTY_NOTES.none : EMPTY_NOTES[tab]);
+    content = h('p', { class: 'working-issues-empty' },
+      entries.length === 0 ? EMPTY_NOTES.none : selectedGroup ? EMPTY_NOTES.custom(selectedGroup.name) : EMPTY_NOTES[tab]);
   } else {
     const list = h('ul', { class: `pending-worklogs${selecting ? ' is-selecting' : ''}` }, [...tabEntries].reverse().map((entry) =>
       renderPendingWorklog(entry, site, now, {
@@ -409,21 +449,25 @@ export function renderPendingWorklogs({ entries, site, now = Date.now(), onEdit,
 
   return fragment(
     toolbar,
-    selecting && renderSelectionBar(tabEntries, chosen, selection),
+    selecting && renderSelectionBar(tabEntries, chosen, selection, groups),
     h('div', { id: 'pendingWorklogsPanel', class: 'pending-worklogs-panel', role: 'tabpanel', 'aria-labelledby': `pendingTab-${tab}` }, content));
 }
 
 /**
- * The selected tab, its worklogs, and their total, for the Pending Worklogs header: it names the
- * tab and counts what the group lists, like Issues counts its selected view. An unknown tab is Ready.
+ * The selected tab, its worklogs, and their total, for the Worklog Queue header: it names the
+ * tab and counts what the group lists, like Issues counts its selected view. An unknown tab is
+ * Ready; a custom group that's gone, On Hold. `tone` is the header's color: the tab's own for Pending
+ * and On Hold, the view tabs' ('view') for a custom group.
  * @param {Array<object>} entries - `timeTracking.pending`
  * @param {string} [tab='ready']
- * @returns {{ id: 'ready' | 'on-hold', label: string, count: number, seconds: number }}
+ * @param {Array<{ id: string, name: string }>} [groups] - The site's custom groups
+ * @returns {{ id: string, tone: string, label: string, count: number, seconds: number }}
  */
-export function pendingTabTotals(entries, tab = DEFAULT_CLASSIFICATION) {
-  const id = isClassification(tab) ? tab : DEFAULT_CLASSIFICATION;
-  const { count, seconds } = summarizeClassifications(entries)[id];
-  return { id, label: classificationLabel(id), count, seconds };
+export function pendingTabTotals(entries, tab = DEFAULT_CLASSIFICATION, groups = []) {
+  const id = resolveTab(tab, groups);
+  const { count, seconds } = summarizeClassifications(entries, groups)[id];
+  const custom = groups.some((group) => group.id === id);
+  return { id, tone: custom ? 'view' : id, label: classificationLabel(id, groups), count, seconds };
 }
 
 // The confirmation's wording for discarding a pending worklog (openDeleteWorklogDialog()).

@@ -10,6 +10,7 @@ import { formatDuration } from '../worklog/worklogUtils.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
 import { formatPendingTotal, pendingTabTotals, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
+import { tabAddButton, tabEditButton } from './tabBarButtons.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
 const DAY_INDICATOR_FULL_SECONDS = 8 * 60 * 60;
@@ -450,6 +451,9 @@ function uniqueIssues(issues) {
  * @param {(id: string) => void} options.pending.onDiscard - Called with a pending worklog's ID from its Discard button
  * @param {(id: string) => void} [options.pending.onSubmit] - Called with a pending worklog's ID from its Submit button
  * @param {number} [options.pending.now] - For a submission left running too long
+ * @param {Array<{ id: string, name: string }>} [options.pending.groups] - The site's custom groups, tabs
+ *   after Pending and On Hold
+ * @param {object} [options.pending.groupActions] - The groups' pencil and + (renderPendingWorklogs())
  * @param {string} [options.pending.tab='ready'] - The selected classification tab: the group lists it,
  *   and its header counts it and gives its total time
  * @param {(tab: string) => void} [options.pending.onSelectTab] - Called with a classification tab when it's chosen
@@ -602,10 +606,11 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       // discarded pending worklog leaves the Pending Worklogs group's header.
       (/^(view-row:)?timer-stop:/.test(focusKey) ? all.find((el) => el.dataset.focusKey === focusKey.replace('timer-stop:', 'timer:')) : null) ||
       (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'group:pending') : null) ||
-      // A worklog moved to another tab, or the bulk bar gone with the selection: the selected
-      // classification tab.
-      (/^(menu|select|pending-bulk|pending-select|pending-deselect)/.test(focusKey)
-        ? all.find((el) => el.classList.contains('pending-tab') && el.getAttribute('aria-selected') === 'true') : null) ||
+      // A worklog moved to another tab, the bulk bar gone with the selection, or a group's pencil
+      // gone with its group: the selected classification tab.
+      (/^(menu|select|pending-bulk|pending-select|pending-deselect|pending-group)/.test(focusKey)
+        ? all.find((el) => (el.classList.contains('pending-tab') || el.classList.contains('pending-group-tab')) &&
+          el.getAttribute('aria-selected') === 'true') : null) ||
       // A view's button that's gone (Retry once it worked, Edit view once the field is back, a row of
       // results searched again): the selected view's tab.
       (focusKey.startsWith('view-') ? all.find((el) => el.getAttribute('role') === 'tab' && el.getAttribute('aria-selected') === 'true') : null) ||
@@ -830,26 +835,14 @@ function renderViewTabs(views, selectedView, activeCount) {
     select(target.dataset.view);
   });
 
-  const editButton = selectedView ? h('button', {
-    type: 'button', class: 'working-issues-view-btn', 'data-action': 'edit-view', 'data-focus-key': 'view-edit',
-    'aria-label': `Edit the ${selectedView.name} view`, title: 'Edit view'
-  }, buttonIcon(
-    svg('path', { d: 'M12 20h9' }),
-    svg('path', { d: 'M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z' }))) : null;
-  const addButton = views.canCreate ? h('button', {
-    type: 'button', class: 'working-issues-view-btn', 'data-action': 'add-view', 'data-focus-key': 'view-add',
-    'aria-label': 'New custom view', title: 'New view'
-  }, buttonIcon(
-    svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
-    svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))) : null;
-  editButton?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    views.onEdit(selectedView.id);
-  });
-  addButton?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    views.onCreate();
-  });
+  const editButton = selectedView ? tabEditButton({
+    action: 'edit-view', focusKey: 'view-edit', label: `Edit the ${selectedView.name} view`, title: 'Edit view',
+    onClick: () => views.onEdit(selectedView.id)
+  }) : null;
+  const addButton = views.canCreate ? tabAddButton({
+    action: 'add-view', focusKey: 'view-add', label: 'New custom view', title: 'New view',
+    onClick: () => views.onCreate()
+  }) : null;
 
   return h('div', { class: 'working-issues-viewbar' }, tablist, editButton, addButton,
     movable && h('span', { id: 'workingIssuesViewMoveHint', class: 'sr-only' }, VIEW_MOVE_HINT));
@@ -1117,7 +1110,7 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
 
   /**
    * The selected tab's name and count after a group's title, in the tab's color (blue Pending, amber
-   * On Hold, the selected view tab's blue): a grey dot, then "Pending (2)". The dot is only seen; the
+   * On Hold, the selected view tab's blue for a view or a custom group): a grey dot, then "Pending (2)". The dot is only seen; the
    * name and count are read. On a narrow window the name gives way (an ellipsis), never the count.
    */
   const renderGroupClassification = ({ tone, name }, count) => {
@@ -1129,12 +1122,12 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
       count !== null && [' ', h('span', { class: 'working-issues-group-count' }, `(${count})`)]);
   };
 
-  // What the Pending Worklogs header counts and totals: the selected classification tab.
-  const pendingTab = pending ? pendingTabTotals(pending.entries, pending.tab) : null;
+  // What the Worklog Queue header counts and totals: the selected group's tab.
+  const pendingTab = pending ? pendingTabTotals(pending.entries, pending.tab, pending.groups) : null;
 
   return fragment(shown.map(({ id, label, icon }) => {
     const count = id === 'active' ? activeCount : String(pendingTab.count);
-    const named = id === 'pending' ? { tone: pendingTab.id, name: pendingTab.label }
+    const named = id === 'pending' ? { tone: pendingTab.tone, name: pendingTab.label }
       : viewName ? { tone: 'view', name: viewName } : null;
     const toggle = h('button', {
       type: 'button',
@@ -1158,7 +1151,8 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
       id === 'active' ? activeContent : renderPendingWorklogs({
         entries: pending.entries, site: pending.site, now: pending.now,
         onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit,
-        tab: pending.tab, onSelectTab: pending.onSelectTab, onMenu: pending.onMenu, selection: pending.selection
+        tab: pending.tab, onSelectTab: pending.onSelectTab, onMenu: pending.onMenu, selection: pending.selection,
+        groups: pending.groups, groupActions: pending.groupActions
       }));
     // Pointer-only: keyboard users move the group from its header button.
     const handle = movable ? h('span', { class: 'working-issues-group-handle', title: GROUP_HANDLE_TITLE, 'aria-hidden': 'true' }, gripIcon()) : null;

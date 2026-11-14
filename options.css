@@ -2466,8 +2466,8 @@ body {
   background-color: var(--bg-hover);
 }
 
-/* The Worklogs group's classification tabs (Pending, On Hold), in the view tabs' look, with
-   Select at the far right */
+/* The Worklog Queue's group tabs (Pending, On Hold, and the custom groups), in the view tabs' look,
+   then the selected custom group's pencil and +, as beside the view tabs, with Select at the far right */
 .pending-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2475,6 +2475,16 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding: 8px 0;
+}
+
+/* The tabs, pencil, and +: the view tabs' bar (.working-issues-viewbar), without its top border
+   (the toolbar has its own place) */
+.pending-groupbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .pending-tabs {
@@ -3940,6 +3950,17 @@ body {
 }
 
 .working-issues-viewbar .working-issues-view-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The Worklog Queue's pencil and + (src/ui/pendingWorklogs.js): the same size as the views' */
+.pending-groupbar .working-issues-view-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.pending-groupbar .working-issues-view-btn .icon {
   width: 14px;
   height: 14px;
 }
