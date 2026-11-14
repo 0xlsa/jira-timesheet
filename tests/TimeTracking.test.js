@@ -1033,3 +1033,185 @@ describe('timeTrackingStore - several pending worklogs for one issue', () => {
     assert.deepEqual(normalizeTimeTracking(await stored(storage)).pending, [a, b, c]);
   });
 });
+
+describe('timeTrackingStore - starting from the Log work form\'s values', () => {
+  const MINUTE = 60 * 1000;
+  const HOUR = 60 * MINUTE;
+  // The form says the work began at 14:00, and the timer starts at 16:00.
+  const NOW = T0 + 7 * HOUR;
+  const STARTED = NOW - 2 * HOUR;
+  const COMMENT = 'Investigating PostgreSQL migration issue';
+
+  it('starts as it always did without values: now, from zero, with no comment', async () => {
+    const { store, storage } = setup({ clock: createClock(NOW) });
+    const { running } = await store.start(ABC_1);
+    assert.deepEqual(running, { id: 'id-1', ...ABC_1, startedAt: NOW, accumulatedMs: 0, resumedAt: NOW });
+    assert.deepEqual(await store.start(ABC_1), { state: await stored(storage), running, stopped: null }, 'starting it again changes nothing');
+  });
+
+  it('starts with 15 minutes already worked, and counts on from there', async () => {
+    const { store, clock } = setup({ clock: createClock(NOW) });
+    const { running } = await store.start(ABC_1, { startedAt: NOW - 15 * MINUTE, elapsedMs: 15 * MINUTE });
+    assert.equal(elapsedSeconds(running, NOW), 15 * 60);
+    clock.advance(5 * MINUTE);
+    assert.equal(elapsedSeconds(running, clock.now()), 20 * 60);
+  });
+
+  it('banks the 2 hours entered, keeps the 14:00 start, and counts from 16:00', async () => {
+    const { store, storage } = setup({ clock: createClock(NOW) });
+    const { running, stopped } = await store.start(ABC_1, { startedAt: STARTED, elapsedMs: 2 * HOUR, comment: COMMENT });
+    assert.deepEqual(running, {
+      id: 'id-1', ...ABC_1, startedAt: STARTED, accumulatedMs: 2 * HOUR, resumedAt: NOW, comment: COMMENT
+    });
+    assert.equal(stopped, null);
+    assert.equal(elapsedSeconds(running, NOW), 2 * 3600, 'the timer shows 2h at once');
+    assert.deepEqual((await stored(storage)).running, running);
+    assert.deepEqual(normalizeTimeTracking(await stored(storage)).running, running, 'it reads back as it was written');
+  });
+
+  it('stops into one pending worklog of the entered and tracked time, with its start and comment', async () => {
+    const { store, storage, clock } = setup({ clock: createClock(NOW) });
+    await store.start(ABC_1, { startedAt: STARTED, elapsedMs: 2 * HOUR, comment: COMMENT });
+    clock.advance(15 * MINUTE);
+    const { stopped, state } = await store.stop();
+    assert.deepEqual(stopped, {
+      id: 'id-2', ...ABC_1,
+      startedAt: STARTED,
+      stoppedAt: NOW + 15 * MINUTE,
+      timeSpentSeconds: 2 * 3600 + 15 * 60,
+      comment: COMMENT
+    });
+    assert.equal(state.running, null);
+    assert.deepEqual(state.pending, [stopped], 'one worklog: the 2 hours are counted once');
+    assert.deepEqual(await stored(storage), state);
+  });
+
+  it('keeps the entered time and comment through a pause and a resume', async () => {
+    const { store, clock } = setup({ clock: createClock(NOW) });
+    await store.start(ABC_1, { startedAt: STARTED, elapsedMs: 2 * HOUR, comment: COMMENT });
+    clock.advance(10 * MINUTE);
+    const { paused } = await store.pause();
+    assert.equal(paused.accumulatedMs, 2 * HOUR + 10 * MINUTE);
+    assert.equal(paused.comment, COMMENT);
+    assert.equal(paused.startedAt, STARTED);
+    clock.advance(30 * MINUTE);
+    assert.equal(elapsedSeconds(paused, clock.now()), 2 * 3600 + 10 * 60, 'paused time never counts');
+    const { resumed } = await store.resume();
+    assert.equal(resumed.comment, COMMENT);
+    clock.advance(5 * MINUTE);
+    assert.equal(elapsedSeconds(resumed, clock.now()), 2 * 3600 + 15 * 60);
+    const { stopped } = await store.stop();
+    assert.deepEqual([stopped.startedAt, stopped.timeSpentSeconds, stopped.comment], [STARTED, 2 * 3600 + 15 * 60, COMMENT]);
+  });
+
+  it('counts from the start without a duration: 20:30 entered at 21:15 starts at 45 minutes', async () => {
+    const { store, storage, clock } = setup({ clock: createClock(NOW) });
+    const { running } = await store.start(ABC_1, { startedAt: NOW - 45 * MINUTE, comment: COMMENT });
+    assert.deepEqual(running, {
+      id: 'id-1', ...ABC_1, startedAt: NOW - 45 * MINUTE, accumulatedMs: 0, resumedAt: NOW - 45 * MINUTE, comment: COMMENT
+    }, 'running since its start, with nothing banked');
+    assert.equal(elapsedSeconds(running, NOW), 45 * 60, 'the timer shows 45m at once');
+    assert.deepEqual(normalizeTimeTracking(await stored(storage)).running, running, 'it reads back as it was written');
+
+    clock.advance(10 * MINUTE);
+    const { paused } = await store.pause();
+    assert.equal(paused.accumulatedMs, 55 * MINUTE, 'pausing banks the time since the start');
+    clock.advance(20 * MINUTE);
+    await store.resume();
+    clock.advance(5 * MINUTE);
+    const { stopped, state } = await store.stop();
+    assert.deepEqual([stopped.startedAt, stopped.timeSpentSeconds, stopped.comment], [NOW - 45 * MINUTE, 60 * 60, COMMENT]);
+    assert.deepEqual(state.pending, [stopped]);
+  });
+
+  it('keeps a start on an earlier day as entered', async () => {
+    const { store, clock } = setup({ clock: createClock(NOW) });
+    const yesterday = STARTED - 24 * HOUR;
+    const { running } = await store.start(ABC_1, { startedAt: yesterday, elapsedMs: 0 });
+    assert.deepEqual([running.startedAt, running.accumulatedMs, running.resumedAt], [yesterday, 0, NOW]);
+    clock.advance(MINUTE);
+    const { stopped } = await store.stop();
+    assert.deepEqual([stopped.startedAt, stopped.timeSpentSeconds], [yesterday, 60], 'only the time tracked counts, not the time since the start');
+  });
+
+  it('keeps the timed issue, and only the fields a timer stores', async () => {
+    const { store, storage } = setup({ clock: createClock(NOW) });
+    await store.start({ ...ABC_2, token: 'secret' }, { startedAt: STARTED, elapsedMs: HOUR, comment: COMMENT, extra: 'x' });
+    const { running } = await stored(storage);
+    assert.deepEqual([running.site, running.issueId, running.issueKey, running.issueSummary], [SITE, '10002', 'ABC-2', 'Write the release notes']);
+    assert.deepEqual(Object.keys(running).sort(),
+      ['accumulatedMs', 'comment', 'id', 'issueId', 'issueKey', 'issueSummary', 'resumedAt', 'site', 'startedAt']);
+  });
+
+  it('stores no comment when none was entered, and its pending worklog has an empty one', async () => {
+    const { store, storage } = setup({ clock: createClock(NOW) });
+    const { running } = await store.start(ABC_1, { startedAt: STARTED, elapsedMs: HOUR, comment: '' });
+    assert.ok(!('comment' in running));
+    assert.ok(!('comment' in (await stored(storage)).running));
+    assert.equal((await store.stop()).stopped.comment, '');
+  });
+
+  it('refuses a start later than now, writing nothing', async () => {
+    const storage = instrument(createMemoryStorageArea());
+    const { store } = setup({ storage, clock: createClock(NOW) });
+    await assert.rejects(store.start(ABC_1, { startedAt: NOW + 1, elapsedMs: 0 }), { code: 'INVALID_TIMER_START' });
+    assert.deepEqual(storage.writes, []);
+    // The current moment is fine.
+    assert.equal((await store.start(ABC_1, { startedAt: NOW, elapsedMs: 0 })).running.startedAt, NOW);
+  });
+
+  it('refuses values that aren\'t a start, a duration, or a comment, before taking the lock', async () => {
+    let locked = 0;
+    const lock = { run: (fn) => { locked++; return fn(); } };
+    const { store } = setup({ lock, clock: createClock(NOW) });
+    for (const from of [
+      { elapsedMs: 0 }, { startedAt: 0 }, { startedAt: STARTED + 0.5 }, { startedAt: String(STARTED) },
+      { startedAt: STARTED, elapsedMs: -1 }, { startedAt: STARTED, elapsedMs: 1.5 }, { startedAt: STARTED, comment: 42 }
+    ]) {
+      await assert.rejects(store.start(ABC_1, from), { name: 'TimeTrackingError', code: 'INVALID_TIMER_START' }, JSON.stringify(from));
+    }
+    assert.equal(locked, 0);
+  });
+
+  it('stops another issue\'s timer into a pending worklog first, in the same write', async () => {
+    const storage = instrument(createMemoryStorageArea());
+    const { store, clock } = setup({ storage, clock: createClock(NOW - 30 * MINUTE) });
+    await store.start(ABC_2);
+    clock.advance(30 * MINUTE);
+    const { running, stopped, state } = await store.start(ABC_1, { startedAt: STARTED, elapsedMs: 2 * HOUR, comment: COMMENT });
+    assert.deepEqual([stopped.issueKey, stopped.timeSpentSeconds, stopped.comment], ['ABC-2', 30 * 60, '']);
+    assert.deepEqual([running.issueKey, running.accumulatedMs, running.comment], ['ABC-1', 2 * HOUR, COMMENT]);
+    assert.deepEqual(state.pending, [stopped]);
+    assert.equal(storage.writes.length, 2, 'one write for the first start, one for the switch');
+  });
+
+  it('starts a new session even on the issue already timed, so the values entered are kept', async () => {
+    for (const pauseFirst of [false, true]) {
+      const { store, clock } = setup({ clock: createClock(NOW - 20 * MINUTE) });
+      await store.start(ABC_1);
+      clock.advance(20 * MINUTE);
+      if (pauseFirst) await store.pause();
+      const { running, stopped, state } = await store.start(ABC_1, { startedAt: STARTED, elapsedMs: HOUR, comment: COMMENT });
+      assert.deepEqual([stopped.issueKey, stopped.timeSpentSeconds], ['ABC-1', 20 * 60]);
+      assert.deepEqual([running.startedAt, running.accumulatedMs, running.resumedAt, running.comment], [STARTED, HOUR, NOW, COMMENT]);
+      assert.notEqual(running.id, stopped.id);
+      assert.equal(state.pending.length, 1);
+    }
+  });
+});
+
+describe('normalizeTimeTracking - the running timer\'s comment', () => {
+  const running = { id: 'r1', ...ABC_1, startedAt: T0, accumulatedMs: 7_200_000, resumedAt: T0 + 1000 };
+
+  it('keeps a comment, and reads a timer without one as before', () => {
+    assert.deepEqual(normalizeTimeTracking({ version: 2, running: { ...running, comment: 'Notes' }, pending: [] }).running,
+      { ...running, comment: 'Notes' });
+    assert.deepEqual(normalizeTimeTracking({ version: 2, running, pending: [] }).running, running);
+  });
+
+  it('leaves out a comment that isn\'t text, keeping the timer', () => {
+    for (const comment of [42, null, '', { text: 'x' }]) {
+      assert.deepEqual(normalizeTimeTracking({ version: 2, running: { ...running, comment }, pending: [] }).running, running);
+    }
+  });
+});

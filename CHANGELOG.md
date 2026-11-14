@@ -34,6 +34,10 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 - The Worklog Queue header names the selected tab and its count in the tab's color, such as Worklog Queue · Pending (2), and totals that tab.
 - The Issues header names the selected view and its count in blue, such as Issues · Reported (12).
 
+### Fixed
+
+- Starting the timer from the Log work form now keeps what you entered. The timer keeps the date and start time and counts on from the duration you entered, so 2h entered starts it at 2:00:00. Without a duration, it counts from the start time, so 20:30 entered at 21:15 starts it at 0:45:00. Its pending worklog keeps the work description. Nothing is sent to Jira until you submit it.
+
 ## [1.2.1] - 2026-11-07
 
 ### Added

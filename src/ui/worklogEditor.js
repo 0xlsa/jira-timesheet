@@ -21,6 +21,8 @@ import {
   isEditFormDirty,
   buildWorklogChanges,
   buildNewWorklog,
+  validateTimerForm,
+  buildTimerStart,
   isRichComment
 } from '../worklog/worklogEdit.js';
 
@@ -174,6 +176,25 @@ export function createWorklogEditorSession(worklog, { onSave, onDelete, mode = '
       } finally {
         state.busy = null;
       }
+    },
+
+    /**
+     * Log work only: what the timer button starts the timer from. With the form as it opened,
+     * nothing (the timer starts now, from zero, as anywhere else). Once anything is entered, the
+     * form's values (see buildTimerStart()), after checking them as validateTimerForm() does: the
+     * duration may be blank (the timer then counts from the start time), and the start can't be
+     * later than now. Invalid values are shown as errors, and nothing starts.
+     *
+     * @param {number} [now=Date.now()] - Epoch milliseconds
+     * @returns {{ status: 'ready', from?: { startedAt: number, elapsedMs?: number, comment: string } } | { status: 'invalid' | 'busy' }}
+     */
+    prepareTimerStart(now = Date.now()) {
+      if (!isCreate || state.busy) return { status: 'busy' };
+      if (!isEditFormDirty(initialForm, state.form)) return { status: 'ready' };
+      const { errors } = validateTimerForm(state.form, now);
+      state.errors = errors;
+      if (Object.keys(errors).length > 0) return { status: 'invalid' };
+      return { status: 'ready', from: buildTimerStart(state.form) };
     },
 
     /** Asks for confirmation before deleting (edit only). */
@@ -385,10 +406,13 @@ function renderEditorTimerButton(timerState) {
  *   browser, saved through onSave only (no Delete)
  * @param {object} [options.initialForm] - Create: starting values from toNewWorklogForm()
  * @param {object} [options.timer] - Create: the timer, for a Start or Stop button in the footer once there's an
- *   issue (choosing an issue alone never starts a timer). Neither submits the form. Ignored when editing.
+ *   issue (choosing an issue alone never starts a timer). Neither submits the form: Start carries what's
+ *   entered (date, start time, duration, comment) over to the timer instead. Ignored when editing.
  * @param {(issue: object) => ({ running: boolean } | null)} options.timer.stateOf - The timer's state
  *   for an issue; null hides the button
- * @param {(issue: object) => Promise<boolean>} options.timer.onStart - Resolves true once the timer runs on the issue
+ * @param {(issue: object, from?: { startedAt: number, elapsedMs?: number, comment: string }) => Promise<boolean>} options.timer.onStart
+ *   Resolves true once the timer runs on the issue; `from` (the form's values, see buildTimerStart()) once anything is entered:
+ *   without a duration, the timer counts from the start time
  * @param {() => Promise<boolean>} options.timer.onStop - Resolves true once the timer is stopped
  * @param {(dateKey: string) => void} [options.onDateChange] - Create: called when the user enters a complete date
  * @param {(query: string, options: { maxResults: number, signal: AbortSignal }) => Promise<Array<object>>} [options.searchIssues]
@@ -453,8 +477,8 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
     root.querySelector('[data-submit-error]').textContent = state.submitError;
     submitError.classList.toggle('hidden', !state.submitError);
 
-    // Keep the values while a request runs; just stop edits.
-    fields.disabled = Boolean(state.busy);
+    // Keep the values while a request runs; just stop edits. While the timer starts from them, too.
+    fields.disabled = Boolean(state.busy) || isTimerBusy;
     button('close').disabled = Boolean(state.busy);
     button('cancel').disabled = Boolean(state.busy);
     // New work can always be submitted (validation explains what's missing); edits need a change.
@@ -583,11 +607,22 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
       const issue = session.state.issue;
       const timerState = timerStateOf(issue);
       if (!hasTimer || !timerState || isTimerBusy || session.state.busy) return;
+      // Starting carries what's entered over to the timer, once it's checked.
+      let from;
+      if (!timerState.running) {
+        const prepared = session.prepareTimerStart();
+        if (prepared.status !== 'ready') {
+          sync();
+          root.querySelector('input.is-invalid')?.focus();
+          return;
+        }
+        from = prepared.from;
+      }
       isTimerBusy = true;
       sync();
       let done = false;
       try {
-        done = timerState.running ? await timer.onStop() : await timer.onStart(issue);
+        done = timerState.running ? await timer.onStop() : await timer.onStart(issue, from);
       } finally {
         isTimerBusy = false;
       }
@@ -595,9 +630,10 @@ export function openWorklogEditor(root, { worklog, baseUrl, onSave, onDelete, on
       sync();
       // Failed (the page has said why): the panel stays open, as it was.
       if (!done) return;
-      // With nothing entered but the issue, nothing is lost by closing. Anything typed is never
-      // logged by the timer: closing then asks to discard it, as Cancel does.
-      if (!isEditFormDirty(session.initialForm, session.state.form)) close('closed');
+      // Started: what was entered is now the timer's, so nothing is lost by closing. Stopped: with
+      // nothing entered but the issue, nothing is lost either; anything typed is never logged by
+      // stopping the timer, so closing then asks to discard it, as Cancel does.
+      if (!timerState.running || !isEditFormDirty(session.initialForm, session.state.form)) close('closed');
       else attemptClose();
     } else if (action === 'confirm-delete') {
       const pending = session.confirmDelete();

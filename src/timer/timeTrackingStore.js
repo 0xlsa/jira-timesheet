@@ -15,9 +15,13 @@
  * generator are injected.
  *
  * Stored shape (`version` 2):
- * - running: null, or { id, site, issueId, issueKey, issueSummary, startedAt, accumulatedMs, resumedAt }
+ * - running: null, or { id, site, issueId, issueKey, issueSummary, startedAt, accumulatedMs, resumedAt, comment? }
  *   `startedAt` is the session's start (the worklog's start in Jira); `accumulatedMs` the active time
- *   banked by pauses; `resumedAt` when the current active stretch began, or null while paused.
+ *   banked by pauses, and by the duration already entered when a timer starts from the Log work
+ *   form (see start()); `resumedAt` when the current active stretch began (its start, for a timer
+ *   started from the form with no duration), or null while paused.
+ *   `comment` is the work description the timer started with (from the Log work form), absent
+ *   without one; its pending worklog keeps it.
  * - pending: [{ id, site, issueId, issueKey, issueSummary, startedAt, stoppedAt, timeSpentSeconds, comment,
  *   classification?, submission? }] `submission` is set while a submission to Jira runs or after one didn't
  *   succeed: { state: 'submitting' | 'failed' | 'uncertain', at, message? } (see submissionStatus()).
@@ -37,7 +41,8 @@
  * `classification` came later within version 2, as an optional field: a build from before it reads
  * every pending worklog as it always did (and, on its next change, writes them back as Ready),
  * rather than refusing the timer altogether. Custom groups' IDs came later still: a build from
- * before them reads those worklogs as Ready.
+ * before them reads those worklogs as Ready. The running timer's `comment` came later too: a build
+ * from before it reads the timer without it, and its pending worklog then has no comment.
  */
 
 
@@ -113,13 +118,15 @@ const ISSUE_ID = /^\d+$/;
  * - OTHER_SITE: the pending worklog was tracked on another Jira site than the one it's submitted to
  * - INVALID_CLASSIFICATION: a classification change named no pending worklog, or no known classification
  *   (nor a custom group's ID)
+ * - INVALID_TIMER_START: the values a timer was to start from aren't a valid start (or one later
+ *   than now), duration, or comment
  */
 export class TimeTrackingError extends Error {
   /**
    * @param {string} message
    * @param {'LOCK_UNAVAILABLE' | 'INVALID_ISSUE' | 'UNSUPPORTED_VERSION' |
    *   'PENDING_NOT_FOUND' | 'PENDING_CHANGED' | 'INVALID_PENDING' | 'SUBMISSION_IN_PROGRESS' |
-   *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE' | 'INVALID_CLASSIFICATION'} code
+   *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE' | 'INVALID_CLASSIFICATION' | 'INVALID_TIMER_START'} code
    */
   constructor(message, code) {
     super(message);
@@ -167,7 +174,8 @@ function toRecordBase(raw) {
 /**
  * @param {object} raw
  * @returns {object | null} A valid running timer, or null. A version 1 timer (no pause fields) ran
- *   from its start with nothing banked.
+ *   from its start with nothing banked. A comment that isn't text is left out, never the timer:
+ *   it decides nothing about where the time goes.
  */
 function toRunning(raw) {
   const base = toRecordBase(raw);
@@ -176,7 +184,9 @@ function toRunning(raw) {
   const resumedAt = raw.resumedAt === undefined ? base.startedAt : raw.resumedAt;
   if (!Number.isSafeInteger(accumulatedMs) || accumulatedMs < 0) return null;
   if (resumedAt !== null && !isTimestamp(resumedAt)) return null;
-  return { ...base, accumulatedMs, resumedAt };
+  const running = { ...base, accumulatedMs, resumedAt };
+  if (typeof raw.comment === 'string' && raw.comment !== '') running.comment = raw.comment;
+  return running;
 }
 
 const SUBMISSION_STATES = new Set(['submitting', 'failed', 'uncertain']);
@@ -352,6 +362,26 @@ function toTimedIssue(issue) {
 }
 
 /**
+ * Checks what a timer starts from (the Log work form's values) and keeps only those fields, or
+ * returns null when there's nothing to start from. The start's place in time (not later than now)
+ * is checked when the timer starts, against the store's clock.
+ *
+ * @param {{ startedAt: number, elapsedMs?: number, comment?: string } | undefined} from
+ * @returns {{ startedAt: number, elapsedMs: number | undefined, comment: string } | null} `elapsedMs`
+ *   undefined: the time worked is the time since the start
+ * @throws {TimeTrackingError} INVALID_TIMER_START
+ */
+function toTimerStart(from) {
+  if (from === undefined || from === null) return null;
+  const { startedAt, elapsedMs, comment = '' } = from;
+  if (!isTimestamp(startedAt) || (elapsedMs !== undefined && (!Number.isSafeInteger(elapsedMs) || elapsedMs < 0)) ||
+      typeof comment !== 'string') {
+    throw new TimeTrackingError('Enter a valid date, start time, and duration to start the timer from.', 'INVALID_TIMER_START');
+  }
+  return { startedAt, elapsedMs, comment };
+}
+
+/**
  * The lock every change holds, shared by all pages of the extension through the Web Locks API
  * (`navigator.locks`), which Chrome and Firefox provide in extension pages. Without it, a change
  * can't be made safely across tabs, so this throws rather than settling for a lock that only one
@@ -421,8 +451,9 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
     return {
       id: newId(), site, issueId, issueKey, issueSummary, startedAt,
       stoppedAt: end,
+      // Includes any duration the timer started with (banked in accumulatedMs), counted once.
       timeSpentSeconds: elapsedSeconds(running, end),
-      comment: ''
+      comment: running.comment ?? ''
     };
   }
 
@@ -440,14 +471,44 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
      * running changes nothing; starting it while paused resumes it. The issue's pending worklogs
      * don't matter: the new session is a separate one, and becomes a pending worklog of its own.
      *
+     * With `from` (the Log work form's values), the timer is a session that began earlier: its
+     * start is `from.startedAt` (the worklog's start in Jira, kept as entered). With
+     * `from.elapsedMs`, the duration already worked, that's banked as active time (as a pause
+     * banks it), and it counts on from now. Without it, the time worked is the time since the
+     * start: the timer has been running since then (resumedAt = startedAt, nothing banked), as a
+     * timer started at that moment would be. Pausing and resuming keep what's counted so far, and
+     * stopping counts it once.
+     * Such a start is always a new session: any timer running or paused, even on the same issue,
+     * stops first and becomes a pending worklog, so the values entered are never dropped.
+     *
      * @param {{ site: string, issueId?: string | number, issueKey: string, issueSummary?: string }} issue
+     * @param {{ startedAt: number, elapsedMs?: number, comment?: string }} [from] - Epoch milliseconds,
+     *   not later than now; the duration already worked, in milliseconds (omitted: the time since
+     *   the start); the work description
      * @returns {Promise<{ state: object, running: object, stopped: object | null }>} `stopped` is the
      *   pending worklog of the timer this one replaced
-     * @throws {TimeTrackingError} INVALID_ISSUE
+     * @throws {TimeTrackingError} INVALID_ISSUE, or INVALID_TIMER_START
      */
-    async start(issue) {
+    async start(issue, from) {
       const timed = toTimedIssue(issue);
+      const seed = toTimerStart(from);
       return transition((state) => {
+        if (seed) {
+          const at = now();
+          if (seed.startedAt > at) {
+            throw new TimeTrackingError("A timer can't start later than now. Enter a start time that has passed.", 'INVALID_TIMER_START');
+          }
+          const stopped = state.running ? toStoppedSession(state.running, at) : null;
+          const running = seed.elapsedMs === undefined
+            ? { id: newId(), ...timed, startedAt: seed.startedAt, accumulatedMs: 0, resumedAt: seed.startedAt }
+            : { id: newId(), ...timed, startedAt: seed.startedAt, accumulatedMs: seed.elapsedMs, resumedAt: at };
+          if (seed.comment !== '') running.comment = seed.comment;
+          return {
+            state: { ...state, running, pending: stopped ? [...state.pending, stopped] : state.pending },
+            running,
+            stopped
+          };
+        }
         if (state.running && isSameIssue(state.running, timed)) {
           // Starting the paused issue resumes it.
           if (isPaused(state.running)) {

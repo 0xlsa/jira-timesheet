@@ -10,7 +10,7 @@ import {
 import { openWorklogEditor, renderWorklogEditor } from '../src/ui/worklogEditor.js';
 import { openDeleteWorklogDialog, describeWorklogForDeletion } from '../src/ui/deleteWorklogDialog.js';
 import { toEditForm, toNewWorklogForm } from '../src/worklog/worklogEdit.js';
-import { createTimeTrackingStore, siteId, TIME_TRACKING_KEY } from '../src/timer/timeTrackingStore.js';
+import { createTimeTrackingStore, siteId, elapsedSeconds, TIME_TRACKING_KEY } from '../src/timer/timeTrackingStore.js';
 import { createTimerController } from '../src/timer/timerController.js';
 import { createMemoryStorageArea } from '../src/compat/browser-api.js';
 
@@ -879,9 +879,11 @@ describe('Discarding a pending worklog', () => {
 
 describe('Log work panel - timer button', () => {
   let restoreDocument;
+  // The panel opens on 26 October with a 09:15 start (T0); it's 16:15 now, so earlier starts have passed.
+  const NOW = T0 + 7 * 3_600_000;
   beforeEach(() => {
     restoreDocument = installFakeDocument();
-    mock.timers.enable({ apis: ['setTimeout'] });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
   });
   afterEach(() => {
     mock.timers.reset();
@@ -889,17 +891,27 @@ describe('Log work panel - timer button', () => {
   });
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const issue = { issueId: '10020', issueKey: 'KAN-20', issueSummary: 'Write the docs', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' } };
+  const COMMENT = 'Investigating PostgreSQL migration issue';
 
-  /** A timer stand-in: `running` by issue key, with the calls recorded. */
+  /** A timer stand-in: `running` by issue key, with the calls (and what each start was given) recorded. */
   function fakeTimer({ running = null, result = true } = {}) {
     const calls = [];
+    const froms = [];
     return {
       calls,
+      froms,
       running,
       stateOf(i) { return { running: this.running === i.issueKey }; },
-      async onStart(i) { calls.push(['start', i.issueKey]); return result; },
+      async onStart(i, from) { calls.push(['start', i.issueKey]); froms.push(from); return result; },
       async onStop() { calls.push(['stop']); return result; }
     };
+  }
+
+  /** Types a value into one of the panel's fields, as the user would. */
+  function enter(root, selector, value) {
+    const field = root.querySelector(selector);
+    field.value = value;
+    field.dispatchEvent({ type: 'input' });
   }
 
   function openLogWork({ worklog = issue, timer, onSave = async () => {} } = {}) {
@@ -992,6 +1004,7 @@ describe('Log work panel - timer button', () => {
     timerButton(root).click();
     await flush();
     assert.deepEqual(timer.calls, [['start', 'KAN-20']]);
+    assert.deepEqual(timer.froms, [undefined], 'nothing entered: it starts now, from zero, as before');
     assert.deepEqual(saved, [], 'no worklog was logged');
     assert.deepEqual(closed, ['closed']);
   });
@@ -1006,17 +1019,71 @@ describe('Log work panel - timer button', () => {
     assert.deepEqual(closed, ['closed']);
   });
 
-  it('asks before discarding entered values after a start, and never logs them', async () => {
+  it('starts the timer from the entered start, duration, and comment, without logging work, then closes', async () => {
     const timer = fakeTimer();
     const { root, closed, saved } = openLogWork({ timer });
-    const hours = root.querySelector('#worklogEditHours');
-    hours.value = '2';
-    hours.dispatchEvent({ type: 'input' });
+    enter(root, '#worklogEditTime', '14:00');
+    enter(root, '#worklogEditHours', '2');
+    enter(root, '#worklogEditComment', COMMENT);
 
     timerButton(root).click();
     await flush();
 
     assert.deepEqual(timer.calls, [['start', 'KAN-20']]);
+    assert.deepEqual(timer.froms, [{ startedAt: new Date(2026, 9, 26, 14, 0).getTime(), elapsedMs: 2 * 3_600_000, comment: COMMENT }]);
+    assert.deepEqual(saved, [], 'Start never logs the work in Jira');
+    assert.deepEqual(closed, ['closed'], 'what was entered is the timer\'s now: nothing to discard');
+  });
+
+  it('starts from a quick duration and the start time the panel opened with', async () => {
+    const timer = fakeTimer();
+    const { root, closed } = openLogWork({ timer });
+    root.querySelector('[data-preset-hours="0"][data-preset-minutes="15"]').click();
+    timerButton(root).click();
+    await flush();
+    assert.deepEqual(timer.froms, [{ startedAt: T0, elapsedMs: 15 * 60_000, comment: '' }]);
+    assert.deepEqual(closed, ['closed']);
+  });
+
+  it('starts from the start time alone, with no duration, to count from there', async () => {
+    const timer = fakeTimer();
+    const { root } = openLogWork({ timer });
+    enter(root, '#worklogEditTime', '15:30');
+    timerButton(root).click();
+    await flush();
+    assert.deepEqual(timer.froms, [{ startedAt: new Date(2026, 9, 26, 15, 30).getTime(), comment: '' }]);
+  });
+
+  it('shows what\'s wrong and starts nothing when the entered values can\'t start a timer', async () => {
+    // A duration error marks hours and minutes alike, so focus goes to Hours, as when logging work.
+    for (const [selector, value, errorFor, pattern, focused] of [
+      ['#worklogEditTime', '17:00', 'time', /can't start later than now/, '#worklogEditTime'],
+      ['#worklogEditMinutes', '75', 'duration', /Minutes must be between 0 and 59/, '#worklogEditHours']
+    ]) {
+      const timer = fakeTimer();
+      const { root, closed, saved } = openLogWork({ timer });
+      enter(root, selector, value);
+      timerButton(root).click();
+      await flush();
+      assert.deepEqual(timer.calls, [], value);
+      assert.deepEqual([closed, saved], [[], []]);
+      const error = root.querySelector(`[data-error-for="${errorFor}"]`);
+      assert.match(error.textContent, pattern);
+      assert.ok(error.classList.contains('visible'));
+      assert.equal(document.activeElement, root.querySelector(focused), 'the field to fix has focus');
+      assert.equal(timerButton(root).getAttribute('aria-disabled'), null, 'usable again once fixed');
+    }
+  });
+
+  it('still asks before discarding entered values after a stop, and never logs them', async () => {
+    const timer = fakeTimer({ running: 'KAN-20' });
+    const { root, closed, saved } = openLogWork({ timer });
+    enter(root, '#worklogEditHours', '2');
+
+    timerButton(root).click();
+    await flush();
+
+    assert.deepEqual(timer.calls, [['stop']]);
     assert.deepEqual(saved, []);
     assert.deepEqual(closed, []);
     assert.ok(!root.querySelector('[data-confirm="discard"]').classList.contains('hidden'), 'the discard question shows');
@@ -1177,10 +1244,68 @@ describe('Log work panel - timer button', () => {
           if (!tracking) return null;
           return { running: Boolean(tracking.running) && tracking.running.issueKey === i.issueKey };
         },
-        onStart: (i) => page.controller.start(timed(i)),
+        onStart: (i, from) => page.controller.start(timed(i), from),
         onStop: () => page.controller.stop()
       };
     }
+
+    it('counts from an earlier start time with no duration: 15:30 entered at 16:15 starts at 45 minutes', async () => {
+      const page = await createTimerPage();
+      page.advance(7 * 3_600_000); // 16:15, as the panel's clock
+      const { root, closed } = openLogWork({ timer: pageTimerOptions(page) });
+      enter(root, '#worklogEditTime', '15:30');
+      enter(root, '#worklogEditComment', COMMENT);
+
+      timerButton(root).click();
+      await flush();
+
+      const started = new Date(2026, 9, 26, 15, 30).getTime();
+      const { running } = page.controller.getState().tracking;
+      assert.deepEqual([running.issueKey, running.startedAt, running.comment], ['KAN-20', started, COMMENT]);
+      assert.equal(elapsedSeconds(running, NOW), 45 * 60, 'the timer shows 45m at once');
+      assert.deepEqual(closed, ['closed']);
+
+      page.advance(10 * 60_000);
+      await page.controller.stop();
+      assert.deepEqual(page.controller.getState().tracking.pending.map((p) => [p.startedAt, p.timeSpentSeconds, p.comment]),
+        [[started, 55 * 60, COMMENT]]);
+      assert.deepEqual(page.jiraCalls, []);
+      assert.deepEqual(page.errors, []);
+    });
+
+    it('carries the entered values into the timer, and stops into one pending worklog of both times', async () => {
+      const page = await createTimerPage();
+      page.advance(7 * 3_600_000); // 16:15, as the panel's clock
+      const { root, closed, saved } = openLogWork({ timer: pageTimerOptions(page) });
+      enter(root, '#worklogEditTime', '14:00');
+      enter(root, '#worklogEditHours', '2');
+      enter(root, '#worklogEditComment', COMMENT);
+
+      timerButton(root).click();
+      await flush();
+
+      const started = new Date(2026, 9, 26, 14, 0).getTime();
+      const { running } = page.controller.getState().tracking;
+      assert.deepEqual(
+        [running.issueKey, running.issueId, running.issueSummary, running.startedAt, running.accumulatedMs, running.resumedAt, running.comment],
+        ['KAN-20', '10020', 'Write the docs', started, 2 * 3_600_000, NOW, COMMENT]);
+      assert.deepEqual(closed, ['closed']);
+
+      page.advance(10 * 60_000);
+      await page.controller.pause();
+      page.advance(30 * 60_000);
+      await page.controller.resume();
+      page.advance(5 * 60_000);
+      await page.controller.stop();
+
+      const { running: after, pending } = page.controller.getState().tracking;
+      assert.equal(after, null);
+      assert.deepEqual(pending.map((p) => [p.issueKey, p.startedAt, p.timeSpentSeconds, p.comment]),
+        [['KAN-20', started, 2 * 3600 + 15 * 60, COMMENT]], 'one worklog: 2h entered and 15m tracked');
+      assert.deepEqual(saved, []);
+      assert.deepEqual(page.jiraCalls, [], 'nothing went to Jira');
+      assert.deepEqual(page.errors, []);
+    });
 
     it('switches from another running issue: that session becomes pending, and nothing goes to Jira', async () => {
       const page = await createTimerPage();

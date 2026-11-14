@@ -22,7 +22,8 @@ const ERROR_MESSAGES = {
 // Engine errors whose own message is written for users (it names the issue or says what happened).
 const OWN_MESSAGE_CODES = new Set([
   'PENDING_NOT_FOUND', 'PENDING_CHANGED', 'INVALID_PENDING',
-  'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE', 'INVALID_CLASSIFICATION'
+  'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE', 'INVALID_CLASSIFICATION',
+  'INVALID_TIMER_START'
 ]);
 
 // Errors that leave the timer unusable until the page is reloaded (or the data changes).
@@ -217,11 +218,15 @@ export function createTimerController({
 
     /**
      * Starts a timer on an issue; a timer on another issue stops and becomes a pending worklog.
+     * With `from` (the Log work form's values), it starts as a session that began at
+     * `from.startedAt` with `from.elapsedMs` already worked, or (without it) running since
+     * `from.startedAt` (see timeTrackingStore's start()).
      * Ignored while another change is in progress; a failure is shown with onError().
      * @param {{ site: string, issueId?: string, issueKey: string, issueSummary?: string }} issue
+     * @param {{ startedAt: number, elapsedMs?: number, comment?: string }} [from]
      * @returns {Promise<boolean>} True once the timer is running
      */
-    start: (issue) => act(() => store.start(issue)),
+    start: (issue, from) => act(() => store.start(issue, from)),
 
     /**
      * Stops the running timer, keeping its session as a pending worklog. Nothing goes to Jira.

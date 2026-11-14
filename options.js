@@ -1009,7 +1009,9 @@ async function submitPending(id) {
 
 /**
  * The Log work panel's timer button (beside the issue's key): its state for an issue, and Start and
- * Stop through the timer, as an Issues row's buttons. Neither logs work in Jira.
+ * Stop through the timer, as an Issues row's buttons. Neither logs work in Jira. Start carries what's
+ * entered in the panel over to the timer (`from`): its start, the duration already worked, and the
+ * comment, which the pending worklog keeps when the timer stops.
  * @returns {object}
  */
 function logWorkTimerOptions() {
@@ -1019,9 +1021,9 @@ function logWorkTimerOptions() {
       if (!state.tracking || state.status === 'unavailable' || !currentClient) return null;
       return { running: Boolean(state.tracking.running) && isSameIssue(state.tracking.running, timedIssue(issue)) };
     },
-    async onStart(issue) {
+    async onStart(issue, from) {
       if (!currentClient) return false;
-      const started = await timer.start(timedIssue(issue));
+      const started = await timer.start(timedIssue(issue), from);
       if (started) showToast(`Timer started on ${issue.issueKey}`, { success: true, subtitle: 'Stop it in My Work' });
       return started;
     },
