@@ -6,10 +6,13 @@
  * { channel, unreleased?: { sections }, releases: [{ version, date, sections: [{ type, items:
  * [{ text, highlight, subitems? }] }] }] }, newest release first; `subitems`, an item's sub-items' texts. There are two:
  * - release (packages): the releases only.
- * - development (`npm run changelog` for an unpacked copy, and `task build:*`): the releases, and
- *   the changes not released yet (`unreleased`), which the drawer previews as "Unreleased (in
- *   development)". The preview is never a release: the NEW badge, the update announcement, and
- *   what's recorded as announced or read only ever go by `releases`.
+ * - development (the repository's own copy, which the unpacked extension shows: committed, refreshed
+ *   by `npm run changelog` and every `task build:*`, and checked against CHANGELOG.md by the tests;
+ *   and the development builds): the releases, and the changes not released yet (`unreleased`),
+ *   which the drawer previews as "Unreleased (in development)". The preview is never a release: the
+ *   NEW badge, the update announcement, and what's recorded as announced or read only ever go by
+ *   `releases`. When this copy falls behind the installed version anyway, the drawer says so
+ *   (isStaleChangelog()).
  *
  * What the user has seen is kept in storage.local, under two keys of its own, so writing one
  * never overwrites the other from another tab:
@@ -116,6 +119,19 @@ export async function loadChangelog(fetchFn = globalThis.fetch, url = CHANGELOG_
     console.warn('Could not read the release notes (src/changelog/changelog.json; run npm run changelog for an unpacked copy):', err);
     return null;
   }
+}
+
+/**
+ * True when the release notes are older than the installed version: their newest release (if any)
+ * is an earlier version. Only a development copy that wasn't regenerated can be; packaging requires
+ * the latest release to be the manifest's version.
+ *
+ * @param {Array<{ version: string }>} releases - Newest first
+ * @param {string | undefined} version - The installed version (the manifest's)
+ * @returns {boolean}
+ */
+export function isStaleChangelog(releases, version) {
+  return VERSION.test(String(version)) && compareVersions(releases?.[0]?.version, version) < 0;
 }
 
 /**

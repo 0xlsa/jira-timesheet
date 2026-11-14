@@ -3745,6 +3745,17 @@ body {
   color: var(--text-subtle);
 }
 
+/* A development copy whose release notes are older than the installed version. */
+.changelog-stale-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background-color: var(--warning-bg);
+  font-size: 12px;
+  color: var(--text-main);
+}
+
 .changelog-message {
   padding: 24px 0;
   font-size: 13px;

@@ -312,6 +312,14 @@ describe('Changelog generator - the repository\'s CHANGELOG.md', () => {
   it('has a version in manifest.json and package.json that agree', () => {
     assert.equal(JSON.parse(read('../manifest.json')).version, JSON.parse(read('../package.json')).version);
   });
+
+  // The unpacked extension (the repository root) shows the committed release notes, so they must
+  // never fall behind CHANGELOG.md. Written as `npm run changelog` writes them.
+  it('matches the committed release notes, src/changelog/changelog.json', () => {
+    const expected = `${JSON.stringify(toChangelogJson(changelog, { mode: 'development' }), null, 2)}\n`;
+    assert.ok(read('../src/changelog/changelog.json') === expected,
+      'src/changelog/changelog.json is out of date with CHANGELOG.md: run npm run changelog');
+  });
 });
 
 describe('Changelog generator - command line', () => {

@@ -10,6 +10,7 @@ import {
   releaseHighlights,
   announcementFor,
   hasUnreadRelease,
+  isStaleChangelog,
   createChangelogStateStore,
   CHANGELOG_URL,
   LAST_ANNOUNCED_KEY,
@@ -41,6 +42,14 @@ describe('Changelog state - versions', () => {
     assert.ok(compareVersions('1.0.0', '') > 0);
     assert.ok(compareVersions('', '0.0.1') < 0);
     assert.equal(compareVersions('', undefined), 0);
+  });
+
+  it('calls the release notes stale only when their newest release is older than the installed version', () => {
+    assert.equal(isStaleChangelog(RELEASES, '1.2.2'), true, '1.2.0 notes on 1.2.2');
+    assert.equal(isStaleChangelog(RELEASES, '1.2.0'), false);
+    assert.equal(isStaleChangelog(RELEASES, '1.1.0'), false, 'newer notes than the version are fine');
+    assert.equal(isStaleChangelog([], '1.2.2'), true, 'no release at all');
+    for (const version of [undefined, '', 'dev']) assert.equal(isStaleChangelog(RELEASES, version), false, String(version));
   });
 });
 

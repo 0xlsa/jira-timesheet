@@ -2692,6 +2692,7 @@ function openChangelog() {
   changelogBtn.setAttribute('aria-expanded', 'true');
   changelogDrawer = openChangelogDrawer(changelogDrawerRoot, {
     loadChangelog: getChangelog,
+    version: platform.getManifest()?.version,
     onRead: (version) => {
       changelogStore.markRead(version)
         .then(refreshChangelogState)

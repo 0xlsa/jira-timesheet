@@ -162,9 +162,14 @@ describe('Changelog build and packaging', () => {
     }
   });
 
-  it('writes the development output for an unpacked copy, kept out of Git, and keeps the generator out of the package', () => {
+  it('writes the development output for an unpacked copy, committed and refreshed by every build, and keeps the generator out of the package', () => {
     assert.equal(JSON.parse(read('../package.json')).scripts.changelog, 'node scripts/changelog.mjs --mode development --out src/changelog/changelog.json');
-    assert.match(read('../.gitignore'), /^\/src\/changelog\/changelog\.json$/m);
+    // Committed, so a fresh clone loads unpacked with its release notes (Changelog.test.js checks they're current).
+    assert.doesNotMatch(read('../.gitignore'), /changelog\.json/);
+    // Every build refreshes it first, before copying src/ into its folder.
+    const build = taskBody('build:browser');
+    const refresh = build.indexOf("--mode development --out src/changelog/changelog.json");
+    assert.ok(refresh >= 0 && refresh < build.indexOf("rm -rf '{{.DIR}}'"), 'the root copy is refreshed before the build');
     assert.match(taskfile, /RUNTIME_DIRS: icons src\n/);
     assert.match(taskfile, /RUNTIME_FILES: manifest\.json background\.js options\.html options\.css options\.js\n/);
   });

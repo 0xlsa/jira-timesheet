@@ -12,7 +12,8 @@
 # previews the [Unreleased] changes; package:* builds with the release output, which never has
 # them, and fails unless the packaged notes are that output and CHANGELOG.md is ready to release
 # the manifest's version: nothing left under [Unreleased], and its latest release is that version,
-# with 1 to 3 highlights.
+# with 1 to 3 highlights. Every build (package:* included) also refreshes the repository's own copy,
+# src/changelog/changelog.json (committed; the development output), which the unpacked extension shows.
 #
 # Requires Task 3, jq, zip, unzip, and Node.js or Docker. scripts/node.sh runs Node.js: NODE, when set
 # (another Node.js command, one executable path, which gets the script's arguments), then `node`,
@@ -206,6 +207,11 @@ tasks:
     vars:
       DIR: '{{.DIST_DIR}}/{{.BROWSER}}'
     cmds:
+      - |
+        # The unpacked copy's release notes (the repository root, committed): refreshed from CHANGELOG.md
+        # on every build, so the extension loaded from the repository never falls behind. Always the
+        # development output, whatever this build packages.
+        sh scripts/node.sh scripts/changelog.mjs --mode development --out src/changelog/changelog.json
       - rm -rf '{{.DIR}}'
       - mkdir -p '{{.DIR}}'
       - |
