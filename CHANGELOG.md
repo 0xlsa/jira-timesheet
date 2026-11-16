@@ -19,12 +19,14 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 
 ## [Unreleased]
 
-## [1.2.2] - 2026-11-11
+## [1.2.2] - 2026-11-16
 
 ### Added
 
+- A Weekly Summary view beside Daily, above the weekday cards, shows the week's total time, worklogs, and issues, its time by issue, and each day's total on one scale. Each issue has timer and Log work buttons. The view you choose stays as you move between weeks. <!-- highlight -->
+- The selected day has Worklogs and Summary tabs. Summary shows the day's time by issue, with a bar split by issue and each issue's total and share of the day. The tabs are hidden on a day without worklogs.
 - Worklog Queue has Pending and On Hold tabs, each with its count and its own color: blue and amber. Your pending worklogs, and every new one, start in Pending. <!-- highlight -->
-- Each pending worklog's ⋯ menu moves it to Pending or On Hold. This only files it in this browser: nothing is sent to Jira, and the worklog itself doesn't change. <!-- highlight -->
+- Each pending worklog's ⋯ menu moves it to Pending or On Hold. This only files it in this browser: nothing is sent to Jira, and the worklog itself doesn't change.
 - Select worklogs, beside the tabs, picks several pending worklogs to move at once, one by one or with Select all. A bar shows how many are selected and their total time, with the tabs they can move to. Once they've moved, selection mode closes by itself; any that couldn't move stay selected, marked Not moved, with the reason.
 - Reloading the page keeps the week and day you were looking at, and loads them from Jira again. When you were on today, it stays on today.
 - Custom views can filter by Epic: choose one or more epics, found by key or summary, with In or Not in. It works on Jira Cloud and Jira Data Center, each searched the way the site relates issues to epics.
@@ -35,6 +37,8 @@ How to maintain this file (see "Changelog" under "Development and tests" in READ
 - Pending Worklogs in My Work is now called Worklog Queue.
 - The Worklog Queue header names the selected tab and its count in the tab's color, such as Worklog Queue · Pending (2), and totals that tab.
 - The Issues header names the selected view and its count in blue, such as Issues · Reported (12).
+- The running timer shows on the My Work title's line, with its issue, elapsed time, Pause or Resume, and Stop, whether My Work is expanded or collapsed. On a narrow window it goes on a line of its own below the title.
+- Collapsing or expanding the selected day now applies to every day: selecting another day or week, or switching to the Weekly Summary and back, leaves it as it is. It's kept while the page is open.
 
 ### Fixed
 
