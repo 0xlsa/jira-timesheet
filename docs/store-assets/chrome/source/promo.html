@@ -122,16 +122,17 @@
 
   /* ---------------------------------------------------------------- Small 440 x 280 */
   /* Its own composition: name and a one-line headline above the most recognizable part of the
-     app, shown whole: the summary cards, the week bar, and all seven weekday cards. No feature
-     list, which would be unreadable at this size. */
+     app, shown whole: the summary cards, the week bar, the holiday banner, and the Daily and Weekly
+     Summary tabs. No feature list, which would be unreadable at this size. */
   .tile-small .blob-main { width: 360px; height: 360px; left: 220px; top: -150px; opacity: 0.7; }
   .tile-small .brand { position: absolute; left: 20px; top: 18px; gap: 12px; }
   .tile-small .brand img { width: 44px; height: 44px; }
   .tile-small .brand-name { font-size: 25px; }
   .tile-small .headline { position: absolute; left: 20px; top: 74px; font-size: 19px; letter-spacing: -0.02em; white-space: nowrap; }
   .tile-small .headline .accent { display: inline; }
-  /* The app's full width at 0.47 x its size, from the summary cards to the weekday cards */
-  .tile-small .shot { left: 20px; top: 106px; width: 400px; height: 156px; border-radius: 10px; }
+  /* The app's full width at 0.47 x its size, from the summary cards to the view tabs. It ends in
+     the space between the tabs and the weekday cards, so no sliver of a card shows. */
+  .tile-small .shot { left: 20px; top: 110px; width: 400px; height: 145px; border-radius: 10px; }
   .tile-small .shot img { width: 400px; transform: translateY(-38px); }
 </style>
 </head>
