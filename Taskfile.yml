@@ -8,6 +8,9 @@
 # extensions): package:chrome checks what Edge requires on top (no update_url, no "Chrome" in the
 # name or description) and reports the same zip for both stores. There is no Edge build.
 #
+# `task screenshots` captures the README and store screenshots again from the real options page
+# (docs/screenshots/source/capture.py), then renders and checks the promo tiles made from one of them.
+#
 # Chrome and Firefox share the build, the common checks, and the zip step (the internal
 # *:browser tasks); only the manifest rewrite and the store-specific checks differ.
 #
@@ -366,6 +369,48 @@ tasks:
         echo "{{.STORE}} package ready: version $version, $count files, $size bytes"
         echo "  $(pwd)/$zip_file"
         echo "Upload it at {{.UPLOAD_URL}}"
+
+  # ---------------------------------------------------------------------------
+  # Screenshots and store assets
+  # ---------------------------------------------------------------------------
+
+  screenshots:
+    desc: Capture the README and store screenshots, then render and check the promo tiles (task screenshots -- <scenario>... for some)
+    silent: true
+    cmds:
+      - task: screenshots:tools
+      # Every scenario, or the ones named; capture.py's own options (--refresh-holidays) pass through.
+      - python3 docs/screenshots/source/capture.py {{.CLI_ARGS}}
+      - |
+        # The promo tiles are made from the app-overview capture: rendered again whenever it was
+        # captured (every scenario, or app-overview named), never from an older one.
+        names="$(printf '%s\n' {{.CLI_ARGS}} | grep -v '^-' || true)"
+        if [ -z "$names" ] || printf '%s\n' "$names" | grep -qx app-overview; then
+          bash docs/store-assets/chrome/source/render.sh
+          bash docs/store-assets/chrome/scripts/validate-assets.sh
+        fi
+      - |
+        echo
+        echo "Changed images (check each one before committing):"
+        git status --short docs/screenshots docs/store-assets | sed 's/^/  /'
+
+  screenshots:tiles:
+    desc: Render and check the Chrome Web Store promo tiles again, from promo.html and the app-overview capture
+    silent: true
+    cmds:
+      - task: screenshots:tools
+      - bash docs/store-assets/chrome/source/render.sh
+      - bash docs/store-assets/chrome/scripts/validate-assets.sh
+
+  screenshots:tools:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        # The browser is the scripts' own: CHROME, or Google Chrome.
+        for tool in python3 "${CHROME:-google-chrome}" magick identify; do
+          command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
+        done
 
   clean:
     desc: Remove build output and release packages

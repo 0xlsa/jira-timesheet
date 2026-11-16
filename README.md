@@ -46,7 +46,7 @@ Press **?** for the keyboard shortcuts:
 
 ![Timesheet for Jira: keyboard shortcuts](docs/screenshots/keyboard-shortcuts.png)
 
-The screenshots were taken in Chrome, with demonstration data; the extension looks and works the same in Firefox. [`docs/screenshots/source/`](docs/screenshots/source/README.md) describes how they are captured.
+The screenshots were taken in Chrome, with demonstration data; the extension looks and works the same in Firefox. [`docs/screenshots/source/`](docs/screenshots/source/README.md) describes how they are captured; `task screenshots` captures them all again, with the store tiles.
 
 ## Features
 
@@ -393,6 +393,7 @@ The tests run without a browser or a Jira server: Jira responses come from a fak
 | `PendingClassification.test.js` | The Worklog Queue group's Pending and On Hold tabs: the classification stored on each pending worklog (Pending by default, Ready and unknown values read as Pending, kept through edits and failed submissions), one write for a bulk change, worklogs refused while being submitted or once gone, nothing written when nothing changes or the write fails, other tabs following; each tab's count and total, the header following the selected tab, empty tabs; the ⋯ menu's actions, keyboard, and focus; selection mode (rows unchanged without it, checkboxes, Select all from the stored worklogs, Deselect all, a selection never carried to another tab), the bulk bar's summary and actions, partial and failed changes keeping the selection, and no Jira calls |
 | `WorkingIssuesGroupOrder.test.js` | Moving the My Work groups: the order saved per Jira site (Issues first by default, other sites' orders untouched), dragging by the handle only, the line where a group goes, Escape, Alt+Shift+Up and Down, groups moved in place with their contents and expanded state, the header still expanding and collapsing its group, the move announced, and an order changed in another tab followed in place |
 | `ChangelogDrawer.test.js` | The What's New drawer (only the latest release, in full, under user-friendly category labels, with its highlights; the What's New — Unreleased preview, never read; read only once the latest is on screen; load failures; the note when the release notes are older than the installed version) and the update announcement (at most three highlights; closing it never counts as reading), both showing release notes as text only |
+| `Screenshots.test.js` | `task screenshots`: capturing the scenarios named (every one by default), then rendering and checking the promo tiles only when `app-overview` was captured, listing the changed images, `task screenshots:tiles`, the tools checked first, and the scripts it names existing |
 | `WeekSelection.test.js` | The week and day kept across a reload: the ones shown, or today when today was selected or this week was shown and the week has changed since; a new tab, a damaged entry, or storage that can't be used opening on today |
 | `EdgeDistribution.test.js` | Microsoft Edge Add-ons getting the Chrome package unchanged: no Edge build or zip, the Edge upload lines after the Chrome Web Store's, and the Chrome build refused when Edge wouldn't accept it (an `update_url`, or "Chrome" in the name or description) |
 | `ChangelogPage.test.js` | What's New's place in the page: its header button and drawer, one drawer at a time, the announcement, the background's install record, and the build and packaging steps (every build refreshing the committed release notes) |
@@ -511,7 +512,7 @@ The search requests `fields=summary,status,worklog`, so each worklog has its iss
 │   ├── store-listing/             # Store listing drafts; common/privacy-policy.md is the privacy policy
 │   ├── store-assets/chrome/       # Chrome Web Store promo tiles
 │   └── screenshots/               # Screenshots used in this README and the store listings
-│       └── source/                # How the screenshots are captured (capture.py)
+│       └── source/                # How the screenshots are captured (capture.py; run with task screenshots)
 ├── scripts/
 │   └── changelog.mjs              # Checks CHANGELOG.md and writes the release notes: development or release output (not packaged)
 ├── CHANGELOG.md                  # Release history, the source of What's New

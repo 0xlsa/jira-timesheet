@@ -1,12 +1,14 @@
 # Screenshot sources
 
-The screenshots in `docs/screenshots/` and the store tiles' `docs/store-assets/chrome/source/app-overview@2x.png` are captured from the real options page with one command:
+The screenshots in `docs/screenshots/` and the store tiles' `docs/store-assets/chrome/source/app-overview@2x.png` are captured from the real options page with one command, from the repository root:
 
 ```bash
-python3 docs/screenshots/source/capture.py
+task screenshots                                          # every scenario, then the promo tiles
+task screenshots -- weekly-overview-light app-overview    # only these scenarios
+task screenshots -- --refresh-holidays                    # download holidays.json again first
 ```
 
-Pass scenario names to capture only some of them, for example `python3 docs/screenshots/source/capture.py weekly-overview-light app-overview`. After `app-overview`, run `bash docs/store-assets/chrome/source/render.sh` to render the promo tiles again.
+It runs `python3 docs/screenshots/source/capture.py` with the names given (or none, for every scenario). Whenever `app-overview` is captured, it then renders the promo tiles again (`docs/store-assets/chrome/source/render.sh`) and checks their sizes (`docs/store-assets/chrome/scripts/validate-assets.sh`). It ends by listing the images that changed, to check each one before committing. `task screenshots:tiles` renders and checks only the tiles, after `promo.html` changes.
 
 The script needs Python 3, Google Chrome (or set `CHROME` to another Chromium-based browser), ImageMagick (`magick`), and the Roboto font, which the extension's system font stack uses on Linux. It works offline: everything it needs is in this folder.
 
