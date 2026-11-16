@@ -1,6 +1,6 @@
 # Timesheet for Jira: shared description
 
-Source text for both store listings. The store-specific files in `../chrome/listing.md` and `../firefox/listing.md` adapt it to each store's fields. Every feature below is implemented in version 1.2.1 (see the repository README and tests).
+Source text for the store listings. The store-specific files in `../chrome/listing.md`, `../edge/listing.md`, and `../firefox/listing.md` adapt it to each store's fields. Every feature below is implemented in version 1.2.1 (see the repository README and tests).
 
 ## One-line summary
 
