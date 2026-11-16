@@ -21,6 +21,10 @@
               "highlight": false
             },
             {
+              "text": "Reloading the page keeps the week and day you were looking at, and loads them from Jira again. When you were on today, it stays on today.",
+              "highlight": false
+            },
+            {
               "text": "Custom views can filter by Epic: choose one or more epics, found by key or summary, with In or Not in. It works on Jira Cloud and Jira Data Center, each searched the way the site relates issues to epics.",
               "highlight": false
             },

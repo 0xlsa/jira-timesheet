@@ -67,6 +67,7 @@ import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSetting
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 import { createWeekPicker } from './src/ui/weekPicker.js';
 import { dateFromKey, renderNextHolidayBanner } from './src/ui/nextHolidayBanner.js';
+import { rememberWeekSelection, restoreWeekSelection } from './src/worklog/weekSelection.js';
 import {
   loadChangelog,
   createChangelogStateStore,
@@ -200,8 +201,12 @@ const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus')
 // State
 // ============================================================================
 
-let currentMonday = getMondayOfWeek(new Date());
-let selectedDateKey = getLocalDateKey(new Date());
+// The week and day shown. A reload (F5) opens on the ones this tab showed, and loads them from Jira
+// again; a new tab, or a reload that was following today, opens on today (src/worklog/weekSelection.js).
+const tabSessionStorage = () => window.sessionStorage;
+const restoredWeek = restoreWeekSelection(tabSessionStorage);
+let currentMonday = restoredWeek?.monday ?? getMondayOfWeek(new Date());
+let selectedDateKey = restoredWeek?.selectedDateKey ?? getLocalDateKey(new Date());
 // Whether the selected day's panel shows its worklogs: one state for every day, changed only by its
 // header. Selecting a day or a week, or switching views, leaves it as it is; kept while the page
 // is open and expanded when it opens again (not stored).
@@ -2573,7 +2578,11 @@ document.addEventListener('visibilitychange', () => {
   // The timer keeps running from its stored start; only the on-screen clock pauses while hidden.
   timer.setActive(document.visibilityState === 'visible');
 });
-window.addEventListener('pagehide', () => tokenVisibility.mask());
+window.addEventListener('pagehide', () => {
+  tokenVisibility.mask();
+  // For a reload of this tab: it opens on the same week and day.
+  rememberWeekSelection(tabSessionStorage, { monday: currentMonday, selectedDateKey });
+});
 
 jiraBaseUrlInput.addEventListener('blur', () => {
   const val = jiraBaseUrlInput.value.trim();
