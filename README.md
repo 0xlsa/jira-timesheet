@@ -24,6 +24,10 @@ The weekly timesheet shows each day's total and the week's total, with the selec
 
 ![Timesheet for Jira: weekly overview, dark theme](docs/screenshots/weekly-overview-dark.png)
 
+Switch to the Weekly Summary for the week's time by issue and each day's total:
+
+![Timesheet for Jira: the Weekly Summary](docs/screenshots/weekly-summary.png)
+
 Time your work on an issue with the timer. A stopped timer leaves a pending worklog that you review and then submit to Jira:
 
 ![Timesheet for Jira: a running timer and a pending worklog](docs/screenshots/timer-and-pending-worklogs.png)
