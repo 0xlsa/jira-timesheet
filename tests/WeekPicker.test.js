@@ -354,7 +354,7 @@ describe('Week picker - page wiring', () => {
     assert.match(nav, /<button type="button" id="thisWeekBtn" class="btn btn-secondary btn-today" title="Jump to Today">\s*Today\s*<\/button>/);
     assert.match(nav, /<button type="button" id="refreshWorklogsBtn" class="btn btn-secondary btn-refresh"/);
     const listener = (id) => options.slice(options.indexOf(`${id}.addEventListener('click'`), options.indexOf('\n});', options.indexOf(`${id}.addEventListener('click'`)));
-    assert.match(listener('thisWeekBtn'), /currentMonday = getMondayOfWeek\(new Date\(\)\);\s*selectedDateKey = getLocalDateKey\(new Date\(\)\);\s*expandDayPanel\(\);\s*loadAndRenderWorklogs\(\);/);
+    assert.match(listener('thisWeekBtn'), /currentMonday = getMondayOfWeek\(new Date\(\)\);\s*selectedDateKey = getLocalDateKey\(new Date\(\)\);\s*loadAndRenderWorklogs\(\);/);
     assert.match(listener('refreshWorklogsBtn'), /loadAndRenderWorklogs\(\{ force: true \}\);/);
     assert.doesNotMatch(listener('thisWeekBtn') + listener('refreshWorklogsBtn'), /weekPicker/);
   });
@@ -363,9 +363,9 @@ describe('Week picker - page wiring', () => {
     const wiring = options.slice(options.indexOf('const weekPicker = createWeekPicker({'));
     const block = wiring.slice(0, wiring.indexOf('\n});') + 4);
     assert.match(block, /getSelection: \(\) => \(\{ monday: currentMonday, selectedDateKey \}\)/);
-    assert.match(block, /currentMonday = getMondayOfWeek\(date\);\s*selectedDateKey = getLocalDateKey\(date\);\s*expandDayPanel\(\);\s*loadAndRenderWorklogs\(\);/);
-    assert.match(options, /prevWeekBtn\.addEventListener\('click', \(\) => \{\s*currentMonday\.setDate\(currentMonday\.getDate\(\) - 7\);\s*expandDayPanel\(\);\s*loadAndRenderWorklogs\(\);/);
-    assert.match(options, /nextWeekBtn\.addEventListener\('click', \(\) => \{\s*currentMonday\.setDate\(currentMonday\.getDate\(\) \+ 7\);\s*expandDayPanel\(\);\s*loadAndRenderWorklogs\(\);/);
+    assert.match(block, /currentMonday = getMondayOfWeek\(date\);\s*selectedDateKey = getLocalDateKey\(date\);\s*loadAndRenderWorklogs\(\);/);
+    assert.match(options, /prevWeekBtn\.addEventListener\('click', \(\) => \{\s*currentMonday\.setDate\(currentMonday\.getDate\(\) - 7\);\s*loadAndRenderWorklogs\(\);/);
+    assert.match(options, /nextWeekBtn\.addEventListener\('click', \(\) => \{\s*currentMonday\.setDate\(currentMonday\.getDate\(\) \+ 7\);\s*loadAndRenderWorklogs\(\);/);
   });
 
   it('is unavailable, and closed, while a week loads, like the buttons around it', () => {

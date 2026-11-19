@@ -208,6 +208,32 @@ function toLocalDateTime(date, time) {
  * @returns {{ isValid: boolean, errors: { date?: string, time?: string, duration?: string } }}
  */
 export function validateEditForm(form) {
+  return validateForm(form, { durationRequired: true });
+}
+
+/**
+ * Validates the Log work form's values for starting a timer from them (see buildTimerStart()):
+ * as validateEditForm(), except that the duration may be blank or zero (the timer counts from
+ * there), and the start can't be later than now.
+ *
+ * @param {{ date: string, time: string, hours: string, minutes: string }} form
+ * @param {number} [now=Date.now()] - Epoch milliseconds
+ * @returns {{ isValid: boolean, errors: { date?: string, time?: string, duration?: string } }}
+ */
+export function validateTimerForm(form, now = Date.now()) {
+  const { errors } = validateForm(form, { durationRequired: false });
+  if (!errors.date && !errors.time && toLocalDateTime(form.date, form.time).getTime() > now) {
+    errors.time = "A timer can't start later than now. Enter a start time that has passed.";
+  }
+  return { isValid: Object.keys(errors).length === 0, errors };
+}
+
+/**
+ * @param {{ date: string, time: string, hours: string, minutes: string }} form
+ * @param {{ durationRequired: boolean }} options - false accepts a blank or zero duration
+ * @returns {{ isValid: boolean, errors: { date?: string, time?: string, duration?: string } }}
+ */
+function validateForm(form, { durationRequired }) {
   const errors = {};
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(form.date ?? ''))) {
@@ -224,15 +250,16 @@ export function validateEditForm(form) {
 
   const hours = parseDurationPart(form.hours);
   const minutes = parseDurationPart(form.minutes);
-  if (!String(form.hours ?? '').trim() && !String(form.minutes ?? '').trim()) {
-    errors.duration = 'Enter a duration.';
+  const blank = !String(form.hours ?? '').trim() && !String(form.minutes ?? '').trim();
+  if (blank) {
+    if (durationRequired) errors.duration = 'Enter a duration.';
   } else if (hours === null || minutes === null) {
     errors.duration = 'Enter whole numbers for hours and minutes.';
   } else if (minutes > 59) {
     errors.duration = 'Minutes must be between 0 and 59.';
   } else if (hours > MAX_DURATION_HOURS) {
     errors.duration = `Hours must be ${MAX_DURATION_HOURS} or less.`;
-  } else if (hours === 0 && minutes === 0) {
+  } else if (hours === 0 && minutes === 0 && durationRequired) {
     errors.duration = 'Duration must be at least 1 minute.';
   }
 
@@ -298,4 +325,28 @@ export function buildNewWorklog(form) {
   const comment = String(form.comment ?? '');
   if (comment.trim()) worklog.comment = comment;
   return worklog;
+}
+
+/**
+ * Builds what a timer starts from when the Log work form starts it instead of logging the work:
+ * the form's date and start time (local time, as Log work would send it), the duration already
+ * worked, and the comment (blank becomes none, as in buildNewWorklog()). With no duration (blank
+ * or zero), `elapsedMs` is left out: the work has gone on since the start time, so the timer
+ * counts from there (20:30 entered at 21:15 starts at 45 minutes).
+ * Call validateTimerForm() first; this assumes valid values.
+ *
+ * @param {object} form
+ * @returns {{ startedAt: number, elapsedMs?: number, comment: string }} Epoch milliseconds; the
+ *   duration in milliseconds, whole minutes; the comment
+ */
+export function buildTimerStart(form) {
+  const comment = String(form.comment ?? '');
+  const start = {
+    startedAt: toLocalDateTime(form.date, form.time).getTime(),
+    comment: comment.trim() ? comment : ''
+  };
+  const minutes = formMinutes(form);
+  // Integer arithmetic only: whole minutes to milliseconds.
+  if (minutes > 0) start.elapsedMs = minutes * 60 * 1000;
+  return start;
 }

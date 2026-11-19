@@ -11,7 +11,8 @@ import {
   UNAVAILABLE_MESSAGE,
   EMPTY_MESSAGE,
   UNRELEASED_TITLE,
-  UNRELEASED_NOTE
+  UNRELEASED_NOTE,
+  staleNote
 } from '../src/ui/changelogDrawer.js';
 import { CATEGORIES } from '../src/changelog/changelogState.js';
 import { showUpdateAnnouncement, hideUpdateAnnouncement, isUpdateAnnouncementShown, MAX_ANNOUNCED_HIGHLIGHTS } from '../src/ui/updateAnnouncement.js';
@@ -58,7 +59,7 @@ describe('What\'s New drawer', () => {
    * `load`, a function standing in for loadChangelog(). `frames` collects the callbacks waiting for
    * the next frame, so a test decides when what was drawn reaches the screen.
    */
-  function open({ releases = RELEASES, unreleased = null, load } = {}) {
+  function open({ releases = RELEASES, unreleased = null, load, version } = {}) {
     const root = h('aside', { class: 'changelog-drawer hidden' });
     const read = [];
     const closed = [];
@@ -67,11 +68,34 @@ describe('What\'s New drawer', () => {
       loadChangelog: load ?? (async () => ({ releases, unreleased })),
       onRead: (version) => read.push(version),
       onClose: () => closed.push(true),
+      version,
       afterRender: (callback) => frames.push(callback)
     });
     const nextFrame = () => frames.splice(0).forEach((callback) => callback());
     return { root, drawer, read, closed, nextFrame };
   }
+
+  it('says so above the notes when they\'re older than the installed version, and still shows them', async () => {
+    const { root, read, nextFrame } = open({ unreleased: UNRELEASED, version: '1.2.2' });
+    await flush();
+    const note = root.querySelector('.changelog-stale-note');
+    assert.equal(note.textContent, 'These release notes are older than this version (1.2.2). Run npm run changelog to update them.');
+    assert.equal(note.textContent, staleNote('1.2.2'));
+    assert.equal(note.getAttribute('role'), 'status');
+    assert.equal(listOf(root).childNodes[0], note, 'first, above the preview and the release');
+    assert.equal(latestOf(root).dataset.version, '1.2.0');
+    assert.ok(unreleasedOf(root));
+    nextFrame();
+    assert.deepEqual(read, ['1.2.0'], 'the release shown still counts as read');
+  });
+
+  it('has no stale note when the notes are current, or without the installed version', async () => {
+    for (const version of ['1.2.0', undefined]) {
+      const { root } = open({ version });
+      await flush();
+      assert.equal(root.querySelector('.changelog-stale-note'), null, String(version));
+    }
+  });
 
   it('opens titled What\'s New, with focus on the release notes while they load', () => {
     const { root } = open({ load: () => new Promise(() => {}) });

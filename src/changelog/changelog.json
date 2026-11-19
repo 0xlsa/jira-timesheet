@@ -1,0 +1,180 @@
+{
+  "channel": "development",
+  "releases": [
+    {
+      "version": "1.2.2",
+      "date": "2026-11-16",
+      "sections": [
+        {
+          "type": "Added",
+          "items": [
+            {
+              "text": "A Weekly Summary view beside Daily, above the weekday cards, shows the week's total time, worklogs, and issues, its time by issue, and each day's total on one scale. Each issue has timer and Log work buttons. The view you choose stays as you move between weeks.",
+              "highlight": true
+            },
+            {
+              "text": "The selected day has Worklogs and Summary tabs. Summary shows the day's time by issue, with a bar split by issue and each issue's total and share of the day. The tabs are hidden on a day without worklogs.",
+              "highlight": false
+            },
+            {
+              "text": "Worklog Queue has Pending and On Hold tabs, each with its count and its own color: blue and amber. Your pending worklogs, and every new one, start in Pending.",
+              "highlight": true
+            },
+            {
+              "text": "Each pending worklog's ⋯ menu moves it to Pending or On Hold. This only files it in this browser: nothing is sent to Jira, and the worklog itself doesn't change.",
+              "highlight": false
+            },
+            {
+              "text": "Select worklogs, beside the tabs, picks several pending worklogs to move at once, one by one or with Select all. A bar shows how many are selected and their total time, with the tabs they can move to. Once they've moved, selection mode closes by itself; any that couldn't move stay selected, marked Not moved, with the reason.",
+              "highlight": false
+            },
+            {
+              "text": "Reloading the page keeps the week and day you were looking at, and loads them from Jira again. When you were on today, it stays on today.",
+              "highlight": false
+            },
+            {
+              "text": "Custom views can filter by Epic: choose one or more epics, found by key or summary, with In or Not in. It works on Jira Cloud and Jira Data Center, each searched the way the site relates issues to epics.",
+              "highlight": false
+            },
+            {
+              "text": "Create up to five groups of your own in Worklog Queue, such as Overtime, as tabs beside Pending and On Hold. Use + to add one and the pencil to rename or delete it. Move worklogs between groups from their ⋯ menu or the selection bar. Groups only organize worklogs in this browser; to submit a group's worklogs, move them to Pending. Deleting a group moves its worklogs to On Hold.",
+              "highlight": true
+            }
+          ]
+        },
+        {
+          "type": "Changed",
+          "items": [
+            {
+              "text": "Pending Worklogs in My Work is now called Worklog Queue.",
+              "highlight": false
+            },
+            {
+              "text": "The Worklog Queue header names the selected tab and its count in the tab's color, such as Worklog Queue · Pending (2), and totals that tab.",
+              "highlight": false
+            },
+            {
+              "text": "The Issues header names the selected view and its count in blue, such as Issues · Reported (12).",
+              "highlight": false
+            },
+            {
+              "text": "The running timer shows on the My Work title's line, with its issue, elapsed time, Pause or Resume, and Stop, whether My Work is expanded or collapsed. On a narrow window it goes on a line of its own below the title.",
+              "highlight": false
+            },
+            {
+              "text": "Collapsing or expanding the selected day now applies to every day: selecting another day or week, or switching to the Weekly Summary and back, leaves it as it is. It's kept while the page is open.",
+              "highlight": false
+            }
+          ]
+        },
+        {
+          "type": "Fixed",
+          "items": [
+            {
+              "text": "Starting the timer from the Log work form now keeps what you entered. The timer keeps the date and start time and counts on from the duration you entered, so 2h entered starts it at 2:00:00. Without a duration, it counts from the start time, so 20:30 entered at 21:15 starts it at 0:45:00. Its pending worklog keeps the work description. Nothing is sent to Jira until you submit it.",
+              "highlight": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-11-07",
+      "sections": [
+        {
+          "type": "Added",
+          "items": [
+            {
+              "text": "In My Work, drag Issues or Pending Worklogs by the handle at the start of its header to put it above or below the other, or press Alt+Shift+Up or Down Arrow on its header. The order is saved for each Jira site.",
+              "highlight": true
+            },
+            {
+              "text": "The Pending Worklogs header shows the total time of all pending worklogs on its right.",
+              "highlight": true
+            }
+          ]
+        },
+        {
+          "type": "Changed",
+          "items": [
+            {
+              "text": "In My Work, My Issues is now called Issues.",
+              "highlight": false
+            },
+            {
+              "text": "The My Work heading is a single line. Issues and Pending Worklogs each sit in their own bordered container, with a roomier header showing an icon and the count, and more compact rows.",
+              "highlight": false
+            },
+            {
+              "text": "The selected day's worklogs sit together in one bordered container, divided by subtle lines like Pending Worklogs, instead of each in its own card. Each shows its start time and author below the summary, then its comment.",
+              "highlight": true
+            },
+            {
+              "text": "The calendar icon is now before the week's date range.",
+              "highlight": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-11-04",
+      "sections": [
+        {
+          "type": "Added",
+          "items": [
+            {
+              "text": "What's New, in the header, shows what the latest version brings, with a NEW badge until you've seen it. After an update, a short announcement lists the new version's highlights.",
+              "highlight": true
+            },
+            {
+              "text": "The bottom of Settings shows the extension's name and version.",
+              "highlight": false
+            },
+            {
+              "text": "Custom views in My Work: create your own Jira issue views to organize and find the issues that matter to you.",
+              "highlight": true,
+              "subitems": [
+                "Create up to five custom views, displayed as tabs beside Active in My Issues.",
+                "Reorder tabs by dragging.",
+                "Define multiple conditions using status, priority, assignee, reporter, or custom fields from your Jira site.",
+                "See the first 20 matching issues you have permission to access, sorted in your chosen order (most recently updated first by default)."
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Changed",
+          "items": [
+            {
+              "text": "A pending worklog shows its comment after its date and start time.",
+              "highlight": false
+            },
+            {
+              "text": "Selecting a day, or going to another week, shows that day's worklogs.",
+              "highlight": false
+            },
+            {
+              "text": "My Active Issues is now called My Work, and its Active Issues list is now called My Issues, whose Active tab lists your issues as before.",
+              "highlight": false
+            },
+            {
+              "text": "My Work is shown below the selected day's worklogs.",
+              "highlight": false
+            },
+            {
+              "text": "In My Work, My Issues and Pending Worklogs are two groups that expand and collapse separately, instead of tabs. The Show recently logged switch is just below the Active tab.",
+              "highlight": false
+            },
+            {
+              "text": "Turning Show recently logged on or off keeps the issues listed, with a small spinner beside the switch, until the new list is in. If it can't be loaded, the issues stay and a message says why.",
+              "highlight": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

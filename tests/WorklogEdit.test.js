@@ -15,7 +15,9 @@ import {
   isEditFormDirty,
   buildWorklogChanges,
   toNewWorklogForm,
-  buildNewWorklog
+  buildNewWorklog,
+  validateTimerForm,
+  buildTimerStart
 } from '../src/worklog/worklogEdit.js';
 
 const adf = (...paragraphs) => ({
@@ -190,5 +192,60 @@ describe('worklogEdit - logging new work', () => {
   it('leaves out a blank comment and treats a blank hours field as 0', () => {
     assert.deepEqual(Object.keys(buildNewWorklog({ date: '2026-10-21', time: '09:00', hours: '', minutes: '30', comment: '  ' })), ['started', 'timeSpentSeconds']);
     assert.equal(buildNewWorklog({ date: '2026-10-21', time: '09:00', hours: '', minutes: '30', comment: '' }).timeSpentSeconds, 1800);
+  });
+});
+
+describe('worklogEdit - starting a timer from the Log work form', () => {
+  // 16:00 on 22 October 2026, UK summer time (UTC+1).
+  const NOW = new Date(2026, 9, 22, 16, 0).getTime();
+  const form = { date: '2026-10-22', time: '14:00', hours: '2', minutes: '0', comment: 'Investigating PostgreSQL migration issue' };
+
+  it('accepts a blank or zero duration: the timer counts from there', () => {
+    for (const duration of [{ hours: '', minutes: '' }, { hours: '0', minutes: '0' }, { hours: '', minutes: '15' }, { hours: '2', minutes: '' }]) {
+      assert.deepEqual(validateTimerForm({ ...form, ...duration }, NOW), { isValid: true, errors: {} }, JSON.stringify(duration));
+    }
+  });
+
+  it('checks the date, start time, and duration as Log work does', () => {
+    assert.equal(validateTimerForm({ ...form, date: '' }, NOW).errors.date, 'Enter a date.');
+    assert.equal(validateTimerForm({ ...form, time: '' }, NOW).errors.time, 'Enter a start time.');
+    assert.equal(validateTimerForm({ ...form, minutes: '75' }, NOW).errors.duration, 'Minutes must be between 0 and 59.');
+    assert.equal(validateTimerForm({ ...form, hours: '1.5' }, NOW).errors.duration, 'Enter whole numbers for hours and minutes.');
+    assert.match(validateTimerForm({ ...form, date: '2026-03-29', time: '01:30' }, NOW).errors.time, /daylight-saving/);
+  });
+
+  it('refuses a start later than now, and accepts the current minute or an earlier day', () => {
+    assert.match(validateTimerForm({ ...form, time: '16:01' }, NOW).errors.time, /can't start later than now/);
+    assert.match(validateTimerForm({ ...form, date: '2026-10-23', time: '09:00' }, NOW).errors.time, /can't start later than now/);
+    assert.equal(validateTimerForm({ ...form, time: '16:00' }, NOW).isValid, true);
+    assert.equal(validateTimerForm({ ...form, date: '2026-10-19', time: '09:00' }, NOW).isValid, true);
+  });
+
+  it('still requires a duration for logging work', () => {
+    assert.equal(validateEditForm({ ...form, hours: '', minutes: '' }).errors.duration, 'Enter a duration.');
+    assert.equal(validateEditForm({ ...form, hours: '0', minutes: '0' }).errors.duration, 'Duration must be at least 1 minute.');
+  });
+
+  it('builds the local start, the duration in milliseconds, and the comment', () => {
+    assert.deepEqual(buildTimerStart(form), {
+      startedAt: Date.UTC(2026, 9, 22, 13, 0),
+      elapsedMs: 2 * 3_600_000,
+      comment: 'Investigating PostgreSQL migration issue'
+    });
+    assert.equal(buildTimerStart({ ...form, date: '2026-01-15' }).startedAt, Date.UTC(2026, 0, 15, 14, 0), 'winter time is UTC+0');
+    assert.equal(buildTimerStart({ ...form, hours: '', minutes: '15' }).elapsedMs, 15 * 60_000);
+  });
+
+  it('leaves the duration out when none is entered, so the timer counts from the start time', () => {
+    for (const duration of [{ hours: '', minutes: '' }, { hours: '0', minutes: '0' }, { hours: '0', minutes: '' }]) {
+      assert.deepEqual(buildTimerStart({ ...form, time: '20:30', ...duration }),
+        { startedAt: Date.UTC(2026, 9, 22, 19, 30), comment: form.comment }, JSON.stringify(duration));
+    }
+  });
+
+  it('keeps the comment as typed, and a blank one as none', () => {
+    assert.equal(buildTimerStart({ ...form, comment: 'Line 1\nLine 2 ' }).comment, 'Line 1\nLine 2 ');
+    assert.equal(buildTimerStart({ ...form, comment: '  \n ' }).comment, '');
+    assert.equal(buildTimerStart({ ...form, comment: undefined }).comment, '');
   });
 });

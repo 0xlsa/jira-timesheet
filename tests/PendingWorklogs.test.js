@@ -10,7 +10,7 @@ import {
 import { openWorklogEditor, renderWorklogEditor } from '../src/ui/worklogEditor.js';
 import { openDeleteWorklogDialog, describeWorklogForDeletion } from '../src/ui/deleteWorklogDialog.js';
 import { toEditForm, toNewWorklogForm } from '../src/worklog/worklogEdit.js';
-import { createTimeTrackingStore, siteId, TIME_TRACKING_KEY } from '../src/timer/timeTrackingStore.js';
+import { createTimeTrackingStore, siteId, elapsedSeconds, TIME_TRACKING_KEY } from '../src/timer/timeTrackingStore.js';
 import { createTimerController } from '../src/timer/timerController.js';
 import { createMemoryStorageArea } from '../src/compat/browser-api.js';
 
@@ -76,16 +76,17 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
   before(() => { restoreDocument = installFakeDocument(); });
   after(() => restoreDocument());
 
-  it('shows the two groups one below the other, both expanded, with no tabs', () => {
+  it('shows the two groups one below the other, both expanded, with no view tabs (Pending has its classification tabs)', () => {
     const { section } = render();
     const groups = section.querySelector('.working-issues-body').childNodes;
 
     assert.deepEqual(groups.map((g) => g.dataset.group), ['active', 'pending']);
-    assert.equal(section.querySelector('[role="tablist"]'), null);
-    assert.equal(section.querySelector('[role="tab"]'), null);
-    assert.equal(section.querySelector('[role="tabpanel"]'), null);
+    assert.equal(group(section, 'active').querySelector('[role="tablist"]'), null);
+    assert.equal(group(section, 'active').querySelector('[role="tab"]'), null);
+    assert.equal(group(section, 'active').querySelector('[role="tabpanel"]'), null);
+    assert.equal(group(section, 'pending').querySelector('[role="tablist"]').getAttribute('aria-label'), 'Worklog Queue groups');
     assert.equal(header(section, 'active').textContent, 'Issues (1)');
-    assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
+    assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (3)');
     assert.ok(isOpen(section, 'active') && isOpen(section, 'pending'), 'both show their contents at once');
     assert.ok(group(section, 'active').querySelector('.working-issues-list'));
     assert.equal(group(section, 'active').querySelector('.working-issue-timer-btn').dataset.timerAction, 'start');
@@ -115,7 +116,7 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
       assert.ok(section.querySelector('.working-issues-group.is-pending').classList.contains('is-collapsed') === !pending);
       // Collapsed or not, the headers and counts show.
       assert.equal(header(section, 'active').textContent, 'Issues (1)');
-      assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
+      assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (3)');
     }
   });
 
@@ -184,7 +185,7 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
       const { section } = render({ expanded });
       assert.deepEqual(section.querySelector('.working-issues-titles').childNodes.map((n) => n.className), ['working-issues-title']);
       assert.doesNotMatch(section.querySelector('.working-issues-header').textContent, /pending worklog/);
-      assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
+      assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (3)');
     }
   });
 
@@ -194,7 +195,8 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
         const { section } = render({ entries, running, expanded: false });
         const summary = section.querySelector('.working-issues-timer-summary');
         assert.equal(summary.classList.contains('hidden'), !running);
-        assert.equal(summary.textContent, running ? 'KAN-12: Fix the login page' : '');
+        assert.equal(summary.textContent, running ? 'KAN-12Fix the login page' : '');
+        assert.equal(summary.getAttribute('title'), running ? 'KAN-12: Fix the login page' : null);
       }
     }
   });
@@ -202,14 +204,14 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
   it('counts none, one, or several pending worklogs in the Pending Worklogs header', () => {
     for (const entries of [[], ENTRIES.slice(0, 1), ENTRIES.slice(0, 2)]) {
       const { section } = render({ entries });
-      assert.equal(header(section, 'pending').textContent, `Pending Worklogs (${entries.length})`);
+      assert.equal(header(section, 'pending').textContent, `Worklog Queue · Pending (${entries.length})`);
     }
   });
 
   it('counts sessions, not issues: two pending worklogs on one issue count twice', () => {
     const twice = [pendingEntry(), pendingEntry({ id: 'p9', startedAt: T0 + 7_200_000, stoppedAt: T0 + 7_260_000, timeSpentSeconds: 60 })];
     const { section } = render({ entries: twice });
-    assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (2)');
+    assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (2)');
     assert.equal(group(section, 'pending').querySelectorAll('.pending-worklog').length, 2);
   });
 
@@ -224,7 +226,7 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
     for (const state of [{ status: 'loading' }, { status: 'error', message: 'Server error' }, { status: 'ready', issues: [] }]) {
       renderWorkingIssues(section, { ...options, state });
       assert.equal(header(section, 'active').textContent, 'Issues (0)', state.status);
-      assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (0)', state.status);
+      assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (0)', state.status);
     }
     // The running issue is listed (and counted) while Jira's issues load.
     renderWorkingIssues(section, { ...options, state: { status: 'loading' }, timer: { ...options.timer, running: elsewhere } });
@@ -239,11 +241,12 @@ describe('My Work - Issues and Pending Worklogs groups', () => {
     // 25m 30s + 45s + 25m 30s (the other site's too) = 51m 45s.
     assert.equal(total.textContent, '0h 51m');
     assert.equal(total.classList.contains('is-empty'), false);
-    assert.match(total.getAttribute('title'), /^Total pending time: 0h 51m$/);
+    // Every worklog is Ready (the default), so Ready's total is all of them.
+    assert.match(total.getAttribute('title'), /^Total time in Pending: 0h 51m$/);
     // After the title and count, outside the button, whose name stays the same.
     assert.ok(pendingHeader.childNodes.at(-1) === total, 'last in the header');
     assert.equal(header(section, 'pending').querySelector('.working-issues-group-total'), null);
-    assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (3)');
+    assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (3)');
     assert.equal(header(section, 'active').closest('.working-issues-group-header').querySelector('.working-issues-group-total'), null);
     // Collapsed, it still shows; a click on it toggles the group like the rest of the header.
     total.click();
@@ -439,7 +442,7 @@ describe('My Work - Pending Worklogs group', () => {
     const { section } = render({ entries: [] });
     assert.equal(group(section, 'pending').querySelector('.pending-worklogs'), null);
     assert.match(group(section, 'pending').querySelector('.working-issues-empty').textContent, /^No pending worklogs\./);
-    assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (0)');
+    assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (0)');
   });
 
   it('follows new pending worklogs (another tab\'s changes), keeping focus on the same button', () => {
@@ -449,7 +452,7 @@ describe('My Work - Pending Worklogs group', () => {
     renderWorkingIssues(section, { ...options, pending: { ...options.pending, entries: ENTRIES.filter((e) => e.id !== 'p1') } });
 
     assert.deepEqual(group(section, 'pending').querySelectorAll('.pending-worklog').map((r) => r.dataset.pendingId), ['p3', 'p2']);
-    assert.equal(header(section, 'pending').textContent, 'Pending Worklogs (2)');
+    assert.equal(header(section, 'pending').textContent, 'Worklog Queue · Pending (2)');
     assert.equal(document.activeElement.dataset.focusKey, 'edit:p2');
   });
 
@@ -524,12 +527,12 @@ describe('My Work - counts follow the stored state', () => {
   it('updates on stop, switch, and discard, and lists then drops a running issue Jira doesn\'t list', async () => {
     const page = await createTimerPage();
     const section = renderFrom(page);
-    assert.deepEqual(counts(section), { active: 'Issues (1)', pending: 'Pending Worklogs (0)', timer: null });
+    assert.deepEqual(counts(section), { active: 'Issues (1)', pending: 'Worklog Queue · Pending (0)', timer: null });
 
     // KAN-10 isn't in Jira's list (started from the Log work panel): it's listed while it runs.
     await page.controller.start({ site: SITE, issueId: '10010', issueKey: 'KAN-10', issueSummary: 'Onboarding guide' });
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Pending Worklogs (0)', timer: 'KAN-10' });
+    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Worklog Queue · Pending (0)', timer: 'KAN-10' });
     assert.ok(section.querySelector('.is-timer-only').querySelector('.working-issue-timer-btn[data-timer-action="stop"]'));
 
     // Stop from its row: its session is pending, and the row and header timer go.
@@ -537,7 +540,7 @@ describe('My Work - counts follow the stored state', () => {
     section.querySelector('.is-timer-only').querySelector('.working-issue-timer-btn[data-timer-action="stop"]').click();
     await new Promise((resolve) => setImmediate(resolve));
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'Issues (1)', pending: 'Pending Worklogs (1)', timer: null });
+    assert.deepEqual(counts(section), { active: 'Issues (1)', pending: 'Worklog Queue · Pending (1)', timer: null });
     assert.deepEqual(page.controller.getState().tracking.pending.map((p) => [p.issueKey, p.timeSpentSeconds]), [['KAN-10', 90]]);
     assert.equal(section.querySelector('.is-timer-only'), null);
 
@@ -546,11 +549,11 @@ describe('My Work - counts follow the stored state', () => {
     page.advance(60_000);
     await page.controller.start({ site: SITE, issueId: '10013', issueKey: 'KAN-13' });
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Pending Worklogs (2)', timer: 'KAN-13' });
+    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Worklog Queue · Pending (2)', timer: 'KAN-13' });
 
     await page.controller.discardPending(page.controller.getState().tracking.pending[0].id);
     renderFrom(page, section);
-    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Pending Worklogs (1)', timer: 'KAN-13' });
+    assert.deepEqual(counts(section), { active: 'Issues (2)', pending: 'Worklog Queue · Pending (1)', timer: 'KAN-13' });
     assert.deepEqual(page.jiraCalls, []);
   });
 
@@ -581,7 +584,7 @@ describe('My Work - counts follow the stored state', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     assert.equal(section.querySelector('.working-issues-body').classList.contains('hidden'), true, 'collapsed');
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (1)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (1)');
     assert.equal(writes, 2, 'tab B only read');
   });
 });
@@ -876,9 +879,11 @@ describe('Discarding a pending worklog', () => {
 
 describe('Log work panel - timer button', () => {
   let restoreDocument;
+  // The panel opens on 26 October with a 09:15 start (T0); it's 16:15 now, so earlier starts have passed.
+  const NOW = T0 + 7 * 3_600_000;
   beforeEach(() => {
     restoreDocument = installFakeDocument();
-    mock.timers.enable({ apis: ['setTimeout'] });
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: NOW });
   });
   afterEach(() => {
     mock.timers.reset();
@@ -886,17 +891,27 @@ describe('Log work panel - timer button', () => {
   });
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const issue = { issueId: '10020', issueKey: 'KAN-20', issueSummary: 'Write the docs', issueStatus: { name: 'In Progress', categoryKey: 'indeterminate' } };
+  const COMMENT = 'Investigating PostgreSQL migration issue';
 
-  /** A timer stand-in: `running` by issue key, with the calls recorded. */
+  /** A timer stand-in: `running` by issue key, with the calls (and what each start was given) recorded. */
   function fakeTimer({ running = null, result = true } = {}) {
     const calls = [];
+    const froms = [];
     return {
       calls,
+      froms,
       running,
       stateOf(i) { return { running: this.running === i.issueKey }; },
-      async onStart(i) { calls.push(['start', i.issueKey]); return result; },
+      async onStart(i, from) { calls.push(['start', i.issueKey]); froms.push(from); return result; },
       async onStop() { calls.push(['stop']); return result; }
     };
+  }
+
+  /** Types a value into one of the panel's fields, as the user would. */
+  function enter(root, selector, value) {
+    const field = root.querySelector(selector);
+    field.value = value;
+    field.dispatchEvent({ type: 'input' });
   }
 
   function openLogWork({ worklog = issue, timer, onSave = async () => {} } = {}) {
@@ -989,6 +1004,7 @@ describe('Log work panel - timer button', () => {
     timerButton(root).click();
     await flush();
     assert.deepEqual(timer.calls, [['start', 'KAN-20']]);
+    assert.deepEqual(timer.froms, [undefined], 'nothing entered: it starts now, from zero, as before');
     assert.deepEqual(saved, [], 'no worklog was logged');
     assert.deepEqual(closed, ['closed']);
   });
@@ -1003,17 +1019,71 @@ describe('Log work panel - timer button', () => {
     assert.deepEqual(closed, ['closed']);
   });
 
-  it('asks before discarding entered values after a start, and never logs them', async () => {
+  it('starts the timer from the entered start, duration, and comment, without logging work, then closes', async () => {
     const timer = fakeTimer();
     const { root, closed, saved } = openLogWork({ timer });
-    const hours = root.querySelector('#worklogEditHours');
-    hours.value = '2';
-    hours.dispatchEvent({ type: 'input' });
+    enter(root, '#worklogEditTime', '14:00');
+    enter(root, '#worklogEditHours', '2');
+    enter(root, '#worklogEditComment', COMMENT);
 
     timerButton(root).click();
     await flush();
 
     assert.deepEqual(timer.calls, [['start', 'KAN-20']]);
+    assert.deepEqual(timer.froms, [{ startedAt: new Date(2026, 9, 26, 14, 0).getTime(), elapsedMs: 2 * 3_600_000, comment: COMMENT }]);
+    assert.deepEqual(saved, [], 'Start never logs the work in Jira');
+    assert.deepEqual(closed, ['closed'], 'what was entered is the timer\'s now: nothing to discard');
+  });
+
+  it('starts from a quick duration and the start time the panel opened with', async () => {
+    const timer = fakeTimer();
+    const { root, closed } = openLogWork({ timer });
+    root.querySelector('[data-preset-hours="0"][data-preset-minutes="15"]').click();
+    timerButton(root).click();
+    await flush();
+    assert.deepEqual(timer.froms, [{ startedAt: T0, elapsedMs: 15 * 60_000, comment: '' }]);
+    assert.deepEqual(closed, ['closed']);
+  });
+
+  it('starts from the start time alone, with no duration, to count from there', async () => {
+    const timer = fakeTimer();
+    const { root } = openLogWork({ timer });
+    enter(root, '#worklogEditTime', '15:30');
+    timerButton(root).click();
+    await flush();
+    assert.deepEqual(timer.froms, [{ startedAt: new Date(2026, 9, 26, 15, 30).getTime(), comment: '' }]);
+  });
+
+  it('shows what\'s wrong and starts nothing when the entered values can\'t start a timer', async () => {
+    // A duration error marks hours and minutes alike, so focus goes to Hours, as when logging work.
+    for (const [selector, value, errorFor, pattern, focused] of [
+      ['#worklogEditTime', '17:00', 'time', /can't start later than now/, '#worklogEditTime'],
+      ['#worklogEditMinutes', '75', 'duration', /Minutes must be between 0 and 59/, '#worklogEditHours']
+    ]) {
+      const timer = fakeTimer();
+      const { root, closed, saved } = openLogWork({ timer });
+      enter(root, selector, value);
+      timerButton(root).click();
+      await flush();
+      assert.deepEqual(timer.calls, [], value);
+      assert.deepEqual([closed, saved], [[], []]);
+      const error = root.querySelector(`[data-error-for="${errorFor}"]`);
+      assert.match(error.textContent, pattern);
+      assert.ok(error.classList.contains('visible'));
+      assert.equal(document.activeElement, root.querySelector(focused), 'the field to fix has focus');
+      assert.equal(timerButton(root).getAttribute('aria-disabled'), null, 'usable again once fixed');
+    }
+  });
+
+  it('still asks before discarding entered values after a stop, and never logs them', async () => {
+    const timer = fakeTimer({ running: 'KAN-20' });
+    const { root, closed, saved } = openLogWork({ timer });
+    enter(root, '#worklogEditHours', '2');
+
+    timerButton(root).click();
+    await flush();
+
+    assert.deepEqual(timer.calls, [['stop']]);
     assert.deepEqual(saved, []);
     assert.deepEqual(closed, []);
     assert.ok(!root.querySelector('[data-confirm="discard"]').classList.contains('hidden'), 'the discard question shows');
@@ -1074,18 +1144,18 @@ describe('Log work panel - timer button', () => {
     assert.doesNotMatch(css, /\.editor-issue\.has-timer/);
   });
 
-  it('styles the timer buttons: solid blue Play (as Log work), light-red Stop, neutral Pause', () => {
+  it('styles the timer buttons: solid blue Start (as Log work), light-red Stop, neutral Pause and Resume', () => {
     const css = readFileSync(new URL('../options.css', import.meta.url), 'utf8');
     // The declarations of the rule whose selector list starts with `selector`.
     const rule = (selector) => {
       const at = css.indexOf(`${selector}`);
       return at < 0 ? '' : css.slice(css.indexOf('{', at) + 1, css.indexOf('}', at));
     };
-    const play = rule('.working-issue-timer-btn[data-timer-action="start"],\n.working-issue-timer-btn[data-timer-action="resume"] {');
+    const play = rule('.working-issue-timer-btn[data-timer-action="start"] {');
     const playHover = rule('.working-issue-timer-btn[data-timer-action="start"]:hover,');
     assert.match(play, /color: #ffffff;\s*background-color: var\(--primary\);\s*border-color: var\(--primary\);/);
     assert.match(playHover, /background-color: var\(--primary-hover\);/);
-    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="resume"\]:active \{/);
+    assert.match(css, /\.working-issue-timer-btn\[data-timer-action="start"\]:active \{/);
     // The Log work button's own blue.
     assert.match(rule('.btn-primary {'), /background-color: var\(--primary\);\s*color: #ffffff;/);
 
@@ -1096,8 +1166,8 @@ describe('Log work panel - timer button', () => {
     assert.match(stopHover, /background-color: var\(--danger-border\);\s*border-color: var\(--danger\);/);
     assert.doesNotMatch(stop + stopHover, /background-color: var\(--danger\);/);
 
-    // Pause has no rule of its own: the neutral base style.
-    assert.doesNotMatch(css, /data-timer-action="pause"/);
+    // Pause and Resume have no rule of their own: the neutral base style.
+    assert.doesNotMatch(css, /data-timer-action="(pause|resume)"/);
     // Keyboard focus stays visible on all of them.
     assert.match(css, /\.working-issue-timer-btn:focus-visible,/);
 
@@ -1174,10 +1244,68 @@ describe('Log work panel - timer button', () => {
           if (!tracking) return null;
           return { running: Boolean(tracking.running) && tracking.running.issueKey === i.issueKey };
         },
-        onStart: (i) => page.controller.start(timed(i)),
+        onStart: (i, from) => page.controller.start(timed(i), from),
         onStop: () => page.controller.stop()
       };
     }
+
+    it('counts from an earlier start time with no duration: 15:30 entered at 16:15 starts at 45 minutes', async () => {
+      const page = await createTimerPage();
+      page.advance(7 * 3_600_000); // 16:15, as the panel's clock
+      const { root, closed } = openLogWork({ timer: pageTimerOptions(page) });
+      enter(root, '#worklogEditTime', '15:30');
+      enter(root, '#worklogEditComment', COMMENT);
+
+      timerButton(root).click();
+      await flush();
+
+      const started = new Date(2026, 9, 26, 15, 30).getTime();
+      const { running } = page.controller.getState().tracking;
+      assert.deepEqual([running.issueKey, running.startedAt, running.comment], ['KAN-20', started, COMMENT]);
+      assert.equal(elapsedSeconds(running, NOW), 45 * 60, 'the timer shows 45m at once');
+      assert.deepEqual(closed, ['closed']);
+
+      page.advance(10 * 60_000);
+      await page.controller.stop();
+      assert.deepEqual(page.controller.getState().tracking.pending.map((p) => [p.startedAt, p.timeSpentSeconds, p.comment]),
+        [[started, 55 * 60, COMMENT]]);
+      assert.deepEqual(page.jiraCalls, []);
+      assert.deepEqual(page.errors, []);
+    });
+
+    it('carries the entered values into the timer, and stops into one pending worklog of both times', async () => {
+      const page = await createTimerPage();
+      page.advance(7 * 3_600_000); // 16:15, as the panel's clock
+      const { root, closed, saved } = openLogWork({ timer: pageTimerOptions(page) });
+      enter(root, '#worklogEditTime', '14:00');
+      enter(root, '#worklogEditHours', '2');
+      enter(root, '#worklogEditComment', COMMENT);
+
+      timerButton(root).click();
+      await flush();
+
+      const started = new Date(2026, 9, 26, 14, 0).getTime();
+      const { running } = page.controller.getState().tracking;
+      assert.deepEqual(
+        [running.issueKey, running.issueId, running.issueSummary, running.startedAt, running.accumulatedMs, running.resumedAt, running.comment],
+        ['KAN-20', '10020', 'Write the docs', started, 2 * 3_600_000, NOW, COMMENT]);
+      assert.deepEqual(closed, ['closed']);
+
+      page.advance(10 * 60_000);
+      await page.controller.pause();
+      page.advance(30 * 60_000);
+      await page.controller.resume();
+      page.advance(5 * 60_000);
+      await page.controller.stop();
+
+      const { running: after, pending } = page.controller.getState().tracking;
+      assert.equal(after, null);
+      assert.deepEqual(pending.map((p) => [p.issueKey, p.startedAt, p.timeSpentSeconds, p.comment]),
+        [['KAN-20', started, 2 * 3600 + 15 * 60, COMMENT]], 'one worklog: 2h entered and 15m tracked');
+      assert.deepEqual(saved, []);
+      assert.deepEqual(page.jiraCalls, [], 'nothing went to Jira');
+      assert.deepEqual(page.errors, []);
+    });
 
     it('switches from another running issue: that session becomes pending, and nothing goes to Jira', async () => {
       const page = await createTimerPage();
@@ -1336,7 +1464,7 @@ describe('Pending tab - Submit', () => {
       pending: { entries: page.controller.getState().tracking.pending, site: SITE, onEdit: () => {}, onDiscard: () => {} }
     });
     draw();
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (2)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (2)');
 
     const { submitPendingWorklog } = await import('../src/worklog/pendingSubmission.js');
     const client = {
@@ -1348,7 +1476,7 @@ describe('Pending tab - Submit', () => {
 
     assert.equal(result.status, 'submitted');
     assert.deepEqual(page.jiraCalls, [['createWorklog', '10020']]);
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (1)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (1)');
   });
 });
 
@@ -1384,7 +1512,7 @@ describe('Pending tab - several sessions for one issue', () => {
     assert.deepEqual(rows.map((r) => r.dataset.pendingId), [c.id, b.id, a.id]);
     assert.deepEqual(rows.map((r) => r.querySelector('.issue-key-badge').textContent), ['KAN-1', 'KAN-2', 'KAN-1']);
     assert.deepEqual(rows.map((r) => r.querySelector('.pending-worklog-duration').textContent), ['0h 02m', '0h 05m', '0h 10m']);
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (3)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (3)');
   });
 
   it('acts on the clicked session only: its buttons carry its ID', async () => {
@@ -1412,7 +1540,7 @@ describe('Pending tab - several sessions for one issue', () => {
 
     await page.controller.updatePending(a.id, { comment: 'First pass' });
     drawSection(page, section);
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (3)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (3)');
 
     const { submitPendingWorklog } = await import('../src/worklog/pendingSubmission.js');
     const client = { createWorklog: async (issue, worklog) => ({ id: '9', started: worklog.started.toISOString(), timeSpentSeconds: worklog.timeSpentSeconds }) };
@@ -1420,11 +1548,11 @@ describe('Pending tab - several sessions for one issue', () => {
     drawSection(page, section);
     assert.deepEqual(page.controller.getState().tracking.pending.map((p) => p.id), [a.id, b.id], 'only the submitted KAN-1 session left');
     assert.equal(page.controller.getState().tracking.pending[0].comment, 'First pass');
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (2)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (2)');
 
     await page.controller.discardPending(b.id);
     drawSection(page, section);
-    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Pending Worklogs (1)');
+    assert.equal(section.querySelector('#workingIssuesGroupToggle-pending').textContent, 'Worklog Queue · Pending (1)');
   });
 
   it('keeps the header total equal to the rows\' durations as sessions are edited, submitted, and discarded', async () => {

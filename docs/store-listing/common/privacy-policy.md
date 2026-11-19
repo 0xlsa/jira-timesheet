@@ -28,7 +28,7 @@ The extension uses the browser's extension storage (`storage.local`) to keep:
 | The result of your last successful **Test Connection**: your Jira display name, username, account ID or user key, email address as Jira reports it, and, on Data Center / Server, the Jira version, deployment type, and server title | To show which account is connected |
 | When you last saved your settings | Kept with the settings |
 | Your custom views of My Work, for each Jira site: their names, the conditions each one searches for (each a field, an operator, and values: Jira's IDs and names for statuses and priorities, option names for custom fields; for a person, only "Me"), and the order it sorts by; and the order of their tabs. The issues they find aren't stored. | To show your views |
-| The order of the two groups in My Work (Issues and Pending Worklogs), for each Jira site | To show them in the order you chose |
+| The order of the two groups in My Work (Issues and Worklog Queue), for each Jira site | To show them in the order you chose |
 
 It also stores your light or dark theme choice in the page's local storage.
 

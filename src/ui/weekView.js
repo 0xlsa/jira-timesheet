@@ -5,9 +5,12 @@
 
 import { h, svg, fragment } from './dom.js';
 import { isEditableWorklog } from '../worklog/worklogEdit.js';
+import { summarizeByIssue } from '../worklog/timeDistribution.js';
+import { formatDuration } from '../worklog/worklogUtils.js';
 import { elapsedSeconds, isSameIssue, isPaused } from '../timer/timeTrackingStore.js';
-import { formatPendingTotal, pendingTotalSeconds, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
+import { formatPendingTotal, pendingTabTotals, renderPendingWorklogs, siteBaseUrl } from './pendingWorklogs.js';
 import { ALL_VIEW_ID, ALL_VIEW_NAME, dropPosition } from '../jira/customViews.js';
+import { tabAddButton, tabEditButton } from './tabBarButtons.js';
 
 // Daily duration that fills a weekday card's indicator bar (visual only).
 const DAY_INDICATOR_FULL_SECONDS = 8 * 60 * 60;
@@ -348,8 +351,8 @@ function renderWorkingIssue(issue, baseUrl, canLogWork, timer, index, scope = ''
 /**
  * Fills the header's timer controls: the elapsed time with Pause (Resume while paused) and Stop,
  * the same buttons and handlers as the timed issue's row; or nothing (hidden) when no timer runs.
- * They're beside the header button, not in it, so they work while the section is collapsed and a
- * click on one doesn't expand or collapse it.
+ * They're beside the header button (after the timed issue), not in it, so they work while the
+ * section is collapsed and a click on one doesn't expand or collapse it.
  * @param {HTMLElement} controls
  * @param {object} [timer]
  */
@@ -379,18 +382,26 @@ function renderHeaderTimer(controls, timer) {
 }
 
 /**
- * Fills the line under the header with the timed issue, running or paused ("KAN-12: Fix the login
- * page"), or hides it.
+ * Fills the timed issue, running or paused, just before the header's timer controls: its key (a
+ * link to Jira, on the timer's own site) and its summary beside it, which truncates; or hides it. The line's title gives the issue in full ("KAN-12: Fix the login page").
  * @param {HTMLElement} line
  * @param {object} [timer]
+ * @param {string} baseUrl - The connected Jira site's URL, for the key's link
  */
-function renderHeaderTimerSummary(line, timer) {
+function renderHeaderTimerSummary(line, timer, baseUrl) {
   const running = timer?.running;
-  const text = running ? (running.issueSummary ? `${running.issueKey}: ${running.issueSummary}` : running.issueKey) : '';
-  line.classList.toggle('hidden', !text);
-  line.textContent = text;
-  if (text) line.setAttribute('title', text);
-  else line.removeAttribute('title');
+  line.classList.toggle('hidden', !running);
+  if (!running) {
+    line.replaceChildren();
+    line.removeAttribute('title');
+    return;
+  }
+  const issueBaseUrl = running.site && running.site !== timer.site ? siteBaseUrl(running.site) : baseUrl;
+  line.setAttribute('title', running.issueSummary ? `${running.issueKey}: ${running.issueSummary}` : running.issueKey);
+  line.replaceChildren(fragment(
+    h('a', { href: issueBrowseUrl(issueBaseUrl, running.issueKey), target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${running.issueKey} in Jira` },
+      running.issueKey),
+    Boolean(running.issueSummary) && h('span', { class: 'working-issues-timer-summary-text' }, running.issueSummary)));
 }
 
 /**
@@ -440,6 +451,14 @@ function uniqueIssues(issues) {
  * @param {(id: string) => void} options.pending.onDiscard - Called with a pending worklog's ID from its Discard button
  * @param {(id: string) => void} [options.pending.onSubmit] - Called with a pending worklog's ID from its Submit button
  * @param {number} [options.pending.now] - For a submission left running too long
+ * @param {Array<{ id: string, name: string }>} [options.pending.groups] - The site's custom groups, tabs
+ *   after Pending and On Hold
+ * @param {object} [options.pending.groupActions] - The groups' pencil and + (renderPendingWorklogs())
+ * @param {string} [options.pending.tab='ready'] - The selected classification tab: the group lists it,
+ *   and its header counts it and gives its total time
+ * @param {(tab: string) => void} [options.pending.onSelectTab] - Called with a classification tab when it's chosen
+ * @param {(id: string) => void} [options.pending.onMenu] - Called with a pending worklog's ID from its ⋯ button
+ * @param {object} [options.pending.selection] - Selection mode (renderPendingWorklogs()'s `selection`)
  * @param {{ active?: boolean, pending?: boolean }} [options.groupsExpanded] - Whether each group is
  *   expanded; each is unless `false`
  * @param {(group: 'active' | 'pending', expanded: boolean) => void} [options.onGroupToggle] - Called
@@ -490,15 +509,15 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       setWorkingIssuesExpanded(section, isExpanded);
       onToggle?.(isExpanded);
     });
-    // The timer controls (top right) and the timed issue (under the titles) are beside the header
-    // button: buttons can't go in a button. A click elsewhere in the header, other than on the
-    // timer controls, still toggles.
+    // The timed issue and the timer controls (at the right), on the title's line, are beside the
+    // header button: buttons can't go in a button. A click elsewhere
+    // in the header, other than on the timer controls or the issue key's link, still toggles.
     const header = h('div', { class: 'working-issues-header' },
       h('h3', { class: 'working-issues-heading' }, toggle),
       h('span', { class: 'working-issues-timer hidden' }),
       h('span', { class: 'working-issues-timer-summary hidden' }));
     header.addEventListener('click', (event) => {
-      if (!event.target.closest('button, .working-issues-timer')) toggle.click();
+      if (!event.target.closest('button, a, .working-issues-timer')) toggle.click();
     });
     section.replaceChildren(header, h('div', { id: 'workingIssuesBody', class: 'working-issues-body' }),
       // Kept across renders, so what it says (a view moved) is announced once.
@@ -525,7 +544,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
   toggle.querySelector('.working-issues-indicator').replaceChildren(fragment(
     state.status === 'loading' && h('span', { class: 'working-issues-spinner', 'aria-hidden': 'true' })));
   renderHeaderTimer(section.querySelector('.working-issues-timer'), timer);
-  renderHeaderTimerSummary(section.querySelector('.working-issues-timer-summary'), timer);
+  renderHeaderTimerSummary(section.querySelector('.working-issues-timer-summary'), timer, baseUrl);
   section.classList.toggle('has-timer', Boolean(timer?.running));
 
   const retryButton = state.status === 'error' && onRetry
@@ -571,7 +590,7 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
           id: 'workingIssuesViewPanel', class: 'working-issues-view-panel', role: 'tabpanel',
           'aria-labelledby': `workingIssuesViewTab-${selectedView?.id ?? ALL_VIEW_ID}`, 'aria-busy': searching ? 'true' : undefined
         }, selectedView ? renderViewResults(selectedView, views, { baseUrl, onLogWork, timer }) : activeContent)) : activeContent,
-      { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer }));
+      { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer, viewName: views ? (selectedView?.name ?? ALL_VIEW_NAME) : null }));
   } else {
     body.replaceChildren(fragment(list, errorMessage));
   }
@@ -587,6 +606,11 @@ export function renderWorkingIssues(section, { state, expanded, baseUrl = '', on
       // discarded pending worklog leaves the Pending Worklogs group's header.
       (/^(view-row:)?timer-stop:/.test(focusKey) ? all.find((el) => el.dataset.focusKey === focusKey.replace('timer-stop:', 'timer:')) : null) ||
       (/^(edit|discard|submit):/.test(focusKey) ? all.find((el) => el.dataset.focusKey === 'group:pending') : null) ||
+      // A worklog moved to another tab, the bulk bar gone with the selection, or a group's pencil
+      // gone with its group: the selected classification tab.
+      (/^(menu|select|pending-bulk|pending-select|pending-deselect|pending-group)/.test(focusKey)
+        ? all.find((el) => (el.classList.contains('pending-tab') || el.classList.contains('pending-group-tab')) &&
+          el.getAttribute('aria-selected') === 'true') : null) ||
       // A view's button that's gone (Retry once it worked, Edit view once the field is back, a row of
       // results searched again): the selected view's tab.
       (focusKey.startsWith('view-') ? all.find((el) => el.getAttribute('role') === 'tab' && el.getAttribute('aria-selected') === 'true') : null) ||
@@ -811,26 +835,14 @@ function renderViewTabs(views, selectedView, activeCount) {
     select(target.dataset.view);
   });
 
-  const editButton = selectedView ? h('button', {
-    type: 'button', class: 'working-issues-view-btn', 'data-action': 'edit-view', 'data-focus-key': 'view-edit',
-    'aria-label': `Edit the ${selectedView.name} view`, title: 'Edit view'
-  }, buttonIcon(
-    svg('path', { d: 'M12 20h9' }),
-    svg('path', { d: 'M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z' }))) : null;
-  const addButton = views.canCreate ? h('button', {
-    type: 'button', class: 'working-issues-view-btn', 'data-action': 'add-view', 'data-focus-key': 'view-add',
-    'aria-label': 'New custom view', title: 'New view'
-  }, buttonIcon(
-    svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
-    svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))) : null;
-  editButton?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    views.onEdit(selectedView.id);
-  });
-  addButton?.addEventListener('click', (event) => {
-    event.stopPropagation();
-    views.onCreate();
-  });
+  const editButton = selectedView ? tabEditButton({
+    action: 'edit-view', focusKey: 'view-edit', label: `Edit the ${selectedView.name} view`, title: 'Edit view',
+    onClick: () => views.onEdit(selectedView.id)
+  }) : null;
+  const addButton = views.canCreate ? tabAddButton({
+    action: 'add-view', focusKey: 'view-add', label: 'New custom view', title: 'New view',
+    onClick: () => views.onCreate()
+  }) : null;
 
   return h('div', { class: 'working-issues-viewbar' }, tablist, editButton, addButton,
     movable && h('span', { id: 'workingIssuesViewMoveHint', class: 'sr-only' }, VIEW_MOVE_HINT));
@@ -906,7 +918,7 @@ const GROUPS = [
   { id: 'active', label: 'Issues', icon: () => [
     svg('path', { d: 'm3 17 2 2 4-4' }), svg('path', { d: 'm3 7 2 2 4-4' }),
     svg('path', { d: 'M13 6h8' }), svg('path', { d: 'M13 12h8' }), svg('path', { d: 'M13 18h8' })] },
-  { id: 'pending', label: 'Pending Worklogs', icon: () => [
+  { id: 'pending', label: 'Worklog Queue', icon: () => [
     svg('circle', { cx: '12', cy: '12', r: '10' }), svg('polyline', { points: '12 6 12 12 16 14' })] }
 ];
 
@@ -974,10 +986,12 @@ const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox:
  * only; both can be open, or closed, at once. The headers, with their counts, show either way.
  * Expanding or collapsing never changes the timer or a pending worklog.
  *
- * Each header counts what its group lists: "Issues (5)" the selected view's issues (Active's
+ * Each header counts what its group lists: "Issues (5) · Active" the selected view's issues (Active's
  * rows include the running timer's issue when Jira doesn't list it; a custom view's "20+" when more
- * match); "Pending Worklogs (2)" the pending worklogs, one per stopped session, so two sessions on
- * one issue count twice.
+ * match), followed by that view's name in blue, with the view tabs; "Pending Worklogs (2) · Ready" the selected classification tab's pending worklogs (Ready
+ * unless another is chosen), one per stopped session, so two sessions on one issue count twice,
+ * followed by that tab's name in its color. Its total time, on the right, is the same tab's.
+ * Collapsed or not, the headers are the same.
  *
  * With `onGroupMove` and both groups, each header starts with a drag handle, the only place a drag
  * starts (a click on the rest of the header still expands and collapses the group). Dragged a few
@@ -994,9 +1008,11 @@ const gripIcon = () => svg('svg', { class: 'working-issues-group-grip', viewBox:
  * @param {string[]} [options.groupOrder]
  * @param {(order: string[]) => void} [options.onGroupMove]
  * @param {HTMLElement | null} [options.announcer] - The section's status region
+ * @param {string | null} [options.viewName] - The selected Issues view's name, for its header; none
+ *   without view tabs
  * @returns {DocumentFragment}
  */
-function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer }) {
+function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groupsExpanded, onGroupToggle, groupOrder, onGroupMove, announcer, viewName = null }) {
   const shown = orderedGroups(groupOrder).filter(({ id }) => id === 'active' || pending);
   const movable = Boolean(onGroupMove) && shown.length > 1;
   const labels = Object.fromEntries(GROUPS.map(({ id, label }) => [id, label]));
@@ -1092,8 +1108,27 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
     });
   };
 
+  /**
+   * The selected tab's name and count after a group's title, in the tab's color (blue Pending, amber
+   * On Hold, the selected view tab's blue for a view or a custom group): a grey dot, then "Pending (2)". The dot is only seen; the
+   * name and count are read. On a narrow window the name gives way (an ellipsis), never the count.
+   */
+  const renderGroupClassification = ({ tone, name }, count) => {
+    const text = count === null ? name : `${name} (${count})`;
+    // The spaces aren't drawn (the button's gap spaces the parts) but make the text "Worklog Queue · Pending (2)".
+    return h('span', { class: `working-issues-group-classification is-${tone}`, title: text }, ' ',
+      h('span', { class: 'working-issues-group-separator', 'aria-hidden': 'true' }, '·'), ' ',
+      h('span', { class: 'working-issues-group-classification-name' }, name),
+      count !== null && [' ', h('span', { class: 'working-issues-group-count' }, `(${count})`)]);
+  };
+
+  // What the Worklog Queue header counts and totals: the selected group's tab.
+  const pendingTab = pending ? pendingTabTotals(pending.entries, pending.tab, pending.groups) : null;
+
   return fragment(shown.map(({ id, label, icon }) => {
-    const count = id === 'active' ? activeCount : String(pending.entries.length);
+    const count = id === 'active' ? activeCount : String(pendingTab.count);
+    const named = id === 'pending' ? { tone: pendingTab.tone, name: pendingTab.label }
+      : viewName ? { tone: 'view', name: viewName } : null;
     const toggle = h('button', {
       type: 'button',
       id: `workingIssuesGroupToggle-${id}`,
@@ -1108,17 +1143,22 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
         svg('polyline', { points: '6 9 12 15 18 9' })),
       svg('svg', { class: `working-issues-group-icon is-${id}`, ...ICON_STROKE, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false' },
         ...icon()),
-      h('span', { class: 'working-issues-group-title' }, count === null ? label : `${label} (${count})`));
+      // A header that names a selected tab (Worklog Queue's classification, Issues' view) gives its count
+      // to that name, in the tab's color: "Worklog Queue · Pending (2)"; without one, the title has it.
+      h('span', { class: 'working-issues-group-title' }, named || count === null ? label : `${label} (${count})`),
+      named && renderGroupClassification(named, count));
     const groupBody = h('div', { id: `workingIssuesGroup-${id}`, class: 'working-issues-group-body' },
       id === 'active' ? activeContent : renderPendingWorklogs({
         entries: pending.entries, site: pending.site, now: pending.now,
-        onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit
+        onEdit: pending.onEdit, onDiscard: pending.onDiscard, onSubmit: pending.onSubmit,
+        tab: pending.tab, onSelectTab: pending.onSelectTab, onMenu: pending.onMenu, selection: pending.selection,
+        groups: pending.groups, groupActions: pending.groupActions
       }));
     // Pointer-only: keyboard users move the group from its header button.
     const handle = movable ? h('span', { class: 'working-issues-group-handle', title: GROUP_HANDLE_TITLE, 'aria-hidden': 'true' }, gripIcon()) : null;
     // Pending Worklogs' total time, at the far right of its header (beside the button, so its name
     // stays the title and count); a click on it toggles the group like the rest of the header.
-    const total = id === 'pending' && renderPendingTotal(pending.entries);
+    const total = id === 'pending' && renderPendingTotal(pendingTab);
     const header = h('div', { class: 'working-issues-group-header' },
       handle,
       h('h4', { class: 'working-issues-group-heading' }, toggle),
@@ -1161,16 +1201,16 @@ function renderWorkingIssuesGroups(pending, activeCount, activeContent, { groups
 }
 
 /**
- * The Pending Worklogs header's total: every pending worklog's time, summed from the same entries
- * the group lists, so it changes with them. "0h 00m", fainter, when nothing is pending.
- * @param {Array<object>} entries - `timeTracking.pending`
+ * The Pending Worklogs header's total: the selected classification tab's time, summed from the same
+ * entries the group lists, so it changes with them. "0h 00m", fainter, when the tab is empty.
+ * @param {{ label: string, count: number, seconds: number }} totals - pendingTabTotals()
  * @returns {HTMLElement}
  */
-function renderPendingTotal(entries) {
-  const text = formatPendingTotal(pendingTotalSeconds(entries));
+function renderPendingTotal({ label, count, seconds }) {
+  const text = formatPendingTotal(seconds);
   return h('span', {
-    class: `working-issues-group-total${entries.length === 0 ? ' is-empty' : ''}`,
-    title: `Total pending time: ${text}`
+    class: `working-issues-group-total${count === 0 ? ' is-empty' : ''}`,
+    title: `Total time in ${label}: ${text}`
   }, text);
 }
 
@@ -1256,9 +1296,276 @@ export function updateHolidays(container, week, holidays) {
   }
 }
 
+// The selected day's tabs, in order: its worklogs one by one, and its time by issue.
+const DAY_TABS = [
+  { id: 'worklogs', label: 'Worklogs' },
+  { id: 'summary', label: 'Summary' }
+];
+
+// The Summary's colors, by rank (see options.css): the issue with the most time takes the first.
+// Issues past the last color share a neutral grey rather than repeat one.
+const SUMMARY_TONES = 8;
+
+// The week's views, in order: the days (the default), and the week's time as a whole.
+const VIEWS = [
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly Summary' }
+];
+
 /**
- * Renders the 7 weekday cards, the selected day's worklog panel, and the My Work section
- * into `container`. Daily totals and weekly totals are never modified by changing the selection.
+ * A row of tabs, side by side and of equal width, each with its count when it has one. A tablist
+ * (WAI-ARIA tabs): the selected tab is the one in the tab order, and the arrow keys, Home, and End
+ * choose another. Choosing a tab shows its panel at once, in place (no new request), then tells
+ * `onSelect`. An unknown `selected` selects the first tab.
+ *
+ * @param {Array<{ id: string, label: string, count?: number }>} tabs
+ * @param {Record<string, HTMLElement>} panels - Each tab's panel, by tab ID
+ * @param {string} selected
+ * @param {(tab: string) => void} [onSelect]
+ * @param {{ className: string, idPrefix: string, label: string }} names - The row's class (each
+ *   tab's is it without its final s), the tabs' ID prefix, and the row's accessible name
+ * @returns {HTMLElement}
+ */
+function renderTabs(tabs, panels, selected, onSelect, { className, idPrefix, label: rowLabel }) {
+  const tabClass = className.replace(/s$/, '');
+  let current = tabs.some((tab) => tab.id === selected) ? selected : tabs[0].id;
+  const buttons = tabs.map(({ id, label, count }) => h('button', {
+    type: 'button',
+    role: 'tab',
+    id: `${idPrefix}-${id}`,
+    class: tabClass,
+    'data-tab': id,
+    'aria-controls': panels[id].id
+  },
+    h('span', { class: `${tabClass}-name` }, label),
+    count !== undefined && h('span', { class: `${tabClass}-count` }, ` (${count})`)));
+
+  const show = (id) => {
+    current = id;
+    for (const button of buttons) {
+      const isSelected = button.dataset.tab === id;
+      button.classList.toggle('is-selected', isSelected);
+      button.setAttribute('aria-selected', String(isSelected));
+      button.setAttribute('tabindex', isSelected ? '0' : '-1');
+      panels[button.dataset.tab].classList.toggle('hidden', !isSelected);
+    }
+  };
+  const select = (id) => {
+    if (id === current) return;
+    show(id);
+    onSelect?.(id);
+  };
+  show(current);
+
+  const tablist = h('div', { class: className, role: 'tablist', 'aria-label': rowLabel }, buttons);
+  tablist.addEventListener('click', (event) => {
+    const button = event.target.closest('[role="tab"]');
+    if (button) select(button.dataset.tab);
+  });
+  tablist.addEventListener('keydown', (event) => {
+    // With a modifier, the keys are the page's shortcuts (Ctrl/⌘+arrows change the day).
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    const index = buttons.findIndex((button) => button.dataset.tab === current);
+    const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: buttons.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = buttons[(next + buttons.length) % buttons.length];
+    target.focus();
+    select(target.dataset.tab);
+  });
+  return tablist;
+}
+
+/**
+ * The Summary tab's contents (and the Weekly Summary's time distribution): a thin bar split by issue, in proportion to each one's time, then
+ * each issue (its color, key, summary, time, and share of the total), one per row. The
+ * list gives every number; the bar only shows them (its name lists the shares, its parts' tooltips
+ * the times).
+ *
+ * @param {ReturnType<typeof summarizeByIssue>} summary
+ * @param {string} baseUrl
+ * @param {string} [emptyText] - Said instead when no time is logged
+ * @param {{ onLogWork?: (issue: object) => void, timer?: object }} [actions] - With it, each issue
+ *   with a key ends with My Work's timer controls and log work (plus) button (the Weekly Summary)
+ * @returns {HTMLElement}
+ */
+function renderDaySummary({ issues, totalSeconds }, baseUrl, emptyText = 'No time logged for this day.', actions) {
+  if (!(totalSeconds > 0)) {
+    return h('div', { class: 'empty-day-placeholder' }, emptyText);
+  }
+  const tone = (index) => (index < SUMMARY_TONES ? `is-tone-${index + 1}` : 'is-tone-other');
+  const keyOf = (issue) => issue.issueKey || 'No issue key';
+
+  const bar = h('div', {
+    class: 'day-summary-bar',
+    role: 'img',
+    'aria-label': `Time by issue: ${issues.map((issue) => `${keyOf(issue)} ${issue.percent}%`).join(', ')}`
+  },
+  // A part at zero draws nothing.
+  issues.map((issue, index) => issue.seconds > 0 && h('span', {
+    class: `day-summary-segment ${tone(index)}`,
+    style: `flex-grow: ${issue.seconds}`,
+    title: `${keyOf(issue)} · ${issue.formattedDuration} · ${issue.percent}%`
+  })));
+
+  const hasActions = Boolean(actions?.onLogWork || actions?.timer);
+  const list = h('ul', { class: `day-summary-list${hasActions ? ' has-actions' : ''}` }, issues.map((issue, index) => h('li', { class: 'day-summary-item', 'data-row-index': String(index) },
+    h('span', { class: `day-summary-swatch ${tone(index)}`, 'aria-hidden': 'true' }),
+    issue.issueKey
+      ? h('a', { href: issueBrowseUrl(baseUrl, issue.issueKey), target: '_blank', rel: 'noopener noreferrer', class: 'issue-key-badge', title: `Open ${issue.issueKey} in Jira` }, issue.issueKey)
+      : h('span', { class: 'issue-key-badge is-missing' }, keyOf(issue)),
+    h('span', { class: 'day-summary-title', title: issue.issueSummary }, issue.issueSummary),
+    h('span', { class: 'day-summary-duration' }, issue.formattedDuration),
+    h('span', { class: 'day-summary-share' }, `${issue.percent}%`),
+    hasActions && renderSummaryActions(issue, actions))));
+
+  if (hasActions) {
+    const state = { issues, ...actions };
+    summaryActionStates.set(list, state);
+    list.addEventListener('click', (event) => {
+      const logBtn = state.onLogWork && event.target.closest('.day-summary-log-btn');
+      const timerBtn = state.timer && event.target.closest('.working-issue-timer-btn');
+      const button = logBtn || timerBtn;
+      if (!button) return;
+      const issue = state.issues[Number(button.closest('.day-summary-item')?.dataset.rowIndex)];
+      if (!issue?.issueKey) return;
+      if (logBtn) state.onLogWork(summaryIssue(issue));
+      else runTimerAction(state.timer, timerBtn.dataset.timerAction, summaryIssue(issue));
+    });
+  }
+
+  return h('div', { class: 'day-summary' }, bar, list);
+}
+
+// A summary list's issues, timer, and log work handler, for its clicks and its timer's updates
+// (updateWeekSummaryTimer()).
+const summaryActionStates = new WeakMap();
+
+/**
+ * The issue a summary row's buttons act on, as My Work's rows give it.
+ * @param {{ issueId: string, issueKey: string, issueSummary: string }} issue - From summarizeByIssue()
+ * @returns {{ issueId: string, issueKey: string, issueSummary: string }}
+ */
+function summaryIssue({ issueId, issueKey, issueSummary }) {
+  return { issueId, issueKey, issueSummary };
+}
+
+/**
+ * A summary row's last column: My Work's timer controls (Start; or the elapsed time with Pause or
+ * Resume, and Stop, on the timed issue) and its log work (plus) button. Empty for time logged
+ * without an issue key.
+ * @param {object} issue - From summarizeByIssue()
+ * @param {{ onLogWork?: (issue: object) => void, timer?: object }} actions
+ * @returns {HTMLElement}
+ */
+function renderSummaryActions(issue, { onLogWork, timer }) {
+  return h('span', { class: 'day-summary-actions' },
+    issue.issueKey && timer && renderIssueTimer(summaryIssue(issue), timer, 'week-summary:'),
+    issue.issueKey && onLogWork && h('button', { type: 'button', class: 'day-summary-log-btn', 'data-issue-key': issue.issueKey, 'aria-label': `Log work on ${issue.issueKey}`, title: 'Log work' },
+      buttonIcon(
+        svg('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+        svg('line', { x1: '5', y1: '12', x2: '19', y2: '12' }))));
+}
+
+/**
+ * Brings the Weekly Summary's timer controls up to date with the timer (started, paused, resumed,
+ * stopped, busy), in place; focus stays on the button with the same role. Their elapsed times tick
+ * with updateWorkingIssuesTimer().
+ * @param {HTMLElement} container - renderWeek()'s container
+ * @param {object} [timer] - As renderWeek()'s `timer`; none removes the timer controls
+ */
+export function updateWeekSummaryTimer(container, timer) {
+  const list = container.querySelector('#weeklySummaryView')?.querySelector('.day-summary-list.has-actions');
+  const state = list && summaryActionStates.get(list);
+  if (!state) return;
+  state.timer = timer;
+  const focusKey = list.ownerDocument?.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
+  for (const row of list.querySelectorAll('.day-summary-item')) {
+    const issue = state.issues[Number(row.dataset.rowIndex)];
+    row.querySelector('.day-summary-actions')?.replaceChildren(...renderSummaryActions(issue, state).childNodes);
+  }
+  if (focusKey) {
+    [...list.querySelectorAll('[data-focus-key]')].find((el) => el.dataset.focusKey === focusKey)?.focus();
+  }
+}
+
+const MONTH_FORMAT = new Intl.DateTimeFormat('en-GB', { month: 'long' });
+
+/**
+ * The Weekly Summary's dates, in the day panel's date style: "9–15 November 2026",
+ * "26 October – 1 November 2026", "28 December 2026 – 3 January 2027".
+ * @param {Date} start
+ * @param {Date} end
+ * @returns {string}
+ */
+export function formatWeekSpan(start, end) {
+  const sameYear = start.getFullYear() === end.getFullYear();
+  if (sameYear && start.getMonth() === end.getMonth()) {
+    return `${start.getDate()}–${end.getDate()} ${MONTH_FORMAT.format(end)} ${end.getFullYear()}`;
+  }
+  if (sameYear) {
+    return `${start.getDate()} ${MONTH_FORMAT.format(start)} – ${end.getDate()} ${MONTH_FORMAT.format(end)} ${end.getFullYear()}`;
+  }
+  return `${LONG_DATE_FORMAT.format(start)} – ${LONG_DATE_FORMAT.format(end)}`;
+}
+
+// Each day of the Weekly Summary's daily totals: "Mon" and "19 Oct".
+const WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-GB', { weekday: 'short' });
+const SHORT_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
+
+/**
+ * The Weekly Summary: the week's dates, its total time, worklogs, and distinct issues; its time by
+ * issue, as in the selected day's Summary; then each day's total, all seven, on one scale (the
+ * week's longest day fills its bar). Everything comes from the week already loaded, grouped by day
+ * as the Daily view groups it.
+ *
+ * @param {{ weekDays: Array<object> }} week
+ * @param {string} baseUrl
+ * @param {{ onLogWork?: (issue: object) => void, timer?: object }} [actions] - Each issue's timer
+ *   controls and log work button (renderDaySummary())
+ * @returns {HTMLElement}
+ */
+function renderWeeklySummary(week, baseUrl, actions) {
+  const days = week.weekDays || [];
+  const worklogs = days.flatMap((day) => day.worklogs || []);
+  const summary = summarizeByIssue(worklogs);
+  const formatTotal = (seconds) => formatDuration(seconds, { padZeroMinutes: true, alwaysShowHours: true });
+  const range = days.length > 0 ? formatWeekSpan(days[0].date, days[days.length - 1].date) : '';
+
+  const stat = (label, value, className = '') => h('div', { class: 'week-summary-stat' },
+    h('dt', { class: 'stat-label' }, label),
+    h('dd', { class: `week-summary-stat-value ${className}`.trim() }, value));
+
+  const daySeconds = days.map((day) => Math.max(0, Number(day.totalDurationSeconds) || 0));
+  const longest = Math.max(0, ...daySeconds);
+  const dailyTotals = h('ul', { class: 'week-daily-totals' }, days.map((day, index) => {
+    const seconds = daySeconds[index];
+    const width = longest > 0 ? (seconds / longest) * 100 : 0;
+    return h('li', { class: `week-daily-row${seconds > 0 ? '' : ' is-empty'}`, 'data-date-key': day.dateKey },
+      h('span', { class: 'week-daily-day' }, WEEKDAY_FORMAT.format(day.date)),
+      h('span', { class: 'week-daily-date' }, SHORT_DATE_FORMAT.format(day.date)),
+      h('span', { class: 'week-daily-track', 'aria-hidden': 'true' },
+        seconds > 0 && h('span', { class: 'week-daily-fill', style: `width: ${width.toFixed(1)}%` })),
+      h('span', { class: 'week-daily-total' }, formatTotal(seconds)));
+  }));
+
+  return h('section', { class: 'week-summary', 'aria-labelledby': 'weekSummaryTitle' },
+    h('h3', { id: 'weekSummaryTitle', class: 'week-summary-title' }, `Week: ${range}`),
+    h('dl', { class: 'week-summary-stats' },
+      stat('Total time', formatTotal(summary.totalSeconds), summary.totalSeconds > 0 ? 'is-time' : 'is-zero'),
+      stat('Worklogs', String(worklogs.length)),
+      stat('Jira issues', String(summary.issues.length))),
+    h('h4', { class: 'week-summary-heading' }, 'Time distribution'),
+    renderDaySummary(summary, baseUrl, 'No time logged this week.', actions),
+    h('h4', { class: 'week-summary-heading' }, 'Daily totals'),
+    dailyTotals);
+}
+
+/**
+ * Renders the week's views, Daily (the 7 weekday cards and the selected day's worklog panel) and
+ * Weekly Summary, below the tabs that choose between them, then the My Work section into
+ * `container`. Daily totals and weekly totals are never modified by changing the selection.
  *
  * @param {HTMLElement} container
  * @param {{ weekDays: Array<object> }} week - Aggregated week from aggregateWorklogsByWeek()
@@ -1280,8 +1587,21 @@ export function updateHolidays(container, week, holidays) {
  *   collapsed otherwise. One state for every day.
  * @param {(expanded: boolean) => void} [options.onToggleDay] - Called after the selected day's
  *   panel header expands or collapses it
+ * @param {'worklogs' | 'summary'} [options.dayTab] - The selected day's tab: its worklogs one by
+ *   one (the default), or its time by issue. One tab for every day.
+ * @param {(tab: 'worklogs' | 'summary') => void} [options.onSelectDayTab] - Called after another
+ *   tab of the selected day is chosen; the panel switches tabs itself
+ * @param {'daily' | 'weekly'} [options.view] - The week's view: Daily (the weekday cards and the
+ *   selected day's panel; the default) or Weekly Summary. My Work is below either.
+ * @param {(view: 'daily' | 'weekly') => void} [options.onSelectView] - Called after the other view
+ *   is chosen; the page switches views itself
+ * @param {(issue: { issueId: string, issueKey: string, issueSummary: string }) => void} [options.onLogWorkOnIssue] -
+ *   Called with an issue when its log work (plus) button in the Weekly Summary is clicked; no such
+ *   buttons without it
+ * @param {object} [options.timer] - The timer, as renderWorkingIssues()'s `timer`: each Weekly
+ *   Summary issue gets My Work's timer controls; none without it (updateWeekSummaryTimer() updates them)
  */
-export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay }) {
+export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onSelectDay, onAddWorklog, onEditWorklog, onLogWork, onDeleteWorklog, editingWorklogId, workingIssues, holidays, dayExpanded = false, onToggleDay, dayTab = DAY_TABS[0].id, onSelectDayTab, view = VIEWS[0].id, onSelectView, onLogWorkOnIssue, timer }) {
   container.replaceChildren();
 
   const weekDays = week.weekDays || [];
@@ -1327,7 +1647,8 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
     strip.appendChild(dayCard);
   });
 
-  container.appendChild(strip);
+  // The Daily view: the weekday cards, then the selected day's panel.
+  const dailyView = h('div', { id: 'dailyView', class: 'week-view-panel', role: 'tabpanel', 'aria-labelledby': 'viewTab-daily' }, strip);
 
   // 2. Selected-day worklogs panel
   const panel = document.createElement('section');
@@ -1369,6 +1690,8 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
   });
   const body = h('div', { id: 'selectedDayBody', class: 'day-panel-body' });
   panel.append(header, body);
+  // The Worklogs tab's panel: the day's worklogs, one by one, as they've always been shown.
+  const worklogsPanel = h('div', { id: 'selectedDayWorklogs', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-worklogs' });
 
   if (selectedDay.worklogs.length > 0) {
     const listEl = document.createElement('div');
@@ -1396,16 +1719,39 @@ export function renderWeek(container, week, { selectedDateKey, baseUrl = '', onS
       });
     }
 
-    body.appendChild(listEl);
+    worklogsPanel.appendChild(listEl);
   } else {
     const emptyPlaceholder = document.createElement('div');
     emptyPlaceholder.className = 'empty-day-placeholder';
     emptyPlaceholder.textContent = 'No worklogs logged for this day.';
-    body.appendChild(emptyPlaceholder);
+    worklogsPanel.appendChild(emptyPlaceholder);
+  }
+
+  if (selectedDay.worklogs.length === 0) {
+    // A day without worklogs: only its empty state, without the tabs.
+    body.append(...worklogsPanel.childNodes);
+  } else {
+    const summary = summarizeByIssue(selectedDay.worklogs);
+    const summaryPanel = h('div', { id: 'selectedDaySummary', class: 'day-tab-panel', role: 'tabpanel', 'aria-labelledby': 'dayTab-summary' },
+      renderDaySummary(summary, baseUrl));
+    body.append(
+      renderTabs(DAY_TABS.map((tab) => ({ ...tab, count: tab.id === 'worklogs' ? selectedDay.worklogs.length : summary.issues.length })),
+        { worklogs: worklogsPanel, summary: summaryPanel }, dayTab, onSelectDayTab, { className: 'day-tabs', idPrefix: 'dayTab', label: 'Selected day' }),
+      worklogsPanel,
+      summaryPanel);
   }
 
   setDayPanelExpanded(panel, dayExpanded);
-  container.appendChild(panel);
+  dailyView.appendChild(panel);
+
+  // The Weekly Summary view, from the same week, and the tabs that choose between the two views.
+  const weeklyView = h('div', { id: 'weeklySummaryView', class: 'week-view-panel', role: 'tabpanel', 'aria-labelledby': 'viewTab-weekly' },
+    renderWeeklySummary(week, baseUrl, { onLogWork: onLogWorkOnIssue, timer }));
+  // All three in one card (options.css).
+  container.appendChild(h('div', { class: 'week-views' },
+    renderTabs(VIEWS, { daily: dailyView, weekly: weeklyView }, view, onSelectView, { className: 'view-tabs', idPrefix: 'viewTab', label: 'Week views' }),
+    dailyView,
+    weeklyView));
 
   // 3. My Work, below the selected day's worklogs: the user's issues in progress or with
   // work logged recently

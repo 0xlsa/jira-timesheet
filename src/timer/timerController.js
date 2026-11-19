@@ -22,7 +22,8 @@ const ERROR_MESSAGES = {
 // Engine errors whose own message is written for users (it names the issue or says what happened).
 const OWN_MESSAGE_CODES = new Set([
   'PENDING_NOT_FOUND', 'PENDING_CHANGED', 'INVALID_PENDING',
-  'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE'
+  'SUBMISSION_IN_PROGRESS', 'SUBMISSION_UNCERTAIN', 'TOO_SHORT', 'OTHER_SITE', 'INVALID_CLASSIFICATION',
+  'INVALID_TIMER_START'
 ]);
 
 // Errors that leave the timer unusable until the page is reloaded (or the data changes).
@@ -217,11 +218,15 @@ export function createTimerController({
 
     /**
      * Starts a timer on an issue; a timer on another issue stops and becomes a pending worklog.
+     * With `from` (the Log work form's values), it starts as a session that began at
+     * `from.startedAt` with `from.elapsedMs` already worked, or (without it) running since
+     * `from.startedAt` (see timeTrackingStore's start()).
      * Ignored while another change is in progress; a failure is shown with onError().
      * @param {{ site: string, issueId?: string, issueKey: string, issueSummary?: string }} issue
+     * @param {{ startedAt: number, elapsedMs?: number, comment?: string }} [from]
      * @returns {Promise<boolean>} True once the timer is running
      */
-    start: (issue) => act(() => store.start(issue)),
+    start: (issue, from) => act(() => store.start(issue, from)),
 
     /**
      * Stops the running timer, keeping its session as a pending worklog. Nothing goes to Jira.
@@ -258,6 +263,30 @@ export function createTimerController({
      * @returns {Promise<boolean>}
      */
     discardPending: async (id) => Boolean(await mutate(() => store.discardPending(id), { rethrow: true })),
+
+    /**
+     * Files pending worklogs under Pending, On Hold, or a custom group, in this browser only (see
+     * timeTrackingStore's classifyPending()): one write for all of them. Rejects with a user-facing
+     * Error when nothing could be stored (the caller keeps what the user chose); IDs refused one
+     * by one come back in `refused`.
+     * @param {string[]} ids
+     * @param {string} classification - 'ready', 'on-hold', or a custom group's ID
+     * @returns {Promise<{ classified: object[], unchanged: object[], refused: Array<{ id: string, code: string, issueKey?: string }> }>}
+     */
+    classifyPending: async (ids, classification) => {
+      const { classified, unchanged, refused } = await mutate(() => store.classifyPending(ids, classification), { rethrow: true });
+      return { classified, unchanged, refused };
+    },
+
+    /**
+     * Moves a deleted custom group's pending worklogs to On Hold, in this browser only (see
+     * timeTrackingStore's releaseGroup()). Runs even while another change is in progress, so a
+     * deletion never leaves them behind for that. Rejects with a user-facing Error when storage
+     * fails; they still read as On Hold then, the group being gone.
+     * @param {string} groupId
+     * @returns {Promise<object[]>} The worklogs moved
+     */
+    releaseGroup: async (groupId) => (await mutate(() => store.releaseGroup(groupId), { rethrow: true, queue: true })).released,
 
     /**
      * Marks a pending worklog as being submitted (see timeTrackingStore's beginSubmission()).

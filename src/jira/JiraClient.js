@@ -5,7 +5,10 @@ import { formatJiraDateTime, plainTextToAdf } from '../worklog/worklogEdit.js';
 import { ISSUE_SUGGESTION_LIMIT, parseIssueKeyQuery, buildIssueKeySuggestionJql, rankIssueKeyMatches } from './issueKeySearch.js';
 import { buildActiveIssuesJql, isInProgress, hasWorklogBetween } from './activeIssues.js';
 import { parseUserPickerFields } from './assignmentFields.js';
-import { parseSingleSelectFields, parseNamedValues, parseFieldSuggestions, CUSTOM_VIEW_RESULT_LIMIT } from './customViews.js';
+import {
+  parseSingleSelectFields, parseNamedValues, parseFieldSuggestions, CUSTOM_VIEW_RESULT_LIMIT,
+  parseEpicSupport, epicLinkFieldId, searchEpicsJql, toEpicValues, EPIC_SUGGESTION_LIMIT
+} from './customViews.js';
 
 /**
  * Checks whether a worklog was logged by the given user. Compares the strongest
@@ -1076,18 +1079,88 @@ export class JiraClient {
   /**
    * Lists the custom fields custom views can use, from one `GET /field` request: the single-select
    * and radio-button fields (getSingleSelectFields()), and the single-user fields that can be
-   * compared with Me (the same as getUserPickerFields(): user pickers JQL can search).
+   * compared with Me (the same as getUserPickerFields(): user pickers JQL can search). Also finds out
+   * how the site relates issues to epics, for the Epic field (parseEpicSupport()):
+   * - Jira Cloud: the `parent` field, and the epic issue types from `GET /issuetype` (hierarchy level 1).
+   * - Jira Data Center / Server: Jira Software's Epic Link field, by its type in the same `GET /field`;
+   *   its epic issue type from Jira Software itself: Epic Link's JQL suggestions list epics (`GET
+   *   /jql/autocompletedata/suggestions`), and the first one's issue type is read (`GET /issue/{key}`).
    *
    * @param {object} [options]
-   * @param {AbortSignal} [options.signal] - Cancels the request
+   * @param {AbortSignal} [options.signal] - Cancels the requests
    * @returns {Promise<{ singleSelect: Array<{ id: string, name: string, kind: 'option', type: string }>,
-   *   userPickers: Array<{ id: string, name: string }> }>} Each sorted by name. Rejects with a
+   *   userPickers: Array<{ id: string, name: string }>, epic: { field: string, issueTypeIds: string[] } | null }>}
+   *   Each list sorted by name; `epic` null when the site has no epics to search by. Rejects with a
    *   user-facing Error (with `status` for HTTP errors) when the fields can't be read
    */
   async getCustomViewFields({ signal } = {}) {
     try {
       const data = await this.#getFields(signal);
-      return { singleSelect: parseSingleSelectFields(data), userPickers: parseUserPickerFields(data) };
+      return {
+        singleSelect: parseSingleSelectFields(data),
+        userPickers: parseUserPickerFields(data),
+        epic: await this.#getEpicSupport(data, signal)
+      };
+    } catch (err) {
+      throw this.#toUserFacingError(err);
+    }
+  }
+
+  /**
+   * How the site relates issues to epics (see getCustomViewFields()), from its `GET /field` answer.
+   * @param {Array<object>} fields
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<{ field: string, issueTypeIds: string[] } | null>}
+   */
+  async #getEpicSupport(fields, signal) {
+    const deploymentType = this.deploymentType;
+    if (deploymentType === 'cloud') {
+      if (!Array.isArray(fields) || !fields.some((field) => field?.id === 'parent')) return null;
+      return parseEpicSupport(fields, { deploymentType, issueTypes: await this.#getJson(this.#apiPath('issuetype'), signal) });
+    }
+    const epicLink = epicLinkFieldId(fields);
+    if (!epicLink) return null;
+    return parseEpicSupport(fields, { deploymentType, epicIssueTypeIds: await this.#getEpicIssueTypeIds(epicLink, signal) });
+  }
+
+  /**
+   * Data Center / Server: the epic issue type, as Jira Software has it. Epic Link's JQL suggestions
+   * list epics only (no administrator access needed), and the first one's issue type is read. None
+   * when the user can see no epic.
+   * @param {string} epicLinkId - `customfield_<number>`
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<string[]>}
+   */
+  async #getEpicIssueTypeIds(epicLinkId, signal) {
+    const number = /^customfield_(\d+)$/.exec(epicLinkId)[1];
+    const params = new URLSearchParams({ fieldName: `cf[${number}]`, fieldValue: '' });
+    const [epic] = parseFieldSuggestions(await this.#getJson(this.#apiPath(`jql/autocompletedata/suggestions?${params}`), signal));
+    if (!epic) return [];
+    const issue = await this.#getIssueIfVisible(epic.id, ['issuetype'], signal);
+    const typeId = issue?.fields?.issuetype?.id;
+    return typeId ? [String(typeId)] : [];
+  }
+
+  /**
+   * Finds the epics to choose for a custom view's Epic condition: one search (searchEpicsJql()) among
+   * the site's epic issue types, for the first EPIC_SUGGESTION_LIMIT that match what's typed (by key
+   * or summary), or the most recently updated with nothing typed. Jira's permissions decide what it
+   * returns. Only the key and summary are read.
+   *
+   * @param {string} query - As typed
+   * @param {object} options
+   * @param {string[]} options.issueTypeIds - From getCustomViewFields()'s `epic`
+   * @param {AbortSignal} [options.signal]
+   * @returns {Promise<Array<{ id: string, label: string }>>} Each epic's issue ID and "KEY - Summary".
+   *   Rejects with a user-facing Error (with `status` for HTTP errors) when Jira can't be searched
+   */
+  async searchEpics(query, { issueTypeIds = [], signal } = {}) {
+    const jql = searchEpicsJql(query, issueTypeIds);
+    if (!jql) return [];
+    try {
+      // Data Center / Server: a typed key that doesn't exist is a warning, not a failed search.
+      const result = await this.searchIssues(jql, { maxResults: EPIC_SUGGESTION_LIMIT, fields: ['summary'], signal, validateQuery: 'warn' });
+      return toEpicValues(result?.issues);
     } catch (err) {
       throw this.#toUserFacingError(err);
     }

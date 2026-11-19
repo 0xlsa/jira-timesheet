@@ -35,6 +35,11 @@
  *   Pending Worklogs): { [site]: [groupId, …] } (WORKING_ISSUES_GROUP_IDS). Saved on its own, by
  *   saveWorkingIssuesGroupOrder(). Groups it doesn't name follow in their default order. Missing:
  *   the default order (Issues, then Pending Worklogs).
+ * - worklogGroupsBySite: the Worklog Queue's custom groups, per Jira site (`site` as above):
+ *   { [site]: { version, groups: [{ id, name }] } } (src/worklog/worklogGroups.js). Saved on its own,
+ *   by saveWorklogGroups(), which never touches another site's entry, nor one saved by another
+ *   version of the extension. Which worklogs are in a group is stored with the worklogs
+ *   (src/timer/timeTrackingStore.js), not here.
  */
 
 import { normalizeCountryCode } from '../holidays/nagerDateClient.js';
@@ -42,6 +47,9 @@ import { normalizeAssignmentFields, normalizeAssignmentFieldsBySite } from '../j
 import {
   normalizeCustomViewsBySite, normalizeSiteViews, normalizeView, normalizeCustomViewOrderBySite, normalizeViewOrder, CUSTOM_VIEWS_VERSION, MAX_CUSTOM_VIEWS
 } from '../jira/customViews.js';
+import {
+  normalizeWorklogGroupsBySite, normalizeSiteGroups, normalizeGroup, WORKLOG_GROUPS_VERSION, MAX_WORKLOG_GROUPS
+} from '../worklog/worklogGroups.js';
 
 const STORAGE_KEYS = [
   'jiraBaseUrl',
@@ -60,7 +68,8 @@ const STORAGE_KEYS = [
   'assignmentFieldsBySite',
   'customViewsBySite',
   'customViewOrderBySite',
-  'workingIssuesGroupOrderBySite'
+  'workingIssuesGroupOrderBySite',
+  'worklogGroupsBySite'
 ];
 
 // My Work's groups, in their default order: Issues ('active'), then Pending Worklogs.
@@ -111,7 +120,8 @@ function normalizeWorkingIssuesGroupOrderBySite(raw) {
  *   assignmentFieldsBySite: Record<string, Array<{ id: string, name: string }>>,
  *   customViewsBySite: Record<string, { version: number, views: Array<object>, unsupported?: true }>,
  *   customViewOrderBySite: Record<string, string[]>,
- *   workingIssuesGroupOrderBySite: Record<string, string[]>
+ *   workingIssuesGroupOrderBySite: Record<string, string[]>,
+ *   worklogGroupsBySite: Record<string, { version: number, groups: Array<{ id: string, name: string }>, unsupported?: true }>
  * }}
  */
 export function normalizeSettings(raw = {}) {
@@ -136,8 +146,20 @@ export function normalizeSettings(raw = {}) {
     assignmentFieldsBySite: normalizeAssignmentFieldsBySite(raw.assignmentFieldsBySite),
     customViewsBySite: normalizeCustomViewsBySite(raw.customViewsBySite),
     customViewOrderBySite: normalizeCustomViewOrderBySite(raw.customViewOrderBySite),
-    workingIssuesGroupOrderBySite: normalizeWorkingIssuesGroupOrderBySite(raw.workingIssuesGroupOrderBySite)
+    workingIssuesGroupOrderBySite: normalizeWorkingIssuesGroupOrderBySite(raw.workingIssuesGroupOrderBySite),
+    worklogGroupsBySite: normalizeWorklogGroupsBySite(raw.worklogGroupsBySite)
   };
+}
+
+/**
+ * A Jira site's custom Worklog Queue groups.
+ * @param {{ worklogGroupsBySite?: object } | null} settings - From normalizeSettings()
+ * @param {string} site - `${deploymentType}|${baseUrl}`
+ * @returns {{ version: number, groups: Array<{ id: string, name: string }>, unsupported?: true }} No
+ *   groups when none are set; `unsupported` when they were saved by another version of the extension
+ */
+export function worklogGroupsForSite(settings, site) {
+  return settings?.worklogGroupsBySite?.[site] ?? { version: WORKLOG_GROUPS_VERSION, groups: [] };
 }
 
 /**
@@ -352,6 +374,34 @@ export function createSettingsStore(storageArea) {
       }
       bySite[site] = [...ids];
       await storageArea.set({ customViewOrderBySite: bySite });
+    },
+
+    /**
+     * Replaces one Jira site's custom Worklog Queue groups; every other site's entry is kept exactly
+     * as stored. An empty list removes the site's entry. The worklogs filed under them aren't touched.
+     *
+     * @param {string} site - `${deploymentType}|${baseUrl}`
+     * @param {Array<{ id: string, name: string }>} groups - Valid groups, at most MAX_WORKLOG_GROUPS, in their tabs' order
+     * @throws {Error} Without a site, for an invalid list, or when the site's groups were saved by
+     *   another version of the extension, which are left as they are
+     */
+    async saveWorklogGroups(site, groups) {
+      if (!site) throw new Error('A Jira site is required.');
+      const valid = Array.isArray(groups) ? groups.map(normalizeGroup) : [null];
+      if (valid.some((group) => !group) || valid.length > MAX_WORKLOG_GROUPS ||
+          normalizeSiteGroups({ version: WORKLOG_GROUPS_VERSION, groups: valid }).groups.length !== valid.length) {
+        throw new Error('These Worklog Queue groups aren\'t valid.');
+      }
+      const { worklogGroupsBySite } = await storageArea.get(['worklogGroupsBySite']);
+      const bySite = worklogGroupsBySite && typeof worklogGroupsBySite === 'object' && !Array.isArray(worklogGroupsBySite)
+        ? { ...worklogGroupsBySite }
+        : {};
+      if (normalizeSiteGroups(bySite[site]).unsupported) {
+        throw new Error('This Jira site\'s Worklog Queue groups were saved by another version of Timesheet for Jira, so they weren\'t changed. Update the extension to edit them.');
+      }
+      if (valid.length) bySite[site] = { version: WORKLOG_GROUPS_VERSION, groups: valid };
+      else delete bySite[site];
+      await storageArea.set({ worklogGroupsBySite: bySite });
     },
 
     /**

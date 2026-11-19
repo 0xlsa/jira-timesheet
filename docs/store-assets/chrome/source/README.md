@@ -11,10 +11,10 @@ The three Chrome Web Store promotional tiles in `docs/store-assets/chrome/` are 
 ## Regenerating the tiles
 
 ```bash
-bash docs/store-assets/chrome/source/render.sh
+task screenshots:tiles
 ```
 
-The script overwrites the three PNGs in `docs/store-assets/chrome/`. It needs Google Chrome (or set `CHROME` to another Chromium-based browser) and the Roboto font, which the extension's system font stack uses on Linux. With a different font installed, text widths change, so check the output.
+It runs `render.sh`, then checks the tiles' formats and sizes (`../scripts/validate-assets.sh`). The script overwrites the three PNGs in `docs/store-assets/chrome/`. It needs Google Chrome (or set `CHROME` to another Chromium-based browser) and the Roboto font, which the extension's system font stack uses on Linux. With a different font installed, text widths change, so check the output.
 
 ## Updating the screenshot
 
@@ -22,6 +22,5 @@ The script overwrites the three PNGs in `docs/store-assets/chrome/`. It needs Go
 
 It's captured with the screenshots, by `docs/screenshots/source/capture.py` (see its README):
 
-1. Run `python3 docs/screenshots/source/capture.py app-overview`.
-2. Run `render.sh`.
-3. Check each tile at its real size. The crops in `promo.html` (`.shot` and `.shot img` for each tile) may need adjusting if the layout moved.
+1. Run `task screenshots -- app-overview`. It captures the screenshot, then renders and checks the tiles.
+2. Check each tile at its real size. The crops in `promo.html` (`.shot` and `.shot img` for each tile) may need adjusting if the layout moved.

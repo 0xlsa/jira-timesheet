@@ -167,7 +167,7 @@ describe('WeekView - weekday cards, selected-day panel, and add button', () => {
     assert.equal(container.querySelector('.day-card[data-date-key="2026-10-27"]').querySelector('.day-duration').textContent, '7h 30m');
     assert.equal(container.querySelector('.day-card[data-date-key="2026-10-29"]').querySelector('.day-duration').textContent, '1h 00m');
     assert.equal(container.querySelector('.day-panel-total').textContent, '7h 30m');
-    assert.deepEqual(container.querySelectorAll('.issue-key-badge').map((el) => el.textContent), ['EKB-301', 'EKB-305']);
+    assert.deepEqual(container.querySelector('.worklog-list').querySelectorAll('.issue-key-badge').map((el) => el.textContent), ['EKB-301', 'EKB-305']);
     assert.equal(week.formattedWeekTotal, '8h 30m');
   });
 });
@@ -219,7 +219,8 @@ describe('WeekView - the selected day\'s worklogs in one container', () => {
     const { panel, items } = show('2026-11-04');
     const lists = panel.querySelectorAll('.worklog-list');
     assert.equal(lists.length, 1);
-    assert.ok(lists[0].parentNode === panel.querySelector('.day-panel-body'), 'the container is the panel body\'s');
+    assert.ok(lists[0].parentNode === panel.querySelector('#selectedDayWorklogs'), 'the container is the Worklogs tab\'s');
+    assert.ok(lists[0].parentNode.parentNode === panel.querySelector('.day-panel-body'), 'in the panel body');
     assert.equal(items.length, 3);
     assert.ok(items.every((item) => item.parentNode === lists[0]), 'every worklog is a row of the one container');
 

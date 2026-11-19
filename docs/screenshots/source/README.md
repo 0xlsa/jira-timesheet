@@ -1,12 +1,14 @@
 # Screenshot sources
 
-The screenshots in `docs/screenshots/` and the store tiles' `docs/store-assets/chrome/source/app-overview@2x.png` are captured from the real options page with one command:
+The screenshots in `docs/screenshots/` and the store tiles' `docs/store-assets/chrome/source/app-overview@2x.png` are captured from the real options page with one command, from the repository root:
 
 ```bash
-python3 docs/screenshots/source/capture.py
+task screenshots                                          # every scenario, then the promo tiles
+task screenshots -- weekly-overview-light app-overview    # only these scenarios
+task screenshots -- --refresh-holidays                    # download holidays.json again first
 ```
 
-Pass scenario names to capture only some of them, for example `python3 docs/screenshots/source/capture.py weekly-overview-light app-overview`. After `app-overview`, run `bash docs/store-assets/chrome/source/render.sh` to render the promo tiles again.
+It runs `python3 docs/screenshots/source/capture.py` with the names given (or none, for every scenario). Whenever `app-overview` is captured, it then renders the promo tiles again (`docs/store-assets/chrome/source/render.sh`) and checks their sizes (`docs/store-assets/chrome/scripts/validate-assets.sh`). It ends by listing the images that changed, to check each one before committing. `task screenshots:tiles` renders and checks only the tiles, after `promo.html` changes.
 
 The script needs Python 3, Google Chrome (or set `CHROME` to another Chromium-based browser), ImageMagick (`magick`), and the Roboto font, which the extension's system font stack uses on Linux. It works offline: everything it needs is in this folder.
 
@@ -27,7 +29,8 @@ The harness answers only the requests the extension makes: `/myself`, `/serverIn
 - **Worklogs:** the 15 worklogs from `demo-data.json`, 28h 30m in all. They are real KAN worklogs; nothing is added.
 - **Timer and pending worklog:** these live only in the extension's local storage, not in Jira, so they are seeded in `capture.py`. A timer has been running on KAN-12 since 17:40, after the last worklog. A 45-minute pending worklog on KAN-13, from 11:15 to 12:00 on Friday, fits between that day's worklogs.
 - **Public Holidays:** turned on for Italy. No Italian holiday falls in the demonstration week, so no weekday card is marked; the banner above the week shows the next one, All Saints' Day (Sun, Nov 1).
-- **Panels:** the selected day's panel is expanded, so its worklogs show (it starts collapsed). My Work, below it, stays collapsed, its default, except in `timer-and-pending-worklogs`. That one shows My Work expanded, with its Issues and Pending Worklogs groups (both expanded, their default), and leaves the day's panel collapsed. My Work is then below the fold of an 800 px window, and headless Chrome's `--screenshot` doesn't capture a scrolled page. So this scenario is captured in a taller window and cropped to 1280×800, from just above the weekday cards.
+- **Panels:** the selected day's panel is expanded, so its worklogs show (it starts collapsed). My Work, below it, stays collapsed, its default, except in `timer-and-pending-worklogs`. That one shows My Work expanded, with its Issues and Worklog Queue groups (both expanded, their default), and leaves the day's panel collapsed. My Work is then below the fold of an 800 px window, and headless Chrome's `--screenshot` doesn't capture a scrolled page. So this scenario is captured in a taller window and cropped to 1280×800, from just above the weekday cards.
+- **Weekly Summary:** `weekly-summary` shows the Weekly Summary view in place of the Daily one. Its time by issue and daily totals are taller than 800 px, so it's the whole page in a 1280×1420 window, not cropped. At that size it's for the README only. The store listings take 1280×800, so `weekly-summary-store` captures the same page and crops it to 1280×800, from just above the Daily and Weekly Summary tabs: the time by issue shows whole, and the daily totals start at the bottom.
 - **Settings screenshots:** `connection-settings-cloud` and `connection-settings-data-center` show Settings before anything is configured, with blank fields. `public-holidays-settings` shows them once configured, with Jira Connection collapsed, so no email or token appears.
 
 No real tokens, passwords, or customer data are used. The screenshots show the account name "Luciano de Sa" and the site `0xlsa.atlassian.net`, as earlier screenshots did.

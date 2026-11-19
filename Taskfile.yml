@@ -4,6 +4,13 @@
 # "Building" copies the runtime files into dist/<browser>/ and writes that browser's
 # manifest; packaging validates the build and zips it into release/.
 #
+# Microsoft Edge Add-ons takes the Chrome package unchanged (Edge runs Chrome's Manifest V3
+# extensions): package:chrome checks what Edge requires on top (no update_url, no "Chrome" in the
+# name or description) and reports the same zip for both stores. There is no Edge build.
+#
+# `task screenshots` captures the README and store screenshots again from the real options page
+# (docs/screenshots/source/capture.py), then renders and checks the promo tiles made from one of them.
+#
 # Chrome and Firefox share the build, the common checks, and the zip step (the internal
 # *:browser tasks); only the manifest rewrite and the store-specific checks differ.
 #
@@ -12,7 +19,8 @@
 # previews the [Unreleased] changes; package:* builds with the release output, which never has
 # them, and fails unless the packaged notes are that output and CHANGELOG.md is ready to release
 # the manifest's version: nothing left under [Unreleased], and its latest release is that version,
-# with 1 to 3 highlights.
+# with 1 to 3 highlights. Every build (package:* included) also refreshes the repository's own copy,
+# src/changelog/changelog.json (committed; the development output), which the unpacked extension shows.
 #
 # Requires Task 3, jq, zip, unzip, and Node.js or Docker. scripts/node.sh runs Node.js: NODE, when set
 # (another Node.js command, one executable path, which gets the script's arguments), then `node`,
@@ -77,10 +85,16 @@ tasks:
         [ "$(jq -r '.description | length' "$manifest")" -le 132 ] || fail "description is longer than 132 characters"
         [ -n "$(jq -r '.background.service_worker // empty' "$manifest")" ] || fail "missing background.service_worker"
         [ "$(jq 'has("developer")' "$manifest")" = false ] || fail "developer is Firefox-only and must not be in the Chrome build"
+        # The Chrome package is also the Microsoft Edge Add-ons package, unchanged, so it must meet
+        # Edge's requirements too: no update_url, and no "Chrome" in the name or description (Edge
+        # certification refuses both; see Microsoft's "Port a Chrome extension to Microsoft Edge").
+        [ "$(jq 'has("update_url")' "$manifest")" = false ] || fail "update_url must not be set: Microsoft Edge Add-ons requires it removed"
+        jq -e '[.name, .short_name, .description] | map(select(type == "string")) | any(test("chrome"; "i")) | not' "$manifest" >/dev/null \
+          || fail "the name or description mentions Chrome, which Microsoft Edge Add-ons doesn't accept (the Chrome package is also Edge's)"
       - echo "Chrome build in {{.DIR}}/ passed all checks"
 
   package:chrome:
-    desc: Build, verify, and zip the Chrome extension for the Chrome Web Store
+    desc: Build, verify, and zip the Chrome extension for the Chrome Web Store and Microsoft Edge Add-ons
     silent: true
     cmds:
       # The tools are checked before the old package is removed, so a missing tool keeps it.
@@ -95,6 +109,13 @@ tasks:
           BROWSER: chrome
           STORE: Chrome Web Store
           UPLOAD_URL: https://chrome.google.com/webstore/devconsole
+      - |
+        # Microsoft Edge Add-ons takes the same zip, unchanged (verify:chrome checked Edge's requirements).
+        version="$(jq -r '.version' '{{.DIST_DIR}}/chrome/manifest.json')"
+        echo
+        echo "Microsoft Edge Add-ons package ready: version $version"
+        echo "  Reusing Chrome package: $(pwd)/{{.RELEASE_DIR}}/timesheet-for-jira-chrome.zip"
+        echo "Upload it at https://partner.microsoft.com/dashboard/microsoftedge/overview"
 
   # ---------------------------------------------------------------------------
   # Firefox
@@ -206,6 +227,11 @@ tasks:
     vars:
       DIR: '{{.DIST_DIR}}/{{.BROWSER}}'
     cmds:
+      - |
+        # The unpacked copy's release notes (the repository root, committed): refreshed from CHANGELOG.md
+        # on every build, so the extension loaded from the repository never falls behind. Always the
+        # development output, whatever this build packages.
+        sh scripts/node.sh scripts/changelog.mjs --mode development --out src/changelog/changelog.json
       - rm -rf '{{.DIR}}'
       - mkdir -p '{{.DIR}}'
       - |
@@ -343,6 +369,48 @@ tasks:
         echo "{{.STORE}} package ready: version $version, $count files, $size bytes"
         echo "  $(pwd)/$zip_file"
         echo "Upload it at {{.UPLOAD_URL}}"
+
+  # ---------------------------------------------------------------------------
+  # Screenshots and store assets
+  # ---------------------------------------------------------------------------
+
+  screenshots:
+    desc: Capture the README and store screenshots, then render and check the promo tiles (task screenshots -- <scenario>... for some)
+    silent: true
+    cmds:
+      - task: screenshots:tools
+      # Every scenario, or the ones named; capture.py's own options (--refresh-holidays) pass through.
+      - python3 docs/screenshots/source/capture.py {{.CLI_ARGS}}
+      - |
+        # The promo tiles are made from the app-overview capture: rendered again whenever it was
+        # captured (every scenario, or app-overview named), never from an older one.
+        names="$(printf '%s\n' {{.CLI_ARGS}} | grep -v '^-' || true)"
+        if [ -z "$names" ] || printf '%s\n' "$names" | grep -qx app-overview; then
+          bash docs/store-assets/chrome/source/render.sh
+          bash docs/store-assets/chrome/scripts/validate-assets.sh
+        fi
+      - |
+        echo
+        echo "Changed images (check each one before committing):"
+        git status --short docs/screenshots docs/store-assets | sed 's/^/  /'
+
+  screenshots:tiles:
+    desc: Render and check the Chrome Web Store promo tiles again, from promo.html and the app-overview capture
+    silent: true
+    cmds:
+      - task: screenshots:tools
+      - bash docs/store-assets/chrome/source/render.sh
+      - bash docs/store-assets/chrome/scripts/validate-assets.sh
+
+  screenshots:tools:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        # The browser is the scripts' own: CHROME, or Google Chrome.
+        for tool in python3 "${CHROME:-google-chrome}" magick identify; do
+          command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
+        done
 
   clean:
     desc: Remove build output and release packages

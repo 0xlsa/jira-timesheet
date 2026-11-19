@@ -15,12 +15,21 @@
  * generator are injected.
  *
  * Stored shape (`version` 2):
- * - running: null, or { id, site, issueId, issueKey, issueSummary, startedAt, accumulatedMs, resumedAt }
+ * - running: null, or { id, site, issueId, issueKey, issueSummary, startedAt, accumulatedMs, resumedAt, comment? }
  *   `startedAt` is the session's start (the worklog's start in Jira); `accumulatedMs` the active time
- *   banked by pauses; `resumedAt` when the current active stretch began, or null while paused.
+ *   banked by pauses, and by the duration already entered when a timer starts from the Log work
+ *   form (see start()); `resumedAt` when the current active stretch began (its start, for a timer
+ *   started from the form with no duration), or null while paused.
+ *   `comment` is the work description the timer started with (from the Log work form), absent
+ *   without one; its pending worklog keeps it.
  * - pending: [{ id, site, issueId, issueKey, issueSummary, startedAt, stoppedAt, timeSpentSeconds, comment,
- *   submission? }] `submission` is set while a submission to Jira runs or after one didn't succeed:
- *   { state: 'submitting' | 'failed' | 'uncertain', at, message? } (see submissionStatus()).
+ *   classification?, submission? }] `submission` is set while a submission to Jira runs or after one didn't
+ *   succeed: { state: 'submitting' | 'failed' | 'uncertain', at, message? } (see submissionStatus()).
+ *   `classification` is where the user filed it in the Worklog Queue: 'on-hold', a custom group's
+ *   ID ('group-…', src/worklog/worklogGroups.js), and absent for Ready (every new session, and every
+ *   one stored before classifications). It's this browser's own metadata: nothing about it is ever
+ *   sent to Jira. A group's ID is kept as stored even once the group is gone; the page reads it as
+ *   On Hold then.
  * Timestamps are epoch milliseconds, durations whole seconds unless named Ms. `site` is
  * `${deploymentType}|${baseUrl}` (siteId()). `issueId` is Jira's numeric ID, or '' when it isn't known.
  *
@@ -28,7 +37,14 @@
  * with nothing banked (accumulatedMs 0, resumedAt = startedAt), and its pending worklogs have no
  * submission. It's written back as version 2 on the next change only; reading never writes. An
  * older build reading version 2 refuses it (UNSUPPORTED_VERSION) rather than overwriting it.
+ *
+ * `classification` came later within version 2, as an optional field: a build from before it reads
+ * every pending worklog as it always did (and, on its next change, writes them back as Ready),
+ * rather than refusing the timer altogether. Custom groups' IDs came later still: a build from
+ * before them reads those worklogs as Ready. The running timer's `comment` came later too: a build
+ * from before it reads the timer without it, and its pending worklog then has no comment.
  */
+
 
 export const TIME_TRACKING_KEY = 'timeTracking';
 export const TIME_TRACKING_VERSION = 2;
@@ -44,6 +60,42 @@ export const TIME_TRACKING_LOCK_NAME = 'jts-time-tracking';
 
 // Shortest worklog Jira accepts (see JiraClient's worklog body); shorter sessions stay pending until edited.
 export const MIN_WORKLOG_SECONDS = 60;
+
+// The built-in places a pending worklog is filed, in the Worklog Queue's tab order (custom groups
+// follow them). 'ready' (shown as Pending; the ID is the name it had before) is the default, and is
+// never stored: an entry without `classification` is Pending, so no stored data names it.
+export const PENDING_CLASSIFICATIONS = Object.freeze(['ready', 'on-hold']);
+export const DEFAULT_CLASSIFICATION = 'ready';
+// Where a custom group's worklogs go when it's deleted.
+export const RELEASED_CLASSIFICATION = 'on-hold';
+// 'archived' was a third one while 1.2.2 was developed, never released: it reads as Pending.
+const STORED_CLASSIFICATIONS = new Set(['on-hold']);
+
+// A custom group's ID (src/worklog/worklogGroups.js makes them): never 'ready' or 'on-hold', nor a
+// value an earlier build stored ('archived').
+const GROUP_ID = /^group-[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * True for a custom group's ID (`group-…`), whether or not that group still exists.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isGroupId(value) {
+  return typeof value === 'string' && GROUP_ID.test(value);
+}
+
+/** True for a classification that's stored: On Hold, or a custom group's ID. */
+const isStoredClassification = (value) => STORED_CLASSIFICATIONS.has(value) || isGroupId(value);
+
+/**
+ * True for a classification a pending worklog can be filed under: Pending ('ready'), On Hold, or a
+ * custom group's ID (whether that group exists is the page's to check).
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isFilingClassification(value) {
+  return PENDING_CLASSIFICATIONS.includes(value) || isGroupId(value);
+}
 
 // Jira issue keys are PROJECTKEY-NUMBER (see src/jira/issueKeySearch.js).
 const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
@@ -64,13 +116,17 @@ const ISSUE_ID = /^\d+$/;
  *   unknown), so it can't be edited; submitting it again checks Jira first
  * - TOO_SHORT: the pending worklog is under a minute, which Jira doesn't accept
  * - OTHER_SITE: the pending worklog was tracked on another Jira site than the one it's submitted to
+ * - INVALID_CLASSIFICATION: a classification change named no pending worklog, or no known classification
+ *   (nor a custom group's ID)
+ * - INVALID_TIMER_START: the values a timer was to start from aren't a valid start (or one later
+ *   than now), duration, or comment
  */
 export class TimeTrackingError extends Error {
   /**
    * @param {string} message
    * @param {'LOCK_UNAVAILABLE' | 'INVALID_ISSUE' | 'UNSUPPORTED_VERSION' |
    *   'PENDING_NOT_FOUND' | 'PENDING_CHANGED' | 'INVALID_PENDING' | 'SUBMISSION_IN_PROGRESS' |
-   *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE'} code
+   *   'SUBMISSION_UNCERTAIN' | 'TOO_SHORT' | 'OTHER_SITE' | 'INVALID_CLASSIFICATION' | 'INVALID_TIMER_START'} code
    */
   constructor(message, code) {
     super(message);
@@ -118,7 +174,8 @@ function toRecordBase(raw) {
 /**
  * @param {object} raw
  * @returns {object | null} A valid running timer, or null. A version 1 timer (no pause fields) ran
- *   from its start with nothing banked.
+ *   from its start with nothing banked. A comment that isn't text is left out, never the timer:
+ *   it decides nothing about where the time goes.
  */
 function toRunning(raw) {
   const base = toRecordBase(raw);
@@ -127,7 +184,9 @@ function toRunning(raw) {
   const resumedAt = raw.resumedAt === undefined ? base.startedAt : raw.resumedAt;
   if (!Number.isSafeInteger(accumulatedMs) || accumulatedMs < 0) return null;
   if (resumedAt !== null && !isTimestamp(resumedAt)) return null;
-  return { ...base, accumulatedMs, resumedAt };
+  const running = { ...base, accumulatedMs, resumedAt };
+  if (typeof raw.comment === 'string' && raw.comment !== '') running.comment = raw.comment;
+  return running;
 }
 
 const SUBMISSION_STATES = new Set(['submitting', 'failed', 'uncertain']);
@@ -158,8 +217,22 @@ function toPending(raw) {
   if (!Number.isSafeInteger(timeSpentSeconds) || timeSpentSeconds < 0 || typeof comment !== 'string') return null;
   const submission = toSubmission(raw.submission);
   const entry = { ...base, stoppedAt, timeSpentSeconds, comment };
+  // Anything else (none, Ready, or a value from a newer build) reads as Ready: the default, which
+  // sends nothing anywhere, so the worklog is never hidden or lost.
+  if (isStoredClassification(raw.classification)) entry.classification = raw.classification;
   if (submission) entry.submission = submission;
   return entry;
+}
+
+/**
+ * Where a pending worklog is filed in the Worklog Queue, as stored: 'ready' (the default, shown as
+ * Pending), 'on-hold', or a custom group's ID, which may be a group that's gone (the page's
+ * resolveClassification() reads that as On Hold).
+ * @param {{ classification?: string }} entry
+ * @returns {string}
+ */
+export function classificationOf(entry) {
+  return isStoredClassification(entry?.classification) ? entry.classification : DEFAULT_CLASSIFICATION;
 }
 
 /**
@@ -289,6 +362,26 @@ function toTimedIssue(issue) {
 }
 
 /**
+ * Checks what a timer starts from (the Log work form's values) and keeps only those fields, or
+ * returns null when there's nothing to start from. The start's place in time (not later than now)
+ * is checked when the timer starts, against the store's clock.
+ *
+ * @param {{ startedAt: number, elapsedMs?: number, comment?: string } | undefined} from
+ * @returns {{ startedAt: number, elapsedMs: number | undefined, comment: string } | null} `elapsedMs`
+ *   undefined: the time worked is the time since the start
+ * @throws {TimeTrackingError} INVALID_TIMER_START
+ */
+function toTimerStart(from) {
+  if (from === undefined || from === null) return null;
+  const { startedAt, elapsedMs, comment = '' } = from;
+  if (!isTimestamp(startedAt) || (elapsedMs !== undefined && (!Number.isSafeInteger(elapsedMs) || elapsedMs < 0)) ||
+      typeof comment !== 'string') {
+    throw new TimeTrackingError('Enter a valid date, start time, and duration to start the timer from.', 'INVALID_TIMER_START');
+  }
+  return { startedAt, elapsedMs, comment };
+}
+
+/**
  * The lock every change holds, shared by all pages of the extension through the Web Locks API
  * (`navigator.locks`), which Chrome and Firefox provide in extension pages. Without it, a change
  * can't be made safely across tabs, so this throws rather than settling for a lock that only one
@@ -358,8 +451,9 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
     return {
       id: newId(), site, issueId, issueKey, issueSummary, startedAt,
       stoppedAt: end,
+      // Includes any duration the timer started with (banked in accumulatedMs), counted once.
       timeSpentSeconds: elapsedSeconds(running, end),
-      comment: ''
+      comment: running.comment ?? ''
     };
   }
 
@@ -377,14 +471,44 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
      * running changes nothing; starting it while paused resumes it. The issue's pending worklogs
      * don't matter: the new session is a separate one, and becomes a pending worklog of its own.
      *
+     * With `from` (the Log work form's values), the timer is a session that began earlier: its
+     * start is `from.startedAt` (the worklog's start in Jira, kept as entered). With
+     * `from.elapsedMs`, the duration already worked, that's banked as active time (as a pause
+     * banks it), and it counts on from now. Without it, the time worked is the time since the
+     * start: the timer has been running since then (resumedAt = startedAt, nothing banked), as a
+     * timer started at that moment would be. Pausing and resuming keep what's counted so far, and
+     * stopping counts it once.
+     * Such a start is always a new session: any timer running or paused, even on the same issue,
+     * stops first and becomes a pending worklog, so the values entered are never dropped.
+     *
      * @param {{ site: string, issueId?: string | number, issueKey: string, issueSummary?: string }} issue
+     * @param {{ startedAt: number, elapsedMs?: number, comment?: string }} [from] - Epoch milliseconds,
+     *   not later than now; the duration already worked, in milliseconds (omitted: the time since
+     *   the start); the work description
      * @returns {Promise<{ state: object, running: object, stopped: object | null }>} `stopped` is the
      *   pending worklog of the timer this one replaced
-     * @throws {TimeTrackingError} INVALID_ISSUE
+     * @throws {TimeTrackingError} INVALID_ISSUE, or INVALID_TIMER_START
      */
-    async start(issue) {
+    async start(issue, from) {
       const timed = toTimedIssue(issue);
+      const seed = toTimerStart(from);
       return transition((state) => {
+        if (seed) {
+          const at = now();
+          if (seed.startedAt > at) {
+            throw new TimeTrackingError("A timer can't start later than now. Enter a start time that has passed.", 'INVALID_TIMER_START');
+          }
+          const stopped = state.running ? toStoppedSession(state.running, at) : null;
+          const running = seed.elapsedMs === undefined
+            ? { id: newId(), ...timed, startedAt: seed.startedAt, accumulatedMs: 0, resumedAt: seed.startedAt }
+            : { id: newId(), ...timed, startedAt: seed.startedAt, accumulatedMs: seed.elapsedMs, resumedAt: at };
+          if (seed.comment !== '') running.comment = seed.comment;
+          return {
+            state: { ...state, running, pending: stopped ? [...state.pending, stopped] : state.pending },
+            running,
+            stopped
+          };
+        }
         if (state.running && isSameIssue(state.running, timed)) {
           // Starting the paused issue resumes it.
           if (isPaused(state.running)) {
@@ -510,6 +634,90 @@ export function createTimeTrackingStore(storageArea, { lock, now = Date.now, new
         const discarded = state.pending.find((entry) => entry.id === id);
         if (!discarded) throw pendingNotFound();
         return { state: { ...state, pending: state.pending.filter((entry) => entry.id !== id) }, discarded };
+      });
+    },
+
+    /**
+     * Files pending worklogs under a classification (Pending, On Hold, or a custom group), in one write:
+     * either every change below is stored, or (when the write fails) none is. Only this browser's
+     * metadata changes; the worklogs' times, comments, and submission state stay as they are, and
+     * nothing goes to Jira.
+     *
+     * Each ID is answered on its own. One that's no longer stored (submitted or discarded,
+     * perhaps in another tab) or that's being submitted right now is refused, and the others are
+     * still filed. One already under the classification is left as it is. When nothing changes,
+     * nothing is written.
+     *
+     * @param {string[]} ids
+     * @param {string} classification - 'ready', 'on-hold', or a custom group's ID
+     * @returns {Promise<{ state: object, classified: object[], unchanged: object[],
+     *   refused: Array<{ id: string, code: 'PENDING_NOT_FOUND' | 'SUBMISSION_IN_PROGRESS', issueKey?: string }> }>}
+     *   `classified` and `unchanged` are the entries as stored afterwards, in the order of `ids`
+     * @throws {TimeTrackingError} INVALID_CLASSIFICATION
+     */
+    async classifyPending(ids, classification) {
+      if (!isFilingClassification(classification) || !Array.isArray(ids) || ids.length === 0 ||
+          !ids.every((id) => typeof id === 'string' && id !== '')) {
+        throw new TimeTrackingError('Choose one or more pending worklogs, and where to move them.', 'INVALID_CLASSIFICATION');
+      }
+      const wanted = [...new Set(ids)];
+
+      return transition((state) => {
+        const at = now();
+        const classified = [];
+        const unchanged = [];
+        const refused = [];
+        const changes = new Map();
+        for (const id of wanted) {
+          const current = state.pending.find((entry) => entry.id === id);
+          if (!current) {
+            refused.push({ id, code: 'PENDING_NOT_FOUND' });
+          } else if (submissionStatus(current, at) === 'submitting') {
+            refused.push({ id, code: 'SUBMISSION_IN_PROGRESS', issueKey: current.issueKey });
+          } else if (classificationOf(current) === classification) {
+            unchanged.push(current);
+          } else {
+            const next = { ...current };
+            if (classification === DEFAULT_CLASSIFICATION) delete next.classification;
+            else next.classification = classification;
+            changes.set(id, next);
+            classified.push(next);
+          }
+        }
+        if (changes.size === 0) return { classified, unchanged, refused };
+        return {
+          state: { ...state, pending: state.pending.map((entry) => changes.get(entry.id) ?? entry) },
+          classified,
+          unchanged,
+          refused
+        };
+      });
+    },
+
+    /**
+     * Moves every pending worklog filed under a custom group to On Hold (RELEASED_CLASSIFICATION), in
+     * one write, once the group is deleted. Unlike classifyPending(), a worklog being submitted is
+     * moved too: its submission is untouched, and the group it named is gone either way. When none
+     * is filed under it, nothing is written.
+     *
+     * @param {string} groupId
+     * @returns {Promise<{ state: object, released: object[] }>} `released`: the entries as stored afterwards
+     * @throws {TimeTrackingError} INVALID_CLASSIFICATION, for a value that isn't a custom group's ID
+     */
+    async releaseGroup(groupId) {
+      if (!isGroupId(groupId)) {
+        throw new TimeTrackingError('Choose a custom group.', 'INVALID_CLASSIFICATION');
+      }
+      return transition((state) => {
+        const released = [];
+        const pending = state.pending.map((entry) => {
+          if (entry.classification !== groupId) return entry;
+          const next = { ...entry, classification: RELEASED_CLASSIFICATION };
+          released.push(next);
+          return next;
+        });
+        if (released.length === 0) return { released };
+        return { state: { ...state, pending }, released };
       });
     },
 

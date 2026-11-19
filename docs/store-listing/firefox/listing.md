@@ -1,4 +1,4 @@
-# Firefox Add-ons (AMO) listing: Timesheet for Jira 1.2.1
+# Firefox Add-ons (AMO) listing: Timesheet for Jira 1.2.2
 
 Field-by-field content for addons.mozilla.org. Shared source text: `../common/description.md`. Values marked `[TO BE DECIDED]` must be settled before submission.
 
@@ -31,9 +31,10 @@ Whether you're tracking your hours, reviewing your week before submitting a time
 
 - **Weekly overview:** View Monday through Sunday, with daily totals and a weekly total. Click the week's dates to open a calendar and jump to any week, or go back to today in one click.
 - **All your worklogs in one place:** See each day's worklogs together, with the issue key, status, summary, start time, duration, and your full work description.
+- **Daily and Weekly Summary:** See the selected day's time by issue in its Summary tab, or switch to the Weekly Summary for the whole week's time by issue and each day's total on one scale, with timer and Log work buttons on each issue.
 - **Built-in timer:** Start a timer on any issue, pause it for a break, and stop it when you're done. Each session becomes a pending worklog that you can review, edit, add a comment to, and submit to Jira when you're ready. The timer keeps running even if you close the tab or restart the browser.
-- **My Work:** Your issues and your pending worklogs, in two groups you can expand, collapse, and put in the order you prefer. Issues lists the issues assigned to you that are in progress and, unless you turn it off, the ones you've logged work on in the last 14 days, so you can log time on any of them in one click. Optionally include issues assigned to you through other Jira user fields, such as a QA assignee. Pending Worklogs shows how much time is waiting to be submitted.
-- **Custom views:** Create up to five views of your Jira issues, shown as tabs beside Active in Issues. Combine conditions on status, priority, assignee, reporter, or your Jira site's own fields, choose how the issues are sorted, and reorder the tabs by dragging. Each view shows the first 20 matching issues.
+- **My Work:** Your issues and your pending worklogs, in two groups you can expand, collapse, and put in the order you prefer. Issues lists the issues assigned to you that are in progress and, unless you turn it off, the ones you've logged work on in the last 14 days, so you can log time on any of them in one click. Optionally include issues assigned to you through other Jira user fields, such as a QA assignee. Worklog Queue shows how much time is waiting to be submitted, in Pending and On Hold tabs and up to five groups of your own, such as Overtime. Move worklogs between them one by one or several at once.
+- **Custom views:** Create up to five views of your Jira issues, shown as tabs beside Active in Issues. Combine conditions on status, priority, epic, assignee, reporter, or your Jira site's own fields, choose how the issues are sorted, and reorder the tabs by dragging. Each view shows the first 20 matching issues.
 - **Log work quickly:** Add time to an issue on any day, by its key, from one of its worklogs, or from My Work, with 15-minute, 30-minute, and 1-hour shortcuts.
 - **Edit worklogs:** Correct the date, start time, duration, or work description. Only the fields you change are sent to Jira.
 - **Delete worklogs safely:** Review the details of a worklog before confirming its deletion.
@@ -85,13 +86,14 @@ Firefox for desktop (Windows, macOS, Linux). Not tested on Firefox for Android; 
 Recommended 1280×800 (1.6:1); no count limit. Proposed set, in this order:
 
 1. `docs/screenshots/weekly-overview-light.png`: the weekly timesheet, with the next public holiday and a running timer
-2. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
-3. `docs/screenshots/timer-and-pending-worklogs.png`: the timer and a pending worklog
-4. `docs/screenshots/worklog-log-work.png`: logging work
-5. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
-6. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
-7. `docs/screenshots/public-holidays-settings.png`: Public Holidays settings
-8. `docs/screenshots/keyboard-shortcuts.png`: the keyboard shortcuts
+2. `docs/screenshots/weekly-summary-store.png`: the Weekly Summary, with the week's time by issue
+3. `docs/screenshots/weekly-overview-dark.png`: the weekly timesheet, in the dark theme
+4. `docs/screenshots/timer-and-pending-worklogs.png`: the timer and a pending worklog
+5. `docs/screenshots/worklog-log-work.png`: logging work
+6. `docs/screenshots/connection-settings-cloud.png`: connection settings for Jira Cloud
+7. `docs/screenshots/connection-settings-data-center.png`: connection settings for Jira Data Center / Server
+8. `docs/screenshots/public-holidays-settings.png`: Public Holidays settings
+9. `docs/screenshots/keyboard-shortcuts.png`: the keyboard shortcuts
 
 The screenshots are 1280×800 PNG, captured in Chrome from the real options page with demonstration data by `docs/screenshots/source/capture.py` (the extension looks the same in Firefox). They show the KAN sample worklogs, the account name "Luciano de Sa", and the site `0xlsa.atlassian.net`; decide whether that's acceptable in public screenshots. The timer and pending worklog are seeded demonstration state, and Public Holidays is set to Italy, so the banner shows its next holiday, All Saints' Day on Nov 1. The connection settings screenshots have blank fields, and the Public Holidays one shows Jira Connection collapsed, so no email or token appears.
 

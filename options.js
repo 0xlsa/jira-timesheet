@@ -31,14 +31,14 @@ import {
 } from './src/worklog/weeklyWorklogService.js';
 import {
   createSettingsStore, normalizeSettings, isConfigured, assignmentFieldsForSite, customViewsForSite, customViewOrderForSite,
-  workingIssuesGroupOrderForSite, WORKING_ISSUES_GROUP_IDS
+  workingIssuesGroupOrderForSite, worklogGroupsForSite, WORKING_ISSUES_GROUP_IDS
 } from './src/settings/settingsStore.js';
 import { createSettingsDraft, switchDraftEdition } from './src/settings/settingsDraft.js';
 import { createPlatform, ext, isExtensionContext } from './src/compat/browser-api.js';
 import { SHOW_TIMESHEET, SETTINGS_HASH } from './src/background/launch.js';
 import { h, svg } from './src/ui/dom.js';
 import { renderConnectionStatus, STATUS_CLASSES } from './src/ui/connectionStatus.js';
-import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateHolidays, orderWorkingIssuesGroups, VIEW_TAB_SHORTCUTS, GROUP_SHORTCUTS } from './src/ui/weekView.js';
+import { renderWeek, renderWorkingIssues, updateWorkingIssuesTimer, updateWeekSummaryTimer, updateHolidays, orderWorkingIssuesGroups, VIEW_TAB_SHORTCUTS, GROUP_SHORTCUTS } from './src/ui/weekView.js';
 import { openWorklogEditor, WORKLOG_FORM_SHORTCUTS } from './src/ui/worklogEditor.js';
 import { ISSUE_PICKER_SHORTCUTS } from './src/ui/issuePicker.js';
 import { createShortcutRegistry } from './src/ui/shortcuts.js';
@@ -49,7 +49,13 @@ import { DISCARD_PENDING_WORDING, formatPendingDuration, siteBaseUrl } from './s
 import { createTokenVisibilityToggle } from './src/ui/tokenVisibility.js';
 import { toNewWorklogForm } from './src/worklog/worklogEdit.js';
 import { createWorkingIssuesLoader } from './src/worklog/workingIssuesLoader.js';
-import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus } from './src/timer/timeTrackingStore.js';
+import { createTimeTrackingStore, createTimeTrackingLock, siteId, isSameIssue, submissionStatus, RELEASED_CLASSIFICATION } from './src/timer/timeTrackingStore.js';
+import {
+  createPendingSelection, classifyPendingWorklogs, entriesIn, isClassification, resolveClassification, rowActions, settleBulkSelection
+} from './src/worklog/pendingClassification.js';
+import { MAX_WORKLOG_GROUPS, newGroupId, validateGroupDraft } from './src/worklog/worklogGroups.js';
+import { openWorklogGroupEditor } from './src/ui/worklogGroupEditor.js';
+import { createPendingActionsMenu } from './src/ui/pendingActionsMenu.js';
 import { submitPendingWorklog } from './src/worklog/pendingSubmission.js';
 import { createTimerController } from './src/timer/timerController.js';
 import { loadAboutInfo, renderAboutSection, renderSettingsVersion } from './src/ui/aboutSection.js';
@@ -61,6 +67,7 @@ import { createAssignmentFieldsSettings } from './src/ui/assignmentFieldsSetting
 import { createConnectionSection, shouldCollapseConnection } from './src/ui/connectionSection.js';
 import { createWeekPicker } from './src/ui/weekPicker.js';
 import { dateFromKey, renderNextHolidayBanner } from './src/ui/nextHolidayBanner.js';
+import { rememberWeekSelection, restoreWeekSelection } from './src/worklog/weekSelection.js';
 import {
   loadChangelog,
   createChangelogStateStore,
@@ -77,12 +84,14 @@ import {
   MAX_CUSTOM_VIEWS,
   ME_VALUE,
   SYSTEM_FIELDS,
+  EPIC_FIELD,
   buildCustomViewJql,
   describeView,
   orderViews,
   reorderViewIds,
   isViewAvailable,
   usesCustomField,
+  usesEpic,
   viewUserFieldIds,
   validateViewDraft,
   conditionKind
@@ -192,17 +201,22 @@ const assignmentFieldsStatus = document.getElementById('assignmentFieldsStatus')
 // State
 // ============================================================================
 
-let currentMonday = getMondayOfWeek(new Date());
-let selectedDateKey = getLocalDateKey(new Date());
-// Whether the selected day's panel shows its worklogs: one state for every day, remembered across
-// sessions as My Work's is; collapsed until the user expands it or selects a day.
-let isDayPanelExpanded = localStorage.getItem('jts-day-panel-expanded') === 'true';
-
-/** Selecting a day, here or in another week, shows its worklogs; its header still collapses them. */
-function expandDayPanel() {
-  isDayPanelExpanded = true;
-  localStorage.setItem('jts-day-panel-expanded', 'true');
-}
+// The week and day shown. A reload (F5) opens on the ones this tab showed, and loads them from Jira
+// again; a new tab, or a reload that was following today, opens on today (src/worklog/weekSelection.js).
+const tabSessionStorage = () => window.sessionStorage;
+const restoredWeek = restoreWeekSelection(tabSessionStorage);
+let currentMonday = restoredWeek?.monday ?? getMondayOfWeek(new Date());
+let selectedDateKey = restoredWeek?.selectedDateKey ?? getLocalDateKey(new Date());
+// Whether the selected day's panel shows its worklogs: one state for every day, changed only by its
+// header. Selecting a day or a week, or switching views, leaves it as it is; kept while the page
+// is open and expanded when it opens again (not stored).
+let isDayPanelExpanded = true;
+// The selected day's tab (Worklogs or Summary): one for every day, kept while the page is open
+// and back to Worklogs when it opens again (not stored).
+let selectedDayTab = 'worklogs';
+// The week's view (Daily or Weekly Summary): kept while the page is open, across weeks, and back to
+// Daily when it opens again (not stored).
+let selectedView = 'daily';
 
 // The date range opens a calendar; the chosen day's week is shown with that day selected, through
 // the same state as the buttons around it.
@@ -213,9 +227,15 @@ const weekPicker = createWeekPicker({
   onSelect: (date) => {
     currentMonday = getMondayOfWeek(date);
     selectedDateKey = getLocalDateKey(date);
-    expandDayPanel();
     loadAndRenderWorklogs();
   }
+});
+
+// A pending worklog's ⋯ menu (Mark as Pending or Put On Hold): one for every row, which stays
+// open while My Work is drawn again, on the row's new ⋯ button.
+const pendingActionsMenu = createPendingActionsMenu({
+  container: document.body,
+  findButton: (id) => daysContainer.querySelector(`.pending-menu-btn[data-pending-id="${CSS.escape(id)}"]`)
 });
 
 let currentAggregatedData = null;
@@ -236,6 +256,16 @@ const workingIssuesGroupsExpanded = {
   active: localStorage.getItem('jts-working-issues-active-expanded') !== 'false',
   pending: localStorage.getItem('jts-working-issues-pending-expanded') !== 'false'
 };
+// The Worklog Queue's selected tab (Pending, On Hold, or a custom group; remembered in this browser),
+// selection mode, and the selected worklogs, which always belong to the selected tab (see
+// src/worklog/pendingClassification.js). The selection itself is never saved.
+const pendingSelection = createPendingSelection(localStorage.getItem('jts-pending-classification'));
+// True while a classification change is being saved: another one waits until it's done.
+let isClassifyingPending = false;
+// After a bulk change that didn't move every selected worklog: the ones left, each with why (their
+// rows are flagged), and what happened (in the selection bar). Null otherwise; cleared by the next
+// change of selection mode, tab, or selection.
+let pendingNotMoved = null;
 
 // Open Edit Worklog panel (see src/ui/worklogEditor.js), or null.
 let worklogEditor = null;
@@ -245,7 +275,8 @@ let isDeleteDialogOpen = false;
 let shortcutsDrawer = null;
 // Open What's New drawer (see src/ui/changelogDrawer.js), or null.
 let changelogDrawer = null;
-// Open custom view editor (see src/ui/customViewEditor.js), or null.
+// Open editor drawer, or null: the custom view editor (src/ui/customViewEditor.js) or the Worklog
+// Queue group editor (src/ui/worklogGroupEditor.js), which share the drawer, one at a time.
 let customViewEditor = null;
 // While the Connection Settings drawer is open: where focus returns, and whether it covers the
 // worklog panel. Null when it's closed.
@@ -577,7 +608,6 @@ function renderDays(aggregatedData, baseUrl = '') {
     baseUrl,
     onSelectDay: (dateKey) => {
       selectedDateKey = dateKey;
-      expandDayPanel();
       updateSelectedDayMetric(dateKey);
       renderDays(aggregatedData, baseUrl);
       daysContainer.querySelector(`.day-card[data-date-key="${dateKey}"]`)?.focus();
@@ -592,11 +622,16 @@ function renderDays(aggregatedData, baseUrl = '') {
     workingIssues: workingIssuesOptions(),
     holidays: holidaysForWeek(aggregatedData),
     dayExpanded: isDayPanelExpanded,
-    onToggleDay: (expanded) => {
-      isDayPanelExpanded = expanded;
-      localStorage.setItem('jts-day-panel-expanded', String(expanded));
-    }
+    onToggleDay: (expanded) => { isDayPanelExpanded = expanded; },
+    dayTab: selectedDayTab,
+    onSelectDayTab: (tab) => { selectedDayTab = tab; },
+    view: selectedView,
+    onSelectView: (view) => { selectedView = view; },
+    // Each Weekly Summary issue's + and timer buttons, as in My Work
+    onLogWorkOnIssue: aggregatedData.sourceWorklogs ? (issue) => startLogWorkOnIssue(issue, 'day-summary-log-btn') : undefined,
+    timer: timerOptions()
   });
+  pendingActionsMenu.sync();
 }
 
 // ============================================================================
@@ -695,6 +730,8 @@ function setWorkingIssuesState(state) {
   } else if (!state) {
     section?.remove();
   }
+  // The ⋯ menu follows its row's new button, or closes once the row is gone.
+  pendingActionsMenu.sync();
 }
 
 // ============================================================================
@@ -710,12 +747,14 @@ const timer = createTimerController({
   // another tab's change arrives here too.
   onChange: () => {
     setWorkingIssuesState(workingIssuesState);
+    updateWeekSummaryTimer(daysContainer, timerOptions());
     worklogEditor?.refreshTimer();
   },
   // Only the elapsed times change each second, in place.
   onTick: () => {
-    const section = daysContainer.querySelector('#workingIssues');
-    if (section) updateWorkingIssuesTimer(section, Date.now());
+    for (const section of daysContainer.querySelectorAll('#workingIssues, #weeklySummaryView')) {
+      updateWorkingIssuesTimer(section, Date.now());
+    }
   },
   onError: (message) => showToast(message, { durationMs: 8000 })
 });
@@ -765,14 +804,167 @@ function timedIssue(issue) {
 function pendingOptions() {
   const state = timer.getState();
   if (!state.tracking || !currentClient) return undefined;
+  const entries = state.tracking.pending;
+  const { groups, unsupported } = worklogGroupsFor(currentClient);
+  // Worklogs that left the selected tab (moved, submitted, or discarded, here or in another tab)
+  // leave the selection too, and a custom group deleted meanwhile gives way to On Hold.
+  pendingSelection.reconcile(entries, groups);
   return {
-    entries: state.tracking.pending,
+    entries,
     site: siteId(currentClient.deploymentType, currentClient.baseUrl),
     now: Date.now(),
     onEdit: startEditPending,
     onDiscard: confirmDiscardPending,
-    onSubmit: submitPending
+    onSubmit: submitPending,
+    tab: pendingSelection.tab,
+    onSelectTab: selectPendingTab,
+    onMenu: togglePendingActions,
+    groups,
+    groupActions: {
+      // Groups saved by another version of the extension are left alone: none can be added.
+      canCreate: !unsupported && groups.length < MAX_WORKLOG_GROUPS,
+      onCreate: () => openWorklogGroupEditorFor(null),
+      onEdit: (id) => openWorklogGroupEditorFor(id)
+    },
+    selection: {
+      active: pendingSelection.selecting,
+      ids: pendingSelection.selectedIds(),
+      busy: isClassifyingPending,
+      notMoved: pendingNotMoved?.items,
+      notice: pendingNotMoved?.notice,
+      onToggleMode: () => {
+        pendingNotMoved = null;
+        pendingSelection.setSelecting(!pendingSelection.selecting);
+        showPendingWorklogs();
+      },
+      onToggle: (id) => {
+        if (!pendingSelection.toggle(id, pendingEntries(), pendingGroups())) return;
+        pendingNotMoved = null;
+        showPendingWorklogs();
+      },
+      onSelectAll: () => {
+        pendingNotMoved = null;
+        // Every worklog in the tab, as stored: not only the rows on screen.
+        pendingSelection.selectAll(pendingEntries(), pendingGroups());
+        showPendingWorklogs();
+      },
+      onDeselectAll: () => {
+        pendingNotMoved = null;
+        pendingSelection.deselectAll();
+        showPendingWorklogs();
+      },
+      onClassify: (classification) => classifyPending(pendingSelection.selectedIds(), classification, { bulk: true })
+    }
   };
+}
+
+/** Every pending worklog, as last read from storage. */
+function pendingEntries() {
+  return timer.getState().tracking?.pending ?? [];
+}
+
+/**
+ * The Worklog Queue's custom groups for a client's Jira site (src/worklog/worklogGroups.js), in tab
+ * order; none without a site.
+ * @param {object | null} client
+ * @returns {{ version: number, groups: Array<{ id: string, name: string }>, unsupported?: true }}
+ */
+function worklogGroupsFor(client) {
+  return client ? worklogGroupsForSite(savedSettings, siteId(client.deploymentType, client.baseUrl)) : { version: 1, groups: [] };
+}
+
+/** The connected Jira site's custom Worklog Queue groups, in tab order. */
+function pendingGroups() {
+  return worklogGroupsFor(currentClient).groups;
+}
+
+/** Draws My Work again, for a change of tab or selection (nothing is read or written). */
+function showPendingWorklogs() {
+  setWorkingIssuesState(workingIssuesState);
+}
+
+/**
+ * Shows another tab in the Worklog Queue, remembered in this browser. The selection doesn't carry
+ * over; selection mode stays as it was.
+ * @param {string} tab - 'ready', 'on-hold', or a custom group's ID
+ * @returns {boolean} True when the tab changed (and the queue was drawn again)
+ */
+function selectPendingTab(tab) {
+  if (!pendingSelection.selectTab(tab, pendingGroups())) return false;
+  pendingNotMoved = null;
+  localStorage.setItem('jts-pending-classification', tab);
+  pendingActionsMenu.close();
+  showPendingWorklogs();
+  return true;
+}
+
+/**
+ * Opens a pending worklog's ⋯ menu, offering the groups it isn't in, or closes it when
+ * it's open already. Not while it's being submitted.
+ * @param {string} id
+ */
+function togglePendingActions(id) {
+  if (pendingActionsMenu.openFor() === id) {
+    pendingActionsMenu.close({ restoreFocus: true });
+    return;
+  }
+  const entry = findPendingWorklog(id);
+  if (!entry) return;
+  if (submissionStatus(entry) === 'submitting') {
+    showToast(`${entry.issueKey}'s worklog is being submitted, so it can't be moved now.`, { durationMs: 8000 });
+    return;
+  }
+  const groups = pendingGroups();
+  pendingActionsMenu.open({
+    id,
+    label: `Move the pending worklog for ${entry.issueKey}`,
+    actions: rowActions(resolveClassification(entry, groups), groups),
+    onChoose: (classification) => classifyPending([id], classification)
+  });
+}
+
+/**
+ * Files pending worklogs under Pending, On Hold, or a custom group: from a row's menu, or the selected ones
+ * from the bulk bar. Only this browser's metadata changes, in one write; nothing is sent to Jira.
+ * A worklog is in one group only: moving it to another takes it out of the one it was in.
+ * Each tab's count and total follow from the stored state, here and in other tabs.
+ *
+ * The tab shown stays the same: moved worklogs leave it, and it may show its empty state.
+ *
+ * After a bulk change that moved every worklog, selection mode closes, clearing the selection: no
+ * Done needed. Otherwise selection mode stays, the ones that didn't move (being submitted, or
+ * nothing saved at all) stay selected, each flagged on its row, and the selection bar and a toast
+ * name them: never success for a change that wasn't made.
+ * @param {string[]} ids
+ * @param {string} classification - 'ready', 'on-hold', or a custom group's ID
+ * @param {{ bulk?: boolean }} [options]
+ */
+async function classifyPending(ids, classification, { bulk = false } = {}) {
+  if (isClassifyingPending || ids.length === 0) return;
+  const groups = pendingGroups();
+  // A custom group deleted in another tab since the menu or bar was drawn: nothing moves there.
+  if (!isClassification(classification, groups)) {
+    showToast('That group was deleted, maybe in another tab. Nothing was moved.', { durationMs: 8000 });
+    showPendingWorklogs();
+    return;
+  }
+  isClassifyingPending = true;
+  if (bulk) pendingNotMoved = null;
+  // The bulk actions wait while it's saved.
+  if (bulk) showPendingWorklogs();
+  let outcome;
+  try {
+    outcome = await classifyPendingWorklogs({ classify: timer.classifyPending, entries: pendingEntries(), ids, to: classification, groups });
+  } finally {
+    isClassifyingPending = false;
+  }
+  if (bulk) pendingNotMoved = settleBulkSelection(pendingSelection, outcome);
+  showPendingWorklogs();
+  if (outcome.status === 'done') {
+    showToast(outcome.message, { success: true, subtitle: 'Only in this browser: nothing was sent to Jira' });
+  } else {
+    showToast(`${outcome.message}. ${outcome.detail}`, { durationMs: 10000 });
+  }
 }
 
 /**
@@ -824,7 +1016,9 @@ async function submitPending(id) {
 
 /**
  * The Log work panel's timer button (beside the issue's key): its state for an issue, and Start and
- * Stop through the timer, as an Issues row's buttons. Neither logs work in Jira.
+ * Stop through the timer, as an Issues row's buttons. Neither logs work in Jira. Start carries what's
+ * entered in the panel over to the timer (`from`): its start, the duration already worked, and the
+ * comment, which the pending worklog keeps when the timer stops.
  * @returns {object}
  */
 function logWorkTimerOptions() {
@@ -834,15 +1028,15 @@ function logWorkTimerOptions() {
       if (!state.tracking || state.status === 'unavailable' || !currentClient) return null;
       return { running: Boolean(state.tracking.running) && isSameIssue(state.tracking.running, timedIssue(issue)) };
     },
-    async onStart(issue) {
+    async onStart(issue, from) {
       if (!currentClient) return false;
-      const started = await timer.start(timedIssue(issue));
+      const started = await timer.start(timedIssue(issue), from);
       if (started) showToast(`Timer started on ${issue.issueKey}`, { success: true, subtitle: 'Stop it in My Work' });
       return started;
     },
     async onStop() {
       const stopped = await timer.stop();
-      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Pending Worklogs' });
+      if (stopped) showToast('Timer stopped', { success: true, subtitle: 'Its time is waiting in Worklog Queue' });
       return stopped;
     }
   };
@@ -991,8 +1185,9 @@ function refreshActiveIssues({ keepShown = false } = {}) {
 // no longer exists shows Active.
 let selectedViewId = localStorage.getItem('jts-working-issues-view') || ALL_VIEW_ID;
 // The site's custom fields views can use (GET /field): its single-select fields and its single-user
-// fields, loaded once per page and Jira site when a view filters on a custom field, or the editor
-// opens: { site, optionIds, userIds, request }, the IDs null until loaded.
+// fields, and how it relates issues to epics (Epic), loaded once per page and Jira site when a view
+// filters on a custom field or Epic, or the editor opens: { site, optionIds, userIds, epic, request },
+// the IDs null and `epic` undefined until loaded (then { field, issueTypeIds }, or null without epics).
 let customFieldCatalog = null;
 
 // The views' results; each answer draws My Work again.
@@ -1015,24 +1210,28 @@ function customViewsFor(client, settings = savedSettings) {
 }
 
 /**
- * The site's custom fields for the editor, asked for once per page and site: its single-user fields
- * (compared with Me; the Additional Assignment Fields are offered already) and its single-select
- * fields. A failure is asked again the next time they're needed.
+ * The site's custom fields for the editor, asked for once per page and site: Epic, where the site has
+ * epics (with the standard fields); its single-user fields (compared with Me; the Additional Assignment
+ * Fields are offered already) and its single-select fields. A failure is asked again the next time
+ * they're needed.
  * @returns {Promise<Array<{ id: string, name: string, kind: 'user' | 'option', group: string }>>}
  */
 function loadCustomFields(client) {
   const site = siteId(client.deploymentType, client.baseUrl);
   if (customFieldCatalog?.site !== site) {
-    const catalog = { site, optionIds: null, userIds: null, request: null };
-    catalog.request = client.getCustomViewFields().then(({ singleSelect, userPickers }) => {
+    const catalog = { site, optionIds: null, userIds: null, epic: undefined, request: null };
+    catalog.request = client.getCustomViewFields().then(({ singleSelect, userPickers, epic }) => {
       catalog.optionIds = new Set(singleSelect.map((field) => field.id));
       catalog.userIds = new Set(userPickers.map((field) => field.id));
+      catalog.epic = epic;
       // A view whose field is gone says so now.
       if (customFieldCatalog === catalog && workingIssuesState) setWorkingIssuesState(workingIssuesState);
       // Jira allows two fields with one name (two "QA Lead" fields): their ID tells them apart.
       const named = (fields) => fields.map((field) => (fields.filter((other) => other.name === field.name).length > 1
         ? { ...field, name: `${field.name} (${field.id})` } : field));
       return [
+        // One Epic on every edition: Cloud's parent or Data Center's Epic Link, as the site has it.
+        ...(epic ? [{ ...EPIC_FIELD, group: 'Fields' }] : []),
         ...named(userPickers).map((field) => ({ id: field.id, name: field.name, kind: 'user', group: 'User fields' })),
         ...named(singleSelect).map((field) => ({ ...field, group: 'Custom fields' }))
       ];
@@ -1043,6 +1242,17 @@ function loadCustomFields(client) {
     customFieldCatalog = catalog;
   }
   return customFieldCatalog.request;
+}
+
+/**
+ * The site's epic field, for an Epic condition's JQL: `parent` (Cloud) or Epic Link's
+ * `customfield_<number>` (Data Center); undefined while not known, null when the site has no epics.
+ * @returns {string | null | undefined}
+ */
+function epicFieldFor(client) {
+  const site = siteId(client.deploymentType, client.baseUrl);
+  if (customFieldCatalog?.site !== site || customFieldCatalog.epic === undefined) return undefined;
+  return customFieldCatalog.epic?.field ?? null;
 }
 
 /** Learns whether the custom fields the site's views filter on are still in Jira. */
@@ -1063,13 +1273,32 @@ function updateCustomViews() {
 /**
  * A view's search: its results' key (the Jira site and the view's JQL) and how to run it; null when
  * its field is unavailable, so it can't be searched.
+ *
+ * A view with an Epic condition needs the site's epic field for its JQL. Until it's known (the
+ * site's fields are being read, by checkViewFields()), its search waits for it, as if Jira were
+ * slow to answer; once it's known, the views are drawn again with their real searches, which replace
+ * the waiting one before it asks Jira anything. If the fields can't be read, the view shows that
+ * error, with Retry.
  * @returns {{ key: string, run: (signal: AbortSignal) => Promise<object> } | null}
  */
 function viewSearchFor(client, view, context) {
   if (!isViewAvailable(view, context)) return null;
+  if (usesEpic(view) && context.epicField === undefined) {
+    return {
+      key: `${siteId(client.deploymentType, client.baseUrl)}\nwaiting for the epic field\n${view.id}`,
+      run: async (signal) => {
+        await loadCustomFields(client);
+        signal.throwIfAborted();
+        const epicField = epicFieldFor(client) ?? null;
+        if (!epicField) throw new Error("Epic can't be searched on this Jira site.");
+        const jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context), epicField });
+        return client.searchCustomViewIssues(jql, { signal });
+      }
+    };
+  }
   let jql;
   try {
-    jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context) });
+    jql = buildCustomViewJql(view, { userFieldIds: viewUserFieldIds(view, context), epicField: context.epicField });
   } catch {
     return null;
   }
@@ -1094,7 +1323,8 @@ function customViewsOptions() {
   const context = {
     assignmentFieldIds: assignmentFieldsFor(client).map((field) => field.id),
     singleSelectFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.optionIds : null,
-    userPickerFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.userIds : null
+    userPickerFieldIds: customFieldCatalog?.site === site ? customFieldCatalog.userIds : null,
+    epicField: epicFieldFor(client)
   };
   const searches = new Map(views.map((view) => [view.id, viewSearchFor(client, view, context)]));
 
@@ -1188,7 +1418,8 @@ function jiraFieldValues(client, field) {
 
 /**
  * The values to choose for a field in the editor: Me for a user field; every status or priority
- * Jira lists; for a custom field, Jira's suggestions for its options that start with `query`.
+ * Jira lists; for Epic, the epics matching `query` (by key or summary); for a custom field, Jira's
+ * suggestions for its options that start with `query`.
  * @param {{ id: string, kind: 'user' | 'option' }} field
  * @param {string} [query]
  * @returns {Promise<Array<object>>} Rejects when Jira can't be asked
@@ -1196,6 +1427,13 @@ function jiraFieldValues(client, field) {
 async function fieldValues(field, query = '') {
   if (field.kind === 'user') return [{ ...ME_VALUE }];
   if (!currentClient) throw new Error('No Jira site is connected.');
+  if (field.id === EPIC_FIELD.id) {
+    const client = currentClient;
+    await loadCustomFields(client);
+    const epic = customFieldCatalog?.epic;
+    if (!epic) throw new Error("Epic can't be searched on this Jira site.");
+    return client.searchEpics(query, { issueTypeIds: epic.issueTypeIds });
+  }
   if (field.id === 'status' || field.id === 'priority') {
     const values = await jiraFieldValues(currentClient, field);
     if (!values) throw new Error(`Couldn't load Jira's ${field.id} values.`);
@@ -1245,7 +1483,7 @@ function openViewEditor(viewId) {
     ],
     loadCustomFields: () => loadCustomFields(client),
     loadValues: fieldValues,
-    validate: (draft) => validateViewDraft(draft, { views: customViewsFor(client).views, editingId: view?.id }),
+    validate: (draft) => validateViewDraft(draft, { views: customViewsFor(client).views, editingId: view?.id, epicField: epicFieldFor(client) ?? null }),
     async onSave(valid) {
       const views = await storedViews();
       const { errors } = validateViewDraft({
@@ -1256,7 +1494,7 @@ function openViewEditor(viewId) {
           values: condition.values
         })),
         orderBy: valid.orderBy
-      }, { views, editingId: view?.id });
+      }, { views, editingId: view?.id, epicField: epicFieldFor(client) ?? null });
       const problem = errors.form ?? errors.name ?? errors.conditions ?? errors.orderBy ??
         errors.byCondition?.flatMap((found) => (found ? Object.values(found) : []))[0];
       if (problem) throw new Error(problem);
@@ -1288,6 +1526,91 @@ platform.watchStorage((changes) => {
     savedSettings = settings;
     updateCustomViews();
   }, (err) => console.warn('Could not read the custom views:', err));
+});
+
+/**
+ * Opens the Worklog Queue group editor (src/ui/worklogGroupEditor.js) in the custom view editor's
+ * drawer: to create a group (+, null) or rename or delete one (its pencil). Saving or deleting
+ * writes the site's groups (settingsStore.saveWorklogGroups()), checked again against what's stored
+ * then, so a change made meanwhile in another tab isn't lost. A new group's tab is selected.
+ *
+ * Deleting a group never deletes its worklogs: once the group is gone they read as On Hold, and
+ * they're then filed under On Hold in storage too (timer.releaseGroup()). Nothing goes to Jira.
+ * @param {string | null} groupId
+ */
+function openWorklogGroupEditorFor(groupId) {
+  const client = currentClient;
+  if (!client) return;
+  const group = groupId ? worklogGroupsFor(client).groups.find((item) => item.id === groupId) ?? null : null;
+  if (groupId && !group) return;
+  closeDrawers();
+  pendingActionsMenu.close();
+  const site = siteId(client.deploymentType, client.baseUrl);
+  const returnFocus = document.activeElement;
+  const coversEditor = coverWorklogEditor();
+
+  /** The site's groups as stored now (another tab may have changed them). */
+  const storedGroups = async () => {
+    savedSettings = await settingsStore.load();
+    const stored = worklogGroupsFor(client);
+    if (stored.unsupported) throw new Error('This Jira site\'s Worklog Queue groups were saved by another version of Timesheet for Jira. Update the extension to change them.');
+    return stored.groups;
+  };
+
+  /** Saves the site's groups, then shows `showTab`'s worklogs. */
+  const store = async (groups, showTab) => {
+    await settingsStore.saveWorklogGroups(site, groups);
+    savedSettings = await settingsStore.load();
+    if (!selectPendingTab(showTab)) showPendingWorklogs();
+  };
+
+  customViewEditor = openWorklogGroupEditor(customViewEditorRoot, {
+    group,
+    countWorklogs: () => entriesIn(pendingEntries(), group.id, pendingGroups()).length,
+    validate: (draft) => validateGroupDraft(draft, { groups: worklogGroupsFor(client).groups, editingId: group?.id }),
+    async onSave(valid) {
+      const groups = await storedGroups();
+      const { errors } = validateGroupDraft(valid, { groups, editingId: group?.id });
+      const problem = errors.form ?? errors.name;
+      if (problem) throw new Error(problem);
+      const saved = { id: group?.id ?? newGroupId(), name: valid.name };
+      await store(group ? groups.map((item) => (item.id === group.id ? saved : item)) : [...groups, saved], saved.id);
+      showToast(group ? `Renamed the group to ${saved.name}` : `Created the ${saved.name} group`, { success: true });
+    },
+    onDelete: group && (async () => {
+      const groups = await storedGroups();
+      await store(groups.filter((item) => item.id !== group.id), RELEASED_CLASSIFICATION);
+      let moved = null;
+      try {
+        moved = await timer.releaseGroup(group.id);
+      } catch (err) {
+        // They read as On Hold all the same, the group being gone.
+        console.warn('Could not file the deleted group\'s worklogs under On Hold:', err);
+      }
+      showToast(`Deleted the ${group.name} group`, {
+        subtitle: moved?.length ? `${moved.length === 1 ? 'Its worklog is' : `Its ${moved.length} worklogs are`} in On Hold now` : ''
+      });
+    }),
+    onClose: () => {
+      customViewEditor = null;
+      uncoverWorklogEditor(coversEditor);
+      // Back to where the user was, or to the selected tab once the queue has been drawn again.
+      const target = returnFocus?.isConnected && returnFocus !== document.body
+        ? returnFocus
+        : daysContainer.querySelector('.pending-tabs [aria-selected="true"]');
+      target?.focus();
+    }
+  });
+}
+
+// Worklog Queue groups created, renamed, or deleted in another tab: show them here too. A tab that
+// showed a deleted group shows On Hold, where its worklogs are.
+platform.watchStorage((changes) => {
+  if (!('worklogGroupsBySite' in changes)) return;
+  settingsStore.load().then((settings) => {
+    savedSettings = settings;
+    showPendingWorklogs();
+  }, (err) => console.warn('Could not read the Worklog Queue groups:', err));
 });
 
 /**
@@ -1436,11 +1759,12 @@ function startLogWork(worklogId) {
 }
 
 /**
- * Opens the Log work panel for an issue in My Work (the row's + button). Like a worklog
- * card's + button, the date defaults to the selected day and the start time to now.
- * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus: object | null }} issue
+ * Opens the Log work panel for an issue in My Work or the Weekly Summary (the row's + button).
+ * Like a worklog card's + button, the date defaults to the selected day and the start time to now.
+ * @param {{ issueId: string, issueKey: string, issueSummary: string, issueStatus?: object | null }} issue
+ * @param {string} [buttonClass] - The + button's class, which gets focus back once the panel closes
  */
-function startLogWorkOnIssue(issue) {
+function startLogWorkOnIssue(issue, buttonClass = 'working-issue-log-btn') {
   closeDrawers();
   if (worklogEditor && !worklogEditor.requestClose()) return;
 
@@ -1453,7 +1777,7 @@ function startLogWorkOnIssue(issue) {
     },
     dateKey: selectedDateKey,
     // Back to the + button it was opened from
-    returnFocusTo: () => daysContainer.querySelector(`.working-issue-log-btn[data-issue-key="${CSS.escape(issue.issueKey)}"]`)
+    returnFocusTo: () => daysContainer.querySelector(`.${buttonClass}[data-issue-key="${CSS.escape(issue.issueKey)}"]`)
   });
 }
 
@@ -2190,13 +2514,11 @@ goToSettingsBtn.addEventListener('click', openSettings);
 // Week Navigation
 prevWeekBtn.addEventListener('click', () => {
   currentMonday.setDate(currentMonday.getDate() - 7);
-  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
 nextWeekBtn.addEventListener('click', () => {
   currentMonday.setDate(currentMonday.getDate() + 7);
-  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
@@ -2208,14 +2530,12 @@ nextHolidayBanner.addEventListener('click', () => {
   weekPicker.close();
   currentMonday = getMondayOfWeek(dateFromKey(date));
   selectedDateKey = date;
-  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
 thisWeekBtn.addEventListener('click', () => {
   currentMonday = getMondayOfWeek(new Date());
   selectedDateKey = getLocalDateKey(new Date());
-  expandDayPanel();
   loadAndRenderWorklogs();
 });
 
@@ -2258,7 +2578,11 @@ document.addEventListener('visibilitychange', () => {
   // The timer keeps running from its stored start; only the on-screen clock pauses while hidden.
   timer.setActive(document.visibilityState === 'visible');
 });
-window.addEventListener('pagehide', () => tokenVisibility.mask());
+window.addEventListener('pagehide', () => {
+  tokenVisibility.mask();
+  // For a reload of this tab: it opens on the same week and day.
+  rememberWeekSelection(tabSessionStorage, { monday: currentMonday, selectedDateKey });
+});
 
 jiraBaseUrlInput.addEventListener('blur', () => {
   const val = jiraBaseUrlInput.value.trim();
@@ -2423,6 +2747,7 @@ function openChangelog() {
   changelogBtn.setAttribute('aria-expanded', 'true');
   changelogDrawer = openChangelogDrawer(changelogDrawerRoot, {
     loadChangelog: getChangelog,
+    version: platform.getManifest()?.version,
     onRead: (version) => {
       changelogStore.markRead(version)
         .then(refreshChangelogState)

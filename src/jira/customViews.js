@@ -22,6 +22,13 @@
  *   those, parseUserPickerFields()): only Me, as `currentUser()`, the field by its number
  *   (`cf[10050] in (currentUser())`). No other person can be chosen, stored, or shown. Multi-user
  *   fields are left out: "= Me" there would mean "among them", not "assigned to me".
+ * - Epic (EPIC_FIELD, stored as `epic` on both editions): the issues in one or more epics, each epic
+ *   by its numeric issue ID, which survives a move to another project (`{ id: '161539', label:
+ *   'VOSS-1682 - Customer Environment Proxy' }`). The clause depends on the site, which
+ *   parseEpicSupport() finds out: Jira Cloud's `parent` (`parent in (10003)`), or Jira Data Center's
+ *   Epic Link custom field by its number (`cf[10001] in (161539)`). Each edition accepts only its own:
+ *   Data Center's `parent` is for sub-tasks and finds no epic's issues, and Cloud has no Epic Link
+ *   field. The epics to choose are found with searchEpicsJql().
  *
  * Operators: In (one or more values) and Not in (one or more values), for every field, Me included.
  * Not in also finds issues where the field is empty (`(cf[13931] not in (currentUser()) OR cf[13931]
@@ -42,6 +49,8 @@
  *
  * No DOM and no network access.
  */
+
+import { parseIssueKeyQuery, buildIssueKeySuggestionJql } from './issueKeySearch.js';
 
 export const CUSTOM_VIEWS_VERSION = 1;
 export const MAX_CUSTOM_VIEWS = 5;
@@ -99,15 +108,25 @@ export const SYSTEM_FIELDS = Object.freeze([
   Object.freeze({ id: 'reporter', name: 'Reporter', kind: 'user' })
 ]);
 
+// Epic: one field for the user, whatever the edition (see the module comment). Its values are epics,
+// searched in Jira as the user types (`searched`), by key or summary.
+export const EPIC_FIELD = Object.freeze({ id: 'epic', name: 'Epic', kind: 'option', searched: true, searchLabel: 'Search epics by key or summary' });
+// The most epics offered for one search: the most recently updated that match.
+export const EPIC_SUGGESTION_LIMIT = 20;
+// Jira Software's Epic Link field on Data Center / Server (GET /field's `schema.custom`).
+export const EPIC_LINK_TYPE = 'com.pyxis.greenhopper.jira:gh-epic-link';
+
 const CUSTOM_FIELD_ID = /^customfield_(\d+)$/;
-const VIEW_FIELD_ID = /^(status|priority|assignee|reporter|customfield_\d+)$/;
-const OPTION_SYSTEM_FIELDS = new Set(['status', 'priority']);
+const VIEW_FIELD_ID = /^(status|priority|assignee|reporter|epic|customfield_\d+)$/;
+// Fields whose values go into the JQL by Jira's numeric ID: statuses, priorities, and epics (issue IDs).
+const OPTION_SYSTEM_FIELDS = new Set(['status', 'priority', EPIC_FIELD.id]);
 const USER_SYSTEM_FIELDS = new Set(['assignee', 'reporter']);
 const VIEW_ID = /^[A-Za-z0-9_-]{1,64}$/;
 // Jira's status and priority IDs, as they go into the JQL.
 const NUMERIC_ID = /^\d{1,18}$/;
 // Characters a JQL string can't carry as they are.
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const CONTROL_CHARACTERS_GLOBAL = /[\u0000-\u001f\u007f]/g;
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
 const sameName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0;
@@ -180,7 +199,7 @@ export function normalizeCondition(raw) {
   }
   if (USER_SYSTEM_FIELDS.has(id)) return null;
 
-  // Statuses and priorities go into the JQL by their numeric ID; custom options by their name (the label).
+  // Statuses, priorities, and epics go into the JQL by their numeric ID; custom options by their name (the label).
   const values = [];
   for (const value of raw.values) {
     const valueId = typeof value?.id === 'string' || typeof value?.id === 'number' ? String(value.id) : '';
@@ -378,12 +397,14 @@ export function normalizeCustomViewsBySite(raw) {
  * @param {object} context
  * @param {Array<{ id: string, name: string }>} context.views - The site's saved views
  * @param {string} [context.editingId] - The view being edited; none when creating one
+ * @param {string | null} [context.epicField] - The site's epic field (parseEpicSupport()), for a view
+ *   with an Epic condition; without it, such a view isn't valid
  * @returns {{ errors: { form?: string, name?: string, conditions?: string, orderBy?: string,
  *   byCondition?: Array<{ field?: string, operator?: string, values?: string } | null> },
  *   view: { name: string, conditions: Array<object>, orderBy: object } | null }} `view` (without its ID)
  *   when there are no errors; `byCondition` has each condition's, in order (null for one without)
  */
-export function validateViewDraft(draft, { views, editingId }) {
+export function validateViewDraft(draft, { views, editingId, epicField = null }) {
   const errors = {};
   const others = views.filter((view) => view.id !== editingId);
   if (!editingId && others.length >= MAX_CUSTOM_VIEWS) errors.form = `You can have at most ${MAX_CUSTOM_VIEWS} custom views.`;
@@ -414,8 +435,11 @@ export function validateViewDraft(draft, { views, editingId }) {
     field: { id: condition.field.id, name: condition.field.name }, operator: condition.operator, values: condition.values
   })));
   if (!conditions) return { errors: { conditions: 'Choose the conditions\' values again.' }, view: null };
+  if (!epicField && conditions.some((condition) => condition.field.id === EPIC_FIELD.id)) {
+    return { errors: { conditions: 'Epic can\'t be searched on this Jira site.' }, view: null };
+  }
   const userFieldIds = conditions.filter((condition) => conditionKind(condition) === 'user').map((condition) => condition.field.id);
-  if (buildCustomViewJql({ conditions, orderBy }, { userFieldIds }).length > MAX_VIEW_JQL_LENGTH) {
+  if (buildCustomViewJql({ conditions, orderBy }, { userFieldIds, epicField }).length > MAX_VIEW_JQL_LENGTH) {
     return { errors: { conditions: 'This view\'s search is too long for Jira. Remove a condition, or some values.' }, view: null };
   }
   return { errors, view: { name, conditions, orderBy } };
@@ -444,9 +468,9 @@ export function jqlString(value) {
 
 /**
  * Builds the JQL of a view's own Jira search, from its conditions and order alone: one clause per
- * condition, joined with AND, from allow-listed fields and operators, numeric IDs for statuses and
- * priorities, quoted names for custom options, and `currentUser()` for Me. Nothing typed by the
- * user goes into it unquoted. Ordered by the view's
+ * condition, joined with AND, from allow-listed fields and operators, numeric IDs for statuses,
+ * priorities, and epics, quoted names for custom options, and `currentUser()` for Me. Nothing typed
+ * by the user goes into it unquoted. Ordered by the view's
  * field and direction (DEFAULT_ORDER_BY without a valid one), then by key in the same direction, so
  * issues with the same value come back in the same order from one search to the next.
  *
@@ -454,29 +478,33 @@ export function jqlString(value) {
  * @param {object} context
  * @param {string[]} context.userFieldIds - The custom user fields Me can be compared on (the site's
  *   single-user fields, Additional Assignment Fields included): any other is refused
- * @returns {string} E.g. `reporter in (currentUser()) ORDER BY updated DESC, key DESC`, or `status not in
- *   (3, 10413) AND priority in (1, 2) AND assignee in (currentUser()) ORDER BY priority ASC, key ASC`
+ * @param {string | null} [context.epicField] - The site's epic field, from parseEpicSupport(): `parent`
+ *   (Cloud) or Epic Link's `customfield_<number>` (Data Center); needed for an Epic condition
+ * @returns {string} E.g. `reporter in (currentUser()) ORDER BY updated DESC, key DESC`, `status not in
+ *   (3, 10413) AND priority in (1, 2) AND assignee in (currentUser()) ORDER BY priority ASC, key ASC`, or
+ *   `parent in (10003, 10007) AND status in (10000) ORDER BY updated DESC, key DESC`
  * @throws {Error} Without conditions, for one that isn't valid or repeats a field, or for a field
- *   views can't search on
+ *   views can't search on (an Epic condition without the site's epic field among them)
  */
-export function buildCustomViewJql(view, { userFieldIds = [] } = {}) {
+export function buildCustomViewJql(view, { userFieldIds = [], epicField = null } = {}) {
   if (!Array.isArray(view?.conditions) || view.conditions.length === 0) throw new Error('A view has at least one condition.');
   const conditions = normalizeConditions(view.conditions);
   if (!conditions) throw new Error('This view\'s conditions aren\'t valid.');
-  const clauses = conditions.map((condition) => conditionClause(condition, userFieldIds));
+  const clauses = conditions.map((condition) => conditionClause(condition, userFieldIds, epicField));
   const { field, direction } = normalizeOrderBy(view.orderBy) ?? DEFAULT_ORDER_BY;
   return `${clauses.join(' AND ')} ORDER BY ${field} ${direction}${field === 'key' ? '' : `, key ${direction}`}`;
 }
 
 /**
  * One condition's JQL clause (normalizeCondition() checked it): `status in (3, 4)`, `cf[10050] in
- * (currentUser())`, `status not in (3)`, `(priority not in (2) OR priority is EMPTY)`.
+ * (currentUser())`, `status not in (3)`, `(priority not in (2) OR priority is EMPTY)`, `parent in
+ * (10003)`, `(cf[10001] not in (161539) OR cf[10001] is EMPTY)`.
  */
-function conditionClause(condition, userFieldIds) {
+function conditionClause(condition, userFieldIds, epicField) {
   const { id } = condition.field;
   const custom = CUSTOM_FIELD_ID.exec(id);
-  // System fields by name, custom fields by number: cf[10050].
-  const clauseField = custom ? `cf[${custom[1]}]` : id;
+  // System fields by name, custom fields by number: cf[10050]. Epic by the site's own field.
+  const clauseField = id === EPIC_FIELD.id ? epicClauseField(epicField) : custom ? `cf[${custom[1]}]` : id;
 
   let values;
   if (conditionKind(condition) === 'user') {
@@ -491,6 +519,110 @@ function conditionClause(condition, userFieldIds) {
   if (condition.operator === OPERATORS.IN) return `${clauseField} in ${list}`;
   // Jira's NOT IN leaves out issues where the field is empty; Not in keeps them (Status is never empty).
   return id === 'status' ? `${clauseField} not in ${list}` : `(${clauseField} not in ${list} OR ${clauseField} is EMPTY)`;
+}
+
+/**
+ * The JQL field an Epic condition searches: `parent` on Jira Cloud, Epic Link by its number (`cf[10001]`)
+ * on Data Center / Server.
+ * @param {string | null} epicField - From parseEpicSupport()
+ * @returns {string}
+ * @throws {Error} Without the site's epic field (unknown, or the site has none)
+ */
+function epicClauseField(epicField) {
+  if (epicField === 'parent') return 'parent';
+  const custom = CUSTOM_FIELD_ID.exec(epicField ?? '');
+  if (custom) return `cf[${custom[1]}]`;
+  throw new Error('This view\'s field is no longer available in Jira.');
+}
+
+/**
+ * Finds out how the site relates issues to epics, from its fields (`GET /field`) and issue types:
+ * - Jira Cloud: the `parent` field (searchable), with the epic issue types: those at hierarchy
+ *   level 1 (`GET /issuetype`'s `hierarchyLevel`), team-managed projects' own epics included.
+ * - Jira Data Center / Server: Jira Software's Epic Link custom field (EPIC_LINK_TYPE), by its ID
+ *   (the lowest-numbered one if there were several), never by its name; its epic issue type comes
+ *   from Jira Software itself (epicIssueTypeIds: see JiraClient.getCustomViewFields()), since Data
+ *   Center lists no hierarchy level.
+ *
+ * @param {unknown} fields - `GET /field`
+ * @param {object} context
+ * @param {'cloud' | 'server'} context.deploymentType
+ * @param {unknown} [context.issueTypes] - Cloud: `GET /issuetype`
+ * @param {string[]} [context.epicIssueTypeIds] - Data Center / Server: the epic issue type's ID (none
+ *   when no epic can be seen)
+ * @returns {{ field: string, issueTypeIds: string[] } | null} `field`: `parent` or `customfield_<number>`;
+ *   `issueTypeIds`: the epic issue types, numeric, for searchEpicsJql(). Null when the site has no epics
+ *   to search by (Data Center without Jira Software)
+ * @throws {Error} When the fields (or Cloud's issue types) aren't lists
+ */
+export function parseEpicSupport(fields, { deploymentType, issueTypes, epicIssueTypeIds = [] }) {
+  if (!Array.isArray(fields)) throw new Error('Jira sent an unexpected list of fields.');
+  const ids = (list) => [...new Set(list.map(String).filter((id) => NUMERIC_ID.test(id)))];
+  if (deploymentType === 'cloud') {
+    if (!fields.some((field) => field?.id === 'parent' && field.searchable !== false)) return null;
+    if (!Array.isArray(issueTypes)) throw new Error('Jira sent an unexpected list of issue types.');
+    return { field: 'parent', issueTypeIds: ids(issueTypes.filter((type) => type?.hierarchyLevel === 1).map((type) => type.id)) };
+  }
+  const epicLink = epicLinkFieldId(fields);
+  return epicLink ? { field: epicLink, issueTypeIds: ids(epicIssueTypeIds) } : null;
+}
+
+/**
+ * Data Center / Server: Jira Software's Epic Link field's ID (`customfield_<number>`), found by its
+ * type, never its name; the lowest-numbered one if there were several. Null without one.
+ * @param {unknown} fields - `GET /field`
+ * @returns {string | null}
+ */
+export function epicLinkFieldId(fields) {
+  const found = (Array.isArray(fields) ? fields : [])
+    .filter((field) => CUSTOM_FIELD_ID.test(field?.id ?? '') && field.schema?.custom === EPIC_LINK_TYPE && field.searchable !== false)
+    .map((field) => field.id)
+    .sort((a, b) => fieldNumber(a) - fieldNumber(b));
+  return found[0] ?? null;
+}
+
+/**
+ * The JQL that finds the epics to choose for an Epic condition, among the site's epic issue types
+ * (parseEpicSupport()). With nothing typed: the most recently updated. A partial issue key
+ * (parseIssueKeyQuery(): `VOSS-176`): that key and the keys one digit longer, in key order, as the
+ * Log work panel's issue search does (buildIssueKeySuggestionJql()). Anything else: the epics whose
+ * summary has the typed words, the last one as the start of a word, most recently updated first.
+ * Only letters and digits of what's typed go into the text search, so nothing typed can change the
+ * query or trip Jira's text search syntax. Jira's permissions decide what it returns.
+ *
+ * @param {string} query - As typed
+ * @param {string[]} issueTypeIds - The epic issue types' numeric IDs
+ * @returns {string | null} Null when nothing can be searched (no epic issue types, or nothing searchable typed)
+ */
+export function searchEpicsJql(query, issueTypeIds) {
+  const types = (Array.isArray(issueTypeIds) ? issueTypeIds : []).map(String).filter((id) => NUMERIC_ID.test(id));
+  if (types.length === 0) return null;
+  const scope = `issuetype in (${types.join(', ')})`;
+  const typed = String(query ?? '').trim();
+  if (!typed) return `${scope} ORDER BY updated DESC`;
+  const keyQuery = parseIssueKeyQuery(typed);
+  if (keyQuery) return `${scope} AND ${buildIssueKeySuggestionJql(keyQuery)}`;
+  const words = typed.match(/[\p{L}\p{N}]+/gu);
+  return words ? `${scope} AND summary ~ ${jqlString(`${words.join(' ')}*`)} ORDER BY updated DESC` : null;
+}
+
+/**
+ * Reads the issues an epic search found (JiraClient.searchEpics()) as values to choose: `{ id, label }`, the
+ * issue's numeric ID (what the JQL compares) and "KEY - Summary", each once, in Jira's order.
+ *
+ * @param {unknown} issues
+ * @returns {Array<{ id: string, label: string }>}
+ */
+export function toEpicValues(issues) {
+  const values = [];
+  for (const issue of Array.isArray(issues) ? issues : []) {
+    const id = String(issue?.id ?? '');
+    const key = text(issue?.key);
+    if (!NUMERIC_ID.test(id) || !key || values.some((value) => value.id === id)) continue;
+    const summary = text(text(issue.fields?.summary).replace(CONTROL_CHARACTERS_GLOBAL, ' '));
+    values.push({ id, label: summary ? `${key} - ${summary}` : key });
+  }
+  return values;
 }
 
 /**
@@ -559,19 +691,22 @@ export function describeView(view) {
 /**
  * Whether a view's fields can all still be used. The standard fields always can. A custom user
  * field can while it's one of the site's Additional Assignment Fields or among its single-user
- * fields; an option custom field while it's among the site's single-select fields. While the
- * site's fields aren't known, it's assumed they can.
+ * fields; an option custom field while it's among the site's single-select fields; Epic while the
+ * site has an epic field. While the site's fields aren't known, it's assumed they can.
  *
  * @param {{ conditions: Array<object> }} view
  * @param {object} context
  * @param {string[]} context.assignmentFieldIds
  * @param {Set<string> | null} context.singleSelectFieldIds - Null while not known
  * @param {Set<string> | null} [context.userPickerFieldIds] - The site's single-user fields; null while not known
+ * @param {string | null} [context.epicField] - The site's epic field (parseEpicSupport()); null when it
+ *   has none, undefined while not known
  * @returns {boolean}
  */
-export function isViewAvailable(view, { assignmentFieldIds, singleSelectFieldIds, userPickerFieldIds = null }) {
+export function isViewAvailable(view, { assignmentFieldIds, singleSelectFieldIds, userPickerFieldIds = null, epicField }) {
   return view.conditions.every((condition) => {
     const { id } = condition.field;
+    if (id === EPIC_FIELD.id) return epicField !== null;
     if (!CUSTOM_FIELD_ID.test(id)) return true;
     if (conditionKind(condition) === 'user') return assignmentFieldIds.includes(id) || !userPickerFieldIds || userPickerFieldIds.has(id);
     return !singleSelectFieldIds || singleSelectFieldIds.has(id);
@@ -594,12 +729,22 @@ export function viewUserFieldIds(view, { assignmentFieldIds, userPickerFieldIds 
 
 /**
  * Whether any view compares a custom field (a single-select field, or a user field that isn't an
- * Additional Assignment Field), whose availability needs the site's list of fields (GET /field).
+ * Additional Assignment Field) or Epic, whose availability (and, for Epic, its JQL field) needs the
+ * site's list of fields (GET /field).
  * @param {Array<object>} views
  * @param {string[]} [assignmentFieldIds]
  * @returns {boolean}
  */
 export function usesCustomField(views, assignmentFieldIds = []) {
-  return views.some((view) => view.conditions.some((condition) =>
-    CUSTOM_FIELD_ID.test(condition.field.id) && !(conditionKind(condition) === 'user' && assignmentFieldIds.includes(condition.field.id))));
+  return views.some((view) => view.conditions.some((condition) => condition.field.id === EPIC_FIELD.id ||
+    (CUSTOM_FIELD_ID.test(condition.field.id) && !(conditionKind(condition) === 'user' && assignmentFieldIds.includes(condition.field.id)))));
+}
+
+/**
+ * Whether a view has an Epic condition, whose JQL needs the site's epic field.
+ * @param {{ conditions: Array<object> }} view
+ * @returns {boolean}
+ */
+export function usesEpic(view) {
+  return view.conditions.some((condition) => condition.field.id === EPIC_FIELD.id);
 }

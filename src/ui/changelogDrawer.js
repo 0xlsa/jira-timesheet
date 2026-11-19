@@ -18,6 +18,7 @@
 import { h, svg, fragment } from './dom.js';
 import { showPanel, hidePanel } from './panel.js';
 import { dateFromKey } from './nextHolidayBanner.js';
+import { isStaleChangelog } from '../changelog/changelogState.js';
 
 export const DRAWER_TITLE = "What's New";
 export const LOADING_MESSAGE = 'Loading the release notes…';
@@ -25,6 +26,8 @@ export const UNAVAILABLE_MESSAGE = "Couldn't load the release notes.";
 export const EMPTY_MESSAGE = 'No releases yet.';
 export const UNRELEASED_TITLE = "What's New — Unreleased";
 export const UNRELEASED_NOTE = 'These changes are currently in development and are not yet part of a published release.';
+/** Shown above the notes when they're older than the installed version (a development copy not regenerated). */
+export const staleNote = (version) => `These release notes are older than this version (${version}). Run npm run changelog to update them.`;
 
 // What each CHANGELOG.md category is called in the drawer. Categories without entries aren't shown.
 export const CATEGORY_LABELS = {
@@ -112,12 +115,14 @@ export function renderUnreleased(unreleased) {
  *   they can't be read
  * @param {(version: string) => void} options.onRead - Called with the latest release's version once
  *   it's on screen
+ * @param {string} [options.version] - The installed version (the manifest's): notes older than it
+ *   say so (see isStaleChangelog())
  * @param {() => void} options.onClose - Called as soon as the drawer closes
  * @param {(callback: () => void) => void} [options.afterRender] - Runs `callback` once what was just
  *   drawn is on screen (the next animation frame)
  * @returns {{ close: () => void, readonly isOpen: boolean }}
  */
-export function openChangelogDrawer(root, { loadChangelog, onRead, onClose, afterRender = (callback) => requestAnimationFrame(callback) }) {
+export function openChangelogDrawer(root, { loadChangelog, onRead, onClose, version, afterRender = (callback) => requestAnimationFrame(callback) }) {
   const list = h('div', { id: 'changelogList', class: 'changelog-list', tabindex: '0', role: 'region', 'aria-label': 'Release notes', 'aria-busy': 'true' },
     h('p', { class: 'changelog-message' }, LOADING_MESSAGE));
 
@@ -169,6 +174,7 @@ export function openChangelogDrawer(root, { loadChangelog, onRead, onClose, afte
       const latest = releases[0];
       // fragment() leaves out the parts there aren't (replaceChildren() would add them as text).
       list.replaceChildren(fragment(
+        isStaleChangelog(releases, version) && h('p', { class: 'changelog-stale-note', role: 'status' }, staleNote(version)),
         unreleased && renderUnreleased(unreleased),
         latest ? renderRelease(latest) : h('p', { class: 'changelog-message' }, EMPTY_MESSAGE)));
       // Only a release is ever read, never the preview.

@@ -90,7 +90,7 @@ describe('Token visibility - options page wiring', () => {
     const closeSettings = script.slice(script.indexOf('function closeSettings('), script.indexOf('// Worklog UI Rendering'));
     assert.match(closeSettings, /tokenVisibility\.mask\(\)/);
     assert.match(script, /addEventListener\('visibilitychange'[\s\S]{0,200}tokenVisibility\.mask\(\)/);
-    assert.match(script, /addEventListener\('pagehide', \(\) => tokenVisibility\.mask\(\)\)/);
+    assert.match(script, /addEventListener\('pagehide', \(\) => \{\n {2}tokenVisibility\.mask\(\);/);
   });
 
   it('never stores the visibility state', () => {

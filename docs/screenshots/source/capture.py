@@ -89,6 +89,13 @@ TUESDAY = [
     {'do': 'blur'}
 ]
 
+WEEKLY = [
+    {'do': 'wait', 'selector': '.worklog-duration-badge'},
+    {'do': 'wait', 'selector': '.working-issues-timer:not(.hidden)'},
+    {'do': 'click', 'selector': '#viewTab-weekly'},
+    {'do': 'wait', 'selector': '#weeklySummaryView:not(.hidden) .week-daily-row'},
+    {'do': 'blur'}
+]
 
 def screenshot(name, **scenario):
     return {'name': name, 'output': SCREENSHOTS / f'{name}.png', 'size': (1280, 800), 'scale': 1, **scenario}
@@ -97,6 +104,13 @@ def screenshot(name, **scenario):
 SCENARIOS = [
     screenshot('weekly-overview-light', storage=CONFIGURED, localStorage=LIGHT, steps=TUESDAY),
     screenshot('weekly-overview-dark', storage=CONFIGURED, localStorage=DARK, steps=TUESDAY),
+    # The Weekly Summary view, in place of the weekday cards and the selected day's panel. The whole
+    # page, in a taller window: its time by issue and daily totals don't fit in 800 px.
+    screenshot('weekly-summary', storage=CONFIGURED, size=(1280, 1420), localStorage=LIGHT, steps=WEEKLY),
+    # The same page for the stores, which take 1280x800: cropped from just above the Daily and Weekly
+    # Summary tabs, so the time by issue shows whole and the daily totals start at the bottom.
+    screenshot('weekly-summary-store', storage=CONFIGURED, size=(1280, 1420), crop=(0, 310, 1280, 800),
+               localStorage=LIGHT, steps=WEEKLY),
     screenshot('worklog-log-work', storage=CONFIGURED, localStorage=LIGHT, steps=TUESDAY + [
         {'do': 'click', 'selector': '.day-add-btn'},
         {'do': 'type', 'selector': '#worklogIssueSearch', 'text': 'KAN-1'},

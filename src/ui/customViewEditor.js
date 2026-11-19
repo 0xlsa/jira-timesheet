@@ -13,7 +13,7 @@
  * alone, chosen already. Choosing another field starts the condition afresh (In, no values);
  * changing the operator keeps the values. Status and Priority offer every value Jira lists; a custom
  * field's values are searched in Jira as the user types (Jira's suggestions), the chosen ones
- * staying listed. Then the order Jira sorts the view's issues in: one of ORDER_BY_FIELDS, ascending
+ * staying listed, and so are Epic's (epics, by key or summary), or any field marked `searched`. Then the order Jira sorts the view's issues in: one of ORDER_BY_FIELDS, ascending
  * or descending (Updated, descending, for a new view; the saved order, or that default, when editing).
  * Nothing is saved until Save, and only through `onSave`; checking is `validate`'s (validateViewDraft()).
  */
@@ -51,8 +51,8 @@ const valueKey = (value) => (value.currentUser ? 'me' : value.id);
 /** Values in alphabetical order (then by key, for equal names). */
 const byLabel = (a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }) || valueKey(a).localeCompare(valueKey(b));
 
-/** Whether a field's values are searched in Jira as the user types (a custom option field). */
-const isSearchedField = (item) => item?.kind === 'option' && item.id.startsWith('customfield_');
+/** Whether a field's values are searched in Jira as the user types (a custom option field, or one marked `searched`, such as Epic). */
+const isSearchedField = (item) => item?.searched === true || (item?.kind === 'option' && item.id.startsWith('customfield_'));
 
 /** An error line below a control, which `showError` fills. */
 const errorEl = (id) => h('div', { id, class: 'field-error', role: 'alert' });
@@ -70,12 +70,14 @@ function showError(el, message) {
  * @param {object} options
  * @param {{ id: string, name: string, conditions: Array<object>, orderBy?: object } | null} options.view - The
  *   view to edit; null to create one (with one empty condition)
- * @param {Array<{ id: string, name: string, kind: 'user' | 'option', group: string }>} options.fields -
- *   The fields to offer at once (the standard ones and the Additional Assignment Fields)
+ * @param {Array<{ id: string, name: string, kind: 'user' | 'option', group: string, searched?: boolean, searchLabel?: string }>} options.fields -
+ *   The fields to offer at once (the standard ones and the Additional Assignment Fields). `searched`
+ *   fields have their values searched in Jira as the user types, like custom fields, in a box named `searchLabel`
  * @param {() => Promise<Array<{ id: string, name: string, kind: 'user' | 'option', group: string }>>} [options.loadCustomFields] -
- *   The site's other fields views can use (custom single-select and user fields), offered once loaded
+ *   The site's other fields views can use (custom single-select and user fields, and Epic where the site
+ *   has epics), offered once loaded, each in its `group` (one the fields above have goes with them)
  * @param {(field: object, query: string) => Promise<Array<{ id: string, label: string } | { currentUser: true, label: string }>>} options.loadValues -
- *   The values to offer for a field; for a custom field, those whose name starts with `query`
+ *   The values to offer for a field; for a searched field (a custom field, Epic), those matching `query`
  * @param {(draft: object) => { errors: object, view: object | null }} options.validate
  * @param {(view: { name: string, conditions: Array<object>, orderBy: object }) => Promise<void>} options.onSave -
  *   Rejects with a user-facing Error when it couldn't be saved
@@ -262,10 +264,14 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
       fieldSelect.value = field?.id ?? '';
     }
 
-    /** Fills the operators the chosen field allows, keeping the chosen one when it still applies. */
+    /**
+     * Fills the operators the chosen field allows, keeping the chosen one when it still applies.
+     * Without a field yet (a saved custom field or Epic, until the site's fields are read), the saved
+     * operator is kept for when it arrives.
+     */
     function renderOperators() {
       const allowed = field ? operatorsFor(field.kind) : [];
-      if (!allowed.includes(operator)) operator = allowed[0] ?? OPERATORS.IN;
+      if (field && !allowed.includes(operator)) operator = allowed[0] ?? OPERATORS.IN;
       operatorSelect.replaceChildren(...allowed.map((op) => h('option', { value: op }, OPERATOR_LABELS[op])));
       operatorSelect.value = operator;
       operatorSelect.disabled = !field || allowed.length < 2;
@@ -309,6 +315,9 @@ export function openCustomViewEditor(root, { view, fields, loadCustomFields, loa
       if (isSearchedField(field)) {
         // The chosen values stay listed, checked, whatever the search shows.
         shown = ordered(options);
+        const searchLabel = field.searchLabel ?? 'Search values in Jira';
+        searchInput.setAttribute('placeholder', searchLabel);
+        searchInput.setAttribute('aria-label', searchLabel);
         const status = message || (options.length === 0 ? (valueFilter.trim() ? NO_MATCHING_VALUES : NO_VALUES) : '');
         searchResults.replaceChildren(fragment(
           status && h('p', { class: 'field-hint', role: 'status' }, status),

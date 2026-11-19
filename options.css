@@ -33,6 +33,19 @@
   /* The Pending Worklogs header's total: a muted slate grey, the same in both themes */
   --pending-total: #64748b;
 
+  /* The selected day's Summary: one color per issue, by rank (src/ui/weekView.js), each stepped
+     for its theme's surface. The dataviz reference palette, in its validated order (adjacent pairs
+     colorblind-safe); the list beside the bar names every part, so no color is read alone. */
+  --summary-1: #3987e5;
+  --summary-2: #d95926;
+  --summary-3: #199e70;
+  --summary-4: #c98500;
+  --summary-5: #d55181;
+  --summary-6: #008300;
+  --summary-7: #9085e9;
+  --summary-8: #e66767;
+  --summary-other: #6e7681;
+
   /* Feedback Colors */
   --success: #3fb950;
   --success-bg: rgba(63, 185, 80, 0.12);
@@ -84,6 +97,16 @@
 
   --duration-highlight: #0284c7;
   --duration-today: #16a34a;
+
+  --summary-1: #2a78d6;
+  --summary-2: #eb6834;
+  --summary-3: #1baf7a;
+  --summary-4: #eda100;
+  --summary-5: #e87ba4;
+  --summary-6: #008300;
+  --summary-7: #6250d6;
+  --summary-8: #e34948;
+  --summary-other: #8893a7;
 
   --success: #16a34a;
   --success-bg: rgba(22, 163, 74, 0.1);
@@ -957,13 +980,198 @@ body {
   background-color: var(--success);
 }
 
-/* Selected-day panel */
-.day-panel {
+/* Daily and Weekly Summary: two halves of one segmented control across the full width, the
+   selected one in the selected tabs' blue. Unlike the selected day's underlined tabs, a control
+   of its own, as it changes the whole view. */
+.view-tabs {
+  display: flex;
+  padding: 3px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.view-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-subtle);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.view-tab:hover {
+  color: var(--text-main);
+}
+
+.view-tab.is-selected {
+  color: #58a6ff;
+  background-color: var(--bg-card);
+  border-color: var(--primary-border);
+}
+
+[data-theme="light"] .view-tab.is-selected {
+  color: var(--primary);
+}
+
+.view-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+/* One card for the week's views: the Daily / Weekly Summary control on top, then Daily's weekday
+   cards and selected day, or the Weekly Summary. The day panel's card, now around all of them. */
+.week-views {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Each view: Daily's weekday cards and day panel, spaced as the page's sections are */
+.week-view-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* The Weekly Summary, in the week's card (no card of its own): the week's dates, its totals (the
+   summary cards' labels), then its time by issue (as in the day's Summary) and each day's total. */
+.week-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.week-summary-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-main);
+  letter-spacing: -0.2px;
+}
+
+.week-summary-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0;
+}
+
+.week-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.week-summary-stat-value {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The week's total in the day total's green; grey when nothing is logged */
+.week-summary-stat-value.is-time {
+  color: var(--success);
+}
+
+.week-summary-stat-value.is-zero {
+  color: var(--text-muted);
+}
+
+.week-summary-heading {
+  margin: 6px 0 -4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+/* Each day's total, all seven, in the Summary's container: day, date, a bar on the week's scale
+   (the longest day fills it), and the time on the right. A day without time: no bar, muted. */
+.week-daily-totals {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 4px 14px;
+  list-style: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.week-daily-row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: 10px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.week-daily-day {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.week-daily-date {
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-daily-track {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background-color: var(--bg-card-elevated);
+  overflow: hidden;
+}
+
+.week-daily-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background-color: var(--primary);
+}
+
+.week-daily-total {
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.week-daily-row.is-empty .week-daily-day,
+.week-daily-row.is-empty .week-daily-date,
+.week-daily-row.is-empty .week-daily-total {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* Selected-day panel */
+.day-panel {
+  /* In the week's card, below the weekday cards and a subtle line (no card of its own) */
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1046,7 +1254,8 @@ body {
 }
 
 /* Circular add worklog button in the selected day's heading, and the timer and log work buttons
-   of each My Work row */
+   of each My Work row and Weekly Summary issue */
+.day-summary-log-btn,
 .working-issue-timer-btn,
 .working-issues-view-btn,
 .working-issue-log-btn,
@@ -1066,6 +1275,7 @@ body {
   transition: color var(--transition), background-color var(--transition), border-color var(--transition);
 }
 
+.day-summary-log-btn:hover,
 .working-issue-timer-btn:hover,
 .working-issues-view-btn:hover,
 .working-issue-log-btn:hover,
@@ -1075,6 +1285,7 @@ body {
   border-color: var(--primary-border);
 }
 
+.day-summary-log-btn:focus-visible,
 .working-issue-timer-btn:focus-visible,
 .working-issues-view-btn:focus-visible,
 .working-issue-log-btn:focus-visible,
@@ -1083,6 +1294,7 @@ body {
   outline-offset: 2px;
 }
 
+.day-summary-log-btn .icon,
 .working-issue-timer-btn .icon,
 .working-issues-view-btn .icon,
 .working-issue-log-btn .icon,
@@ -1091,8 +1303,7 @@ body {
   height: 16px;
 }
 
-/* Stop: a light-red circle with a red icon, in the running-timer indicator's reds; a stronger
-   tint on hover */
+/* Stop: a light-red circle with a red icon, as it ends the timer; a stronger tint on hover */
 .working-issue-timer-btn.is-running {
   color: var(--danger);
   background-color: var(--danger-bg);
@@ -1105,19 +1316,16 @@ body {
   border-color: var(--danger);
 }
 
-/* Play (Start, and Resume while paused) in My Work and the Log work panel: solid primary
-   blue with a white icon, as the Log work button. Pause keeps the neutral style. */
-.working-issue-timer-btn[data-timer-action="start"],
-.working-issue-timer-btn[data-timer-action="resume"] {
+/* Start in My Work and the Log work panel: solid primary blue with a white icon, as the Log work
+   button. Pause and Resume keep the neutral style. */
+.working-issue-timer-btn[data-timer-action="start"] {
   color: #ffffff;
   background-color: var(--primary);
   border-color: var(--primary);
 }
 
 .working-issue-timer-btn[data-timer-action="start"]:hover,
-.working-issue-timer-btn[data-timer-action="resume"]:hover,
-.working-issue-timer-btn[data-timer-action="start"]:active,
-.working-issue-timer-btn[data-timer-action="resume"]:active {
+.working-issue-timer-btn[data-timer-action="start"]:active {
   color: #ffffff;
   background-color: var(--primary-hover);
   border-color: var(--primary-hover);
@@ -1138,6 +1346,182 @@ body {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+}
+
+/* The selected day's body: its tabs, then the selected tab's panel */
+.day-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Worklogs and Summary: two tabs of exactly half the width each, on a subtle line, the selected
+   one underlined in the selected tabs' blue */
+.day-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.day-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-subtle);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.day-tab:hover {
+  color: var(--text-main);
+}
+
+.day-tab.is-selected {
+  color: #58a6ff;
+  border-bottom-color: currentColor;
+}
+
+[data-theme="light"] .day-tab.is-selected {
+  color: var(--primary);
+}
+
+.day-tab:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.day-tab-count {
+  white-space: pre;
+  font-weight: 400;
+}
+
+/* The Summary: in the worklogs' container (same border, radius, and sides), a thin bar split by
+   issue, then the issues, one per row */
+.day-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 4px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+/* 8px, fully rounded ends, a 2px gap between parts; each part as wide as its share */
+.day-summary-bar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.day-summary-segment {
+  flex: 1 1 0;
+  min-width: 3px;
+  background-color: var(--summary-color);
+}
+
+.is-tone-1 { --summary-color: var(--summary-1); }
+.is-tone-2 { --summary-color: var(--summary-2); }
+.is-tone-3 { --summary-color: var(--summary-3); }
+.is-tone-4 { --summary-color: var(--summary-4); }
+.is-tone-5 { --summary-color: var(--summary-5); }
+.is-tone-6 { --summary-color: var(--summary-6); }
+.is-tone-7 { --summary-color: var(--summary-7); }
+.is-tone-8 { --summary-color: var(--summary-8); }
+.is-tone-other { --summary-color: var(--summary-other); }
+
+/* One issue per row, across the full width, divided by subtle lines like the worklogs. The rows
+   share the list's columns (subgrid), so keys, times, and shares line up from row to row. */
+.day-summary-list {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* In the Weekly Summary, a last column for each issue's timer and log work buttons */
+.day-summary-list.has-actions {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+}
+
+.day-summary-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Swatch, key, title (cut short with an ellipsis), time, share (both on the right) */
+.day-summary-item {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  column-gap: 10px;
+  padding: 7px 0;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.day-summary-item + .day-summary-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.day-summary-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--summary-color);
+}
+
+.day-summary-item .issue-key-badge {
+  font-size: 12px;
+  padding: 1px 6px;
+}
+
+.issue-key-badge.is-missing {
+  color: var(--text-subtle);
+  background-color: var(--bg-card-elevated);
+  border-color: var(--border-color);
+}
+
+.day-summary-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-subtle);
+}
+
+.day-summary-duration {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.day-summary-share {
+  min-width: 3ch;
+  margin-left: 6px;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
 }
 
 /* Individual Worklog Item: a row of the shared container, no border or background of its own.
@@ -1338,7 +1722,8 @@ body {
 .worklog-delete-btn,
 .pending-submit-btn,
 .pending-edit-btn,
-.pending-discard-btn {
+.pending-discard-btn,
+.pending-menu-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1357,7 +1742,8 @@ body {
 .worklog-delete-btn:hover,
 .pending-submit-btn:hover,
 .pending-edit-btn:hover,
-.pending-discard-btn:hover {
+.pending-discard-btn:hover,
+.pending-menu-btn:hover {
   color: var(--text-main);
   background-color: var(--bg-hover);
 }
@@ -1367,7 +1753,8 @@ body {
 .worklog-delete-btn:focus-visible,
 .pending-submit-btn:focus-visible,
 .pending-edit-btn:focus-visible,
-.pending-discard-btn:focus-visible {
+.pending-discard-btn:focus-visible,
+.pending-menu-btn:focus-visible {
   outline: 2px solid var(--border-focus);
   outline-offset: 1px;
 }
@@ -1377,7 +1764,8 @@ body {
 .worklog-delete-btn .icon,
 .pending-submit-btn .icon,
 .pending-edit-btn .icon,
-.pending-discard-btn .icon {
+.pending-discard-btn .icon,
+.pending-menu-btn .icon {
   width: 15px;
   height: 15px;
 }
@@ -1395,7 +1783,8 @@ body {
 
 /* Submit or Edit can't be used now; the tooltip says why (aria-disabled keeps it readable and focusable) */
 .pending-submit-btn[aria-disabled="true"],
-.pending-edit-btn[aria-disabled="true"] {
+.pending-edit-btn[aria-disabled="true"],
+.pending-menu-btn[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -1464,28 +1853,32 @@ body {
 }
 
 .working-issues-heading {
-  grid-column: 1;
-  grid-row: 1 / -1;
+  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   font-size: inherit;
   font-weight: inherit;
 }
 
-/* The header button on the left; on the right, the timer controls at the top and the timed issue
-   just below them. A click anywhere but the controls toggles, so it all looks clickable. */
+/* One line: the header button; then, with a timer, the timed issue and the timer's controls
+   (on the right), both shown while the section is collapsed. The issue takes the space the title
+   and controls leave, so it truncates rather than pushing them out. A click anywhere but the
+   controls and the issue key toggles, so it all looks clickable. */
 .working-issues-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto 1fr;
-  align-items: start;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
   cursor: pointer;
 }
 
-/* With a timer, the text keeps its width when it can, and the right column takes the rest: at
-   least the controls, with the timed issue truncating in whatever is left. */
-.working-issues.has-timer .working-issues-header {
-  grid-template-columns: minmax(0, max-content) minmax(max-content, 1fr);
+/* With a timer, the title keeps its width, and the issue brings the gap after it */
+.working-issues.has-timer .working-issues-heading {
+  grid-column: 1;
+}
+
+.working-issues.has-timer .working-issues-toggle {
+  padding-right: 0;
 }
 
 .working-issues-toggle {
@@ -1501,11 +1894,6 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-/* The controls bring their own gap on the right */
-.working-issues.has-timer .working-issues-toggle {
-  padding-right: 0;
 }
 
 .working-issues-toggle:focus-visible {
@@ -1552,16 +1940,16 @@ body {
   display: none;
 }
 
-/* The timer controls at the header's top right: the elapsed time, Pause (or Resume), and Stop,
-   as in the timed issue's row. Shown collapsed too. */
+/* The timer controls, at the header's right: the elapsed time, Pause (or Resume), and Stop, as in
+   the timed issue's row. They never wrap or shrink. */
 .working-issues-timer {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 18px 0 10px;
+  padding: 0 18px 0 0;
+  white-space: nowrap;
   cursor: default;
 }
 
@@ -1569,29 +1957,39 @@ body {
   display: none;
 }
 
-/* The timed issue ("KAN-12: Fix the login page"), right-aligned just below the controls. It
-   doesn't size its column (width 0, then the column's full width), so it truncates rather than
-   pushing into the text. */
+/* The header's elapsed time stands out more than a row's */
+.working-issues-timer .working-issue-elapsed {
+  margin-right: 4px;
+  font-size: 15px;
+}
+
+/* The timed issue, between the title and the controls: its key badge, then its summary in muted
+   text; a long summary truncates (the key never does). */
 .working-issues-timer-summary {
   grid-column: 2;
-  grid-row: 2;
-  width: 0;
-  min-width: 100%;
-  padding: 6px 18px 0 10px;
-  overflow: hidden;
-  text-align: right;
-  font-size: 12px;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
   color: var(--text-subtle);
+}
+
+.working-issues-timer-summary-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Running: green; paused: muted (below) */
 .working-issue-elapsed {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 600;
-  color: var(--danger);
+  color: var(--success);
 }
 
 /* Paused: the time stands still */
@@ -1767,6 +2165,102 @@ body {
 
 .working-issues-group-total.is-empty {
   opacity: 0.6;
+}
+
+/* Worklog Queue's header: its title, a small grey dot (shared with Issues), then the selected tab's name
+   and count in the tab's color (blue Pending, amber On Hold): "Worklog Queue · Pending (2)". On one
+   line whatever the width, the total staying at the far right: the tab's name gives way first (an
+   ellipsis, its count staying whole), then the title. */
+.working-issues-group.is-pending .working-issues-group-header {
+  flex-wrap: nowrap;
+}
+
+.working-issues-group.is-pending .working-issues-group-heading {
+  flex: 1 1 0;
+}
+
+.working-issues-group.is-pending .working-issues-group-toggle {
+  min-width: 0;
+}
+
+.working-issues-group.is-pending .working-issues-group-title,
+.working-issues-group-classification-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.working-issues-group.is-pending .working-issues-group-title {
+  flex: 0 1 auto;
+}
+
+.working-issues-group-separator {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* The tab's name and count are spaced by the button's gap like its other parts, so the wrapper only
+   gives them its color: the name gives way before the title, down to a hint of itself ("On…"),
+   and the dot and count stay whole. */
+.working-issues-group-classification {
+  display: contents;
+}
+
+.working-issues-group-classification .working-issues-group-classification-name {
+  flex: 0 1000 auto;
+  min-width: 2.5em;
+}
+
+.working-issues-group-separator,
+.working-issues-group-count {
+  flex: none;
+}
+
+/* The count is the name's: its color and weight, a space apart (closer than the button's gap). */
+.working-issues-group-count {
+  margin-left: -3px;
+}
+
+.working-issues-group-classification.is-ready {
+  color: #58a6ff;
+}
+
+[data-theme="light"] .working-issues-group-classification.is-ready {
+  color: var(--primary);
+}
+
+.working-issues-group-classification.is-on-hold {
+  color: var(--warning);
+}
+
+/* Issues' header names its selected view and count the same way, in the selected view tab's blue:
+   "Issues · Selected For Dev (20+)". Its header
+   has nothing on the right, so only the button's own parts give way: the view's name first (an
+   ellipsis), then the title. */
+.working-issues-group-classification.is-view {
+  color: #58a6ff;
+}
+
+[data-theme="light"] .working-issues-group-classification.is-view {
+  color: var(--primary);
+}
+
+/* The heading shares the handle's line, rather than wrapping below it for a long view name. */
+.working-issues-group.is-active .working-issues-group-heading {
+  flex: 1 1 0;
+}
+
+.working-issues-group.is-active .working-issues-group-toggle {
+  min-width: 0;
+}
+
+.working-issues-group.is-active .working-issues-group-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Space between the two containers, and above the first (room for the drop line, and apart from
@@ -1966,6 +2460,257 @@ body {
   color: var(--warning);
 }
 
+/* The ⋯ button's menu is open: it stays highlighted, like a hovered button */
+.pending-menu-btn[aria-expanded="true"] {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+/* The Worklog Queue's group tabs (Pending, On Hold, and the custom groups), in the view tabs' look,
+   then the selected custom group's pencil and +, as beside the view tabs, with Select at the far right */
+.pending-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+/* The tabs, pencil, and +: the view tabs' bar (.working-issues-viewbar), without its top border
+   (the toolbar has its own place) */
+.pending-groupbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pending-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Select: quiet until selection mode is on, then the selected tab's colors (it reads Done) */
+.pending-select-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-subtle);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.pending-select-toggle .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.pending-select-toggle:hover {
+  color: var(--text-main);
+  background-color: var(--bg-hover);
+}
+
+.pending-select-toggle.is-active {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.pending-select-toggle[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pending-select-toggle:focus-visible,
+.pending-selection-btn:focus-visible,
+.pending-bulk-btn:focus-visible,
+.pending-select-checkbox:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+/* Selection mode's bar, below the tabs: Select all and Deselect all on the left; with a selection,
+   how many and their time, then where they can go, on the right */
+.pending-selection-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+  padding: 5px 8px;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.pending-selection-controls,
+.pending-bulk,
+.pending-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.pending-bulk {
+  gap: 10px;
+  margin-left: auto;
+}
+
+.pending-selection-btn {
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.pending-selection-btn:hover {
+  background-color: var(--bg-hover);
+}
+
+.pending-selection-btn[aria-disabled="true"] {
+  color: var(--text-muted);
+  background: none;
+  cursor: default;
+}
+
+.pending-bulk-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pending-bulk-btn {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--text-main);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--transition), background-color var(--transition), border-color var(--transition);
+}
+
+.pending-bulk-btn:hover {
+  color: var(--primary);
+  background-color: var(--primary-light);
+  border-color: var(--primary-border);
+}
+
+.pending-bulk-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: progress;
+}
+
+/* After a bulk change that didn't move every worklog: which ones, and why, on a line of its own */
+.pending-selection-notice {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* In selection mode, each row starts with its checkbox; the row itself toggles it too. Selected
+   rows get the editing worklog's soft blue band. */
+.pending-worklogs.is-selecting .pending-worklog {
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  cursor: pointer;
+}
+
+.pending-select-checkbox {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.pending-worklog.is-selected {
+  position: relative;
+  isolation: isolate;
+}
+
+.pending-worklog.is-selected::before {
+  content: '';
+  position: absolute;
+  inset: 2px -8px;
+  z-index: -1;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary-light);
+  pointer-events: none;
+}
+
+/* A pending worklog's ⋯ menu: one for the page, placed under the button (src/ui/pendingActionsMenu.js) */
+.pending-actions-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm), 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.pending-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--text-main);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pending-actions-item .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--text-subtle);
+}
+
+.pending-actions-item:hover,
+.pending-actions-item:focus {
+  background-color: var(--bg-hover);
+  outline: none;
+}
+
+.pending-actions-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+}
+
 .working-issues-message {
   display: flex;
   align-items: center;
@@ -1990,6 +2735,43 @@ body {
 
   .working-issue.has-timer {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
+  }
+
+  /* Too narrow for one line: the timed issue (left) and the controls (right) go on a line of their
+     own under the title */
+  .working-issues-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 8px;
+  }
+
+  .working-issues.has-timer .working-issues-heading {
+    grid-column: 1 / -1;
+  }
+
+  .working-issues.has-timer .working-issues-toggle {
+    padding-right: 18px;
+    padding-bottom: 4px;
+  }
+
+  .working-issues-timer-summary {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 0 0 12px 18px;
+  }
+
+  .working-issues-timer {
+    grid-column: 2;
+    grid-row: 2;
+    padding-bottom: 12px;
+  }
+
+  .working-issues-timer {
+    gap: 6px;
+  }
+
+  .working-issues-timer .working-issue-elapsed {
+    margin-right: 2px;
+    font-size: 13px;
   }
 
   .working-issue-status {
@@ -2021,7 +2803,7 @@ body {
 }
 
 @media (max-width: 600px) {
-  .day-panel {
+  .week-views {
     padding: 16px;
   }
 
@@ -2963,6 +3745,17 @@ body {
   color: var(--text-subtle);
 }
 
+/* A development copy whose release notes are older than the installed version. */
+.changelog-stale-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-md);
+  background-color: var(--warning-bg);
+  font-size: 12px;
+  color: var(--text-main);
+}
+
 .changelog-message {
   padding: 24px 0;
   font-size: 13px;
@@ -3087,6 +3880,49 @@ body {
   color: inherit;
 }
 
+/* Pending Worklogs' classification tabs (src/ui/pendingWorklogs.js): the view tabs' shape, each in
+   its own color (blue for Pending, amber for On Hold), in both themes.
+   Unselected: the color's text, a faint border and tint. Selected: a stronger tint and a solid
+   border, with an inner ring that changes no size. After the view tabs' rules, so they win. */
+.pending-tabs .pending-tab {
+  color: var(--tab-color);
+  background-color: color-mix(in srgb, var(--tab-color) 5%, transparent);
+  border-color: color-mix(in srgb, var(--tab-color) 28%, transparent);
+}
+
+.pending-tabs .pending-tab.is-ready {
+  /* Pending: the selected view tabs' blue */
+  --tab-color: #58a6ff;
+}
+
+[data-theme="light"] .pending-tabs .pending-tab.is-ready {
+  --tab-color: var(--primary);
+}
+
+.pending-tabs .pending-tab.is-on-hold {
+  --tab-color: var(--warning);
+}
+
+.pending-tabs .pending-tab:hover {
+  background-color: color-mix(in srgb, var(--tab-color) 11%, transparent);
+}
+
+.pending-tabs .pending-tab.is-selected {
+  color: var(--tab-color);
+  background-color: color-mix(in srgb, var(--tab-color) 16%, transparent);
+  border-color: var(--tab-color);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tab-color) 45%, transparent);
+}
+
+.pending-tabs .pending-tab .working-issues-view-tab-count {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.pending-tabs .pending-tab.is-selected .working-issues-view-tab-count {
+  opacity: 1;
+}
+
 /* Moving a custom view's tab: a vertical touch still scrolls the page; a drag moves the tab. While
    it's dragged, it fades, and a line (a shadow, so nothing moves) shows where it would go. */
 .working-issues-view-tab.is-movable {
@@ -3125,6 +3961,17 @@ body {
 }
 
 .working-issues-viewbar .working-issues-view-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The Worklog Queue's pencil and + (src/ui/pendingWorklogs.js): the same size as the views' */
+.pending-groupbar .working-issues-view-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.pending-groupbar .working-issues-view-btn .icon {
   width: 14px;
   height: 14px;
 }
